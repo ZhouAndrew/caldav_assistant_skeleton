@@ -1,0 +1,3 @@
+from typing import Protocol, Any
+class NotificationAdapter(Protocol):
+    def notify(self,title:str,body:str="",actions:Any=None): ...

@@ -1,0 +1,11 @@
+README.md
+pyproject.toml
+caldav_assistant.egg-info/PKG-INFO
+caldav_assistant.egg-info/SOURCES.txt
+caldav_assistant.egg-info/dependency_links.txt
+caldav_assistant.egg-info/entry_points.txt
+caldav_assistant.egg-info/top_level.txt
+tests/test_base_url_provider.py
+tests/test_discovery_production_wiring.py
+tests/test_mdns_discovery.py
+tests/test_temporal_contract.py
