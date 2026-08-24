@@ -7,7 +7,9 @@ name = "caldav-assistant"
 version = "0.1.0.dev0"
 description = "Frozen architecture scaffold for CalDAV Assistant"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "caldav==3.2.1",
+]
 
 [project.scripts]
 caldav-assistant = "caldav_assistant.internal.cli.app:main"
