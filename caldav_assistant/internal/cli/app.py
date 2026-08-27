@@ -205,9 +205,11 @@ def run_cli(argv: Sequence[str] | None = None, *, app: Any = None) -> int:
         register_settings_cli_command(app.commands, app.ctx)
 
     # Reserve extension-management commands before third-party code loads.
-    register_extension_cli_commands(app.commands, app.extensions)
-    # Each bad extension is isolated and recorded by ExtensionManager.
-    app.extensions.load_enabled()
+    # Lightweight/test applications may intentionally omit the ExtensionManager.
+    if app.extensions is not None:
+        register_extension_cli_commands(app.commands, app.extensions)
+        # Each bad extension is isolated and recorded by ExtensionManager.
+        app.extensions.load_enabled()
 
     if argv:
         return run_one_shot(app, argv)
