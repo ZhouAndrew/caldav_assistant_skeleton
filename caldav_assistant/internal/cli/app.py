@@ -182,11 +182,17 @@ def run_cli(argv: Sequence[str] | None = None, *, app: Any = None) -> int:
         argv = sys.argv[1:]
     if app is None:
         from ..bootstrap import build_cli_application
+from ..extensions.cli import register_extension_cli_commands
         app = build_cli_application()
 
     # The original bootstrap already registers a subset (today/next/done/edit-due).
     # Fill the remaining frozen core CLI commands into that exact same registry.
     register_cli_builtin_commands(app.commands, app.ctx)
+
+    # Reserve extension-management commands before third-party code loads.
+    register_extension_cli_commands(app.commands, app.extensions)
+    # Each bad extension is isolated and recorded by ExtensionManager.
+    app.extensions.load_enabled()
 
     if argv:
         return run_one_shot(app, argv)
