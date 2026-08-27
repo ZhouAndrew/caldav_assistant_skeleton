@@ -1,1 +1,45 @@
-from .v1 import *
+"""Default stable Public Python API.
+
+``caldav_assistant.api`` intentionally re-exports the current stable API version.
+Extensions that require an explicit long-term version boundary may import the
+same names from ``caldav_assistant.api.v1``.
+"""
+from .v1 import (
+    ActionResult,
+    Activity,
+    Agenda,
+    AgendaItem,
+    AmbiguousError,
+    AssistantContext,
+    CalDAVAssistantError,
+    ConflictError,
+    Event,
+    ExtensionError,
+    NotFoundError,
+    PermissionError,
+    Reminder,
+    Task,
+    UnavailableError,
+    ValidationError,
+    on,
+)
+
+__all__ = [
+    "AssistantContext",
+    "Task",
+    "Event",
+    "Agenda",
+    "AgendaItem",
+    "Reminder",
+    "Activity",
+    "ActionResult",
+    "CalDAVAssistantError",
+    "NotFoundError",
+    "AmbiguousError",
+    "ValidationError",
+    "ConflictError",
+    "UnavailableError",
+    "PermissionError",
+    "ExtensionError",
+    "on",
+]

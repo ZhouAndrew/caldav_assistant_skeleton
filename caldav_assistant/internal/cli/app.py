@@ -16,7 +16,6 @@ import sys
 from typing import Any, Sequence
 
 from ...api.v1.errors import CalDAVAssistantError, NotFoundError
-from ..bootstrap import build_cli_application
 from .actions import EXIT_REPL, register_cli_builtin_commands
 
 
@@ -182,6 +181,7 @@ def run_cli(argv: Sequence[str] | None = None, *, app: Any = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
     if app is None:
+        from ..bootstrap import build_cli_application
         app = build_cli_application()
 
     # The original bootstrap already registers a subset (today/next/done/edit-due).
