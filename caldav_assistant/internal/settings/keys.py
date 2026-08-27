@@ -1,3 +1,9 @@
-"""Canonical setting keys owned by the settings module."""
-CALDAV_BASE_URL = "caldav.base_url"
-CALDAV_CREDENTIALS = "caldav.credentials"
+"""Canonical keys owned by the Settings System."""
+CALDAV_BASE_URL="caldav.base_url"
+CALDAV_CREDENTIALS="caldav.credentials"
+UI_LOCALE="ui.locale"
+COMMAND_LANGUAGE="commands.language"
+NOTIFICATIONS_ENABLED="notifications.enabled"
+WORDPRESS_ENABLED="wordpress.enabled"
+EXTENSIONS_ENABLED="extensions.enabled"
+__all__=["CALDAV_BASE_URL","CALDAV_CREDENTIALS","UI_LOCALE","COMMAND_LANGUAGE","NOTIFICATIONS_ENABLED","WORDPRESS_ENABLED","EXTENSIONS_ENABLED"]

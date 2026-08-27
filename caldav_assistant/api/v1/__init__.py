@@ -15,7 +15,18 @@ from .errors import (
     UnavailableError,
     ValidationError,
 )
-from .hooks import on
+from .hooks import (
+    EventBus,
+    HookDispatchReport,
+    HookEvent,
+    HookFailure,
+    HookHandle,
+    emit,
+    get_event_bus,
+    off,
+    on,
+    unregister_owner,
+)
 from .models import (
     ActionResult,
     Activity,
@@ -43,5 +54,14 @@ __all__ = [
     "UnavailableError",
     "PermissionError",
     "ExtensionError",
+    "EventBus",
+    "HookDispatchReport",
+    "HookEvent",
+    "HookFailure",
+    "HookHandle",
+    "emit",
+    "get_event_bus",
+    "off",
     "on",
+    "unregister_owner",
 ]

@@ -17,6 +17,8 @@ from typing import Any, Sequence
 
 from ...api.v1.errors import CalDAVAssistantError, NotFoundError
 from .actions import EXIT_REPL, register_cli_builtin_commands
+from ..extensions.cli import register_extension_cli_commands
+from ..settings.cli import register_settings_cli_command
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +26,16 @@ class ParsedCommand:
     raw: str
     name: str
     args: tuple[str, ...]
+
+
+def _t(app: Any, key: str, default: str, **values: Any) -> str:
+    translate = getattr(app.ctx.ui, "t", None)
+    if callable(translate):
+        return translate(key, default=default, **values)
+    try:
+        return default.format(**values)
+    except Exception:
+        return default
 
 
 def parse_command_line(text: str) -> ParsedCommand | None:
@@ -90,7 +102,7 @@ def _execute(app: Any, parsed: ParsedCommand) -> tuple[int, bool]:
     try:
         entry = app.commands.resolve(parsed.name)
     except NotFoundError:
-        _error(app, f"Unknown command: {parsed.name}. Type 'help' for commands.")
+        _error(app, _t(app, "cli.unknown_command", "Unknown command: {command}. Type 'help' for commands.", command=parsed.name))
         return 2, False
     except CalDAVAssistantError as exc:
         _error(app, f"{type(exc).__name__}: {exc}")
@@ -98,12 +110,12 @@ def _execute(app: Any, parsed: ParsedCommand) -> tuple[int, bool]:
 
     # Transparent interpretation is compact for simple/low-risk commands.
     if parsed.name.casefold() != entry.name.casefold():
-        _ui_show(app, f"Command → {entry.name}")
+        _ui_show(app, _t(app, "cli.command_resolution", "Command → {command}", command=entry.name))
 
     try:
         result = app.commands.run(entry.name, *parsed.args)
     except KeyboardInterrupt:
-        _error(app, "Cancelled.")
+        _error(app, _t(app, "cli.cancelled", "Cancelled."))
         return 130, False
     except EOFError:
         return 0, True
@@ -112,7 +124,7 @@ def _execute(app: Any, parsed: ParsedCommand) -> tuple[int, bool]:
         return 2, False
     except (TypeError, ValueError) as exc:
         # Bad CLI arguments are recoverable input errors, not a REPL crash.
-        _error(app, f"Invalid input: {exc}")
+        _error(app, _t(app, "cli.invalid_input", "Invalid input: {error}", error=exc))
         return 2, False
     except Exception as exc:
         # The CLI boundary keeps the session alive while still making unexpected
@@ -133,7 +145,7 @@ def run_one_shot(app: Any, argv: Sequence[str]) -> int:
 
     name = str(argv[0]).strip()
     if not name:
-        _error(app, "Command must not be empty.")
+        _error(app, _t(app, "cli.command_empty", "Command must not be empty."))
         return 2
 
     parsed = ParsedCommand(
@@ -146,8 +158,8 @@ def run_one_shot(app: Any, argv: Sequence[str]) -> int:
 
 
 def run_repl(app: Any) -> int:
-    _ui_show(app, "CalDAV Assistant")
-    _ui_show(app, "Type 'help' for commands. Ctrl-D or Ctrl-C exits.")
+    _ui_show(app, _t(app, "cli.banner", "CalDAV Assistant"))
+    _ui_show(app, _t(app, "cli.hint", "Type 'help' for commands. Ctrl-D or Ctrl-C exits."))
 
     last_code = 0
     while True:
@@ -163,7 +175,7 @@ def run_repl(app: Any) -> int:
         try:
             parsed = parse_command_line(line)
         except ValueError as exc:
-            _error(app, f"Invalid input: {exc}")
+            _error(app, _t(app, "cli.invalid_input", "Invalid input: {error}", error=exc))
             last_code = 2
             continue
 
@@ -182,12 +194,15 @@ def run_cli(argv: Sequence[str] | None = None, *, app: Any = None) -> int:
         argv = sys.argv[1:]
     if app is None:
         from ..bootstrap import build_cli_application
-from ..extensions.cli import register_extension_cli_commands
         app = build_cli_application()
 
     # The original bootstrap already registers a subset (today/next/done/edit-due).
     # Fill the remaining frozen core CLI commands into that exact same registry.
     register_cli_builtin_commands(app.commands, app.ctx)
+
+    # Settings is a protected canonical command and uses the validated ctx.settings API.
+    if "settings" not in app.commands.registry:
+        register_settings_cli_command(app.commands, app.ctx)
 
     # Reserve extension-management commands before third-party code loads.
     register_extension_cli_commands(app.commands, app.extensions)

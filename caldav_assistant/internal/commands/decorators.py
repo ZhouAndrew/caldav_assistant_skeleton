@@ -54,7 +54,10 @@ def command_registration_scope(
 
 
 def _registration_target() -> tuple[CommandRegistry, str]:
-    registry = _active_registry.get() or _bound_registry
+    # CommandRegistry implements __len__, so an empty active registry is falsey.
+    # Test explicitly for None or extension import scopes can lose their registry.
+    active = _active_registry.get()
+    registry = active if active is not None else _bound_registry
     if registry is None:
         raise ExtensionError(
             "No CommandRegistry is bound; @command must run inside an Assistant "

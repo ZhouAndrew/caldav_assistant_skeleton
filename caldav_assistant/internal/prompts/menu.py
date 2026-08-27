@@ -36,9 +36,16 @@ class Menu:
     NEXT_TOKENS = frozenset({"n", "next", ">"})
     PREV_TOKENS = frozenset({"p", "prev", "previous", "<"})
 
-    def __init__(self, io: Any, *, page_size: int = 10) -> None:
+    def __init__(self, io: Any, *, page_size: int = 10, locale: Any = None) -> None:
         self.io = io
         self.page_size = max(1, int(page_size))
+        self.locale = locale
+
+    def _t(self, key: str, default: str) -> str:
+        translate = getattr(self.locale, "t", None)
+        if callable(translate):
+            return translate(key, default=default)
+        return default
 
     # IO is intentionally duck-typed so Prompt/Menu does not own the CLI adapter.
     def _read(self, prompt: str = "> ") -> str:
@@ -130,7 +137,12 @@ class Menu:
         return list(dict.fromkeys(values))
 
     def _show_help(self, *, multiple: bool, searchable: bool, paged: bool, extra: str | None) -> None:
-        lines = ["number: choose", "0/back: go back", "q/cancel: cancel", "?/help: show help"]
+        lines = [
+            "number: choose",
+            f"0/back: {self._t('menu.back', 'Back')}",
+            f"q/cancel: {self._t('menu.cancel', 'Cancel')}",
+            f"?/help: {self._t('menu.help', 'Help')}",
+        ]
         if multiple:
             lines.append("1,3,5-7: choose multiple")
         if searchable:
@@ -192,7 +204,7 @@ class Menu:
                 self._write(f"{offset}. {choice.label}")
             if page_count > 1:
                 self._write(f"Page {page + 1}/{page_count}")
-            self._write("0. Back")
+            self._write(f"0. {self._t('menu.back', 'Back')}")
 
             default_index = self._resolve_default(default, filtered)
             prompt = f"> [{default_index}] " if default_index else "> "

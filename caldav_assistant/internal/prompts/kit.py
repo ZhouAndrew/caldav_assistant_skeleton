@@ -22,12 +22,38 @@ from .menu import Menu
 class PromptKit:
     CANCEL_TOKENS = frozenset({"q", "quit", "cancel", "c", "back", "b", "0"})
 
-    def __init__(self, io: Any, menu: Menu, temporal: Any, tasks: Any = None, events: Any = None) -> None:
+    def __init__(
+        self,
+        io: Any,
+        menu: Menu,
+        temporal: Any,
+        tasks: Any = None,
+        events: Any = None,
+        *,
+        locale: Any = None,
+    ) -> None:
         self.io = io
         self.menu = menu
         self.temporal = temporal
         self.tasks = tasks
         self.events = events
+        self.locale = locale
+
+    def t(self, key: str, default: str | None = None, **values: Any) -> str:
+        translate = getattr(self.locale, "t", None)
+        if callable(translate):
+            return translate(key, default=default, **values)
+        text = key if default is None else default
+        try:
+            return str(text).format(**values)
+        except Exception:
+            return str(text)
+
+    def set_locale(self, code: str, *, persist: bool = True) -> str:
+        setter = getattr(self.locale, "set_locale", None)
+        if not callable(setter):
+            raise RuntimeError("LocaleService is unavailable")
+        return setter(code, persist=persist)
 
     def _read(self, prompt: str) -> str:
         return self.menu._read(prompt)
@@ -184,16 +210,18 @@ class PromptKit:
         when = getattr(item, "due", None) or getattr(item, "start", None)
         return f"{summary} — {when}" if when is not None else str(summary)
 
-    def choose_task(self, title: str = "Choose task", **filters: Any) -> Any:
+    def choose_task(self, title: str | None = None, **filters: Any) -> Any:
         if self.tasks is None:
             self._write("Task service is unavailable.")
             return None
         items = list(self.tasks.list(**filters) or ())
+        title = title or self.t("prompt.choose_task", "Choose task")
         return self.menu.choose(title, items, item_label=self._display_label)
 
-    def choose_event(self, title: str = "Choose event", **filters: Any) -> Any:
+    def choose_event(self, title: str | None = None, **filters: Any) -> Any:
         if self.events is None:
             self._write("Event service is unavailable.")
             return None
         items = list(self.events.list(**filters) or ())
+        title = title or self.t("prompt.choose_event", "Choose event")
         return self.menu.choose(title, items, item_label=self._display_label)
