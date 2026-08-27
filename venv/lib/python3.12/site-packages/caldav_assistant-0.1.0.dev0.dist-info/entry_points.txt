@@ -1,3 +1,0 @@
-[console_scripts]
-caldav-assistant = caldav_assistant.internal.cli.app:main
-caldav-assistant-service = caldav_assistant.internal.runtime.service:main

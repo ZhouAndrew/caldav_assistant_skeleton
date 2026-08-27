@@ -1,2 +1,9 @@
 *.pyc
 */*.pyx
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
