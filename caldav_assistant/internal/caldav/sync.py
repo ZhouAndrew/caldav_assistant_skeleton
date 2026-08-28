@@ -356,6 +356,87 @@ class SyncEngine:
             requested_mode="incremental",
         )
 
+    @staticmethod
+    def _cached_time(value: Any) -> date | datetime | None:
+        if value in (None, ""):
+            return None
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, date):
+            return value
+        text = str(value)
+        try:
+            if "T" in text or " " in text:
+                return datetime.fromisoformat(text)
+            return date.fromisoformat(text)
+        except ValueError:
+            return None
+
+    @classmethod
+    def _cached_task(cls, item: Mapping[str, Any]) -> Task:
+        return Task(
+            id=str(item.get("id") or ""),
+            summary=str(item.get("summary") or ""),
+            description=str(item.get("description") or ""),
+            start=cls._cached_time(item.get("start")),
+            due=cls._cached_time(item.get("due")),
+            status=str(item.get("status") or "NEEDS-ACTION"),
+            completed=bool(item.get("completed", False)),
+            completed_at=(
+                value
+                if isinstance((value := cls._cached_time(item.get("completed_at"))), datetime)
+                else None
+            ),
+            priority=(
+                int(item["priority"])
+                if item.get("priority") is not None
+                else None
+            ),
+            categories=list(item.get("categories") or []),
+            overdue=bool(item.get("overdue", False)),
+        )
+
+    @classmethod
+    def _cached_event(cls, item: Mapping[str, Any]) -> Event:
+        return Event(
+            id=str(item.get("id") or ""),
+            summary=str(item.get("summary") or ""),
+            start=cls._cached_time(item.get("start")),
+            end=cls._cached_time(item.get("end")),
+            location=str(item.get("location") or ""),
+            description=str(item.get("description") or ""),
+            categories=list(item.get("categories") or []),
+        )
+
+    def cached_tasks(self) -> list[Task]:
+        """Return Task facts from the last verified snapshot for background use.
+
+        This is explicitly a cache view, not a new source of truth.  Background
+        reminder evaluation may consume it because SyncEngine is responsible for
+        re-validating it against CalDAV.
+        """
+        snapshot = self.cached_snapshot() or {}
+        values = snapshot.get("tasks", [])
+        if not isinstance(values, list):
+            return []
+        return [
+            self._cached_task(item)
+            for item in values
+            if isinstance(item, Mapping)
+        ]
+
+    def cached_events(self) -> list[Event]:
+        """Return Event facts from the last verified snapshot for background use."""
+        snapshot = self.cached_snapshot() or {}
+        values = snapshot.get("events", [])
+        if not isinstance(values, list):
+            return []
+        return [
+            self._cached_event(item)
+            for item in values
+            if isinstance(item, Mapping)
+        ]
+
     def cached_snapshot(
         self,
     ) -> Mapping[str, Any] | None:

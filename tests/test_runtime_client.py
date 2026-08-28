@@ -19,3 +19,21 @@ def test_auto_starts_once_then_retries():
     def launch(): state["launches"]+=1; state["ready"]=True
     client=RuntimeClient(IPC(),launch,startup_timeout=.5,poll_interval=.01)
     assert client.call("tasks.list")=="done"; assert state["launches"]==1
+
+
+def test_runtime_client_rebinds_nested_agenda_task_objects():
+    from caldav_assistant.api import Agenda, AgendaItem, Task
+
+    class IPC:
+        def call(self, method, payload):
+            return Agenda([AgendaItem(Task(id="t1", summary="Nested"), kind="task")])
+
+    class TaskBinder:
+        pass
+
+    binder = TaskBinder()
+    client = RuntimeClient(IPC())
+    client.bind_domain("task", binder)
+
+    agenda = client._execute("agenda.today", {})
+    assert agenda.items[0].value._service is binder

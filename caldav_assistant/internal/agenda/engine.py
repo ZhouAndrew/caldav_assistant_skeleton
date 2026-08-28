@@ -39,6 +39,34 @@ class AgendaEngine:
     _OVERDUE = 1
     _SCHEDULED = 2
 
+    def candidates(
+        self,
+        tasks: Sequence[Task],
+        events: Sequence[Event],
+    ) -> Agenda:
+        """Build the broad candidate Agenda consumed by NextEngine.
+
+        Unlike :meth:`build`, this projection is intentionally not date-range
+        filtered.  NextEngine owns availability, horizon, priority and current-task
+        policy, so undated Tasks and later Events must remain visible to it.
+        """
+        items: list[AgendaItem] = []
+        for task in tasks:
+            if not isinstance(task, Task):
+                raise TypeError("AgendaEngine tasks must contain Task objects")
+            items.append(
+                AgendaItem(
+                    value=task,
+                    when=task.due if task.due is not None else task.start,
+                    kind="task",
+                )
+            )
+        for event in events:
+            if not isinstance(event, Event):
+                raise TypeError("AgendaEngine events must contain Event objects")
+            items.append(AgendaItem(value=event, when=event.start, kind="event"))
+        return Agenda(items=items)
+
     def build(
         self,
         tasks: Sequence[Task],

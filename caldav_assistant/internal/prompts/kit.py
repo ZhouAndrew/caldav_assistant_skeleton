@@ -225,3 +225,19 @@ class PromptKit:
         items = list(self.events.list(**filters) or ())
         title = title or self.t("prompt.choose_event", "Choose event")
         return self.menu.choose(title, items, item_label=self._display_label)
+
+    # CALDAV_ASSISTANT_PRODUCTION_INTEGRATION_V1
+    def ask_secret(self, prompt: str = "Password") -> str | None:
+        """Read a secret without echoing it; secret input stays inside PromptKit."""
+        reader = getattr(getattr(self, "io", None), "ask_secret", None)
+        if callable(reader):
+            return reader(prompt)
+
+        import getpass
+        label = str(prompt)
+        if label and not label.endswith((" ", ": ")):
+            label += ": "
+        value = getpass.getpass(label)
+        if value.strip().casefold() in {"q", "cancel"}:
+            return None
+        return value

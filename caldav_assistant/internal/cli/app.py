@@ -19,6 +19,7 @@ from ...api.v1.errors import CalDAVAssistantError, NotFoundError
 from .actions import EXIT_REPL, register_cli_builtin_commands
 from ..extensions.cli import register_extension_cli_commands
 from ..settings.cli import register_settings_cli_command
+from ..runtime.cli import register_background_cli_command
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,12 +205,26 @@ def run_cli(argv: Sequence[str] | None = None, *, app: Any = None) -> int:
     if "settings" not in app.commands.registry:
         register_settings_cli_command(app.commands, app.ctx)
 
+    # Background lifecycle is local Runtime/Autostart composition.  Register it
+    # before extensions so a third-party command cannot steal this operational path.
+    runtime = getattr(app, "runtime", None)
+    if runtime is not None and "background" not in app.commands.registry:
+        register_background_cli_command(app.commands, runtime, ui=app.ctx.ui)
+
+    # ``background status/stop`` must be able to inspect a stopped service without
+    # extension loading implicitly auto-starting it through RemoteSettingsAPI.
+    local_background_command = bool(
+        argv and str(argv[0]).strip().casefold() == "background"
+    )
+
     # Reserve extension-management commands before third-party code loads.
     # Lightweight/test applications may intentionally omit the ExtensionManager.
     if app.extensions is not None:
         register_extension_cli_commands(app.commands, app.extensions)
-        # Each bad extension is isolated and recorded by ExtensionManager.
-        app.extensions.load_enabled()
+        # Each bad extension is isolated and recorded by ExtensionManager.  Local
+        # background lifecycle commands intentionally do not wake the service first.
+        if not local_background_command:
+            app.extensions.load_enabled()
 
     if argv:
         return run_one_shot(app, argv)

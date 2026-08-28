@@ -2,7 +2,13 @@
 
 Public extensions use :mod:`caldav_assistant.easy` / :mod:`caldav_assistant.api`.
 IPC/process classes here are implementation details and are not public API.
+
+``AssistantService`` is loaded lazily so ``python -m
+caldav_assistant.internal.runtime.service`` does not pre-import the module through
+this package and trigger runpy's duplicate-module warning.
 """
+from typing import TYPE_CHECKING, Any
+
 from .autostart import AutostartManager
 from .client import RuntimeClient
 from .ipc import (
@@ -19,8 +25,18 @@ from .ipc_platform import (
     WindowsNamedPipeIPCServer,
 )
 from .scheduler import PlatformWakeScheduler
-from .service import AssistantService
 from .service_launcher import ServiceLauncher
+
+if TYPE_CHECKING:
+    from .service import AssistantService
+
+
+def __getattr__(name: str) -> Any:
+    if name == "AssistantService":
+        from .service import AssistantService
+        return AssistantService
+    raise AttributeError(name)
+
 
 __all__ = [
     "RuntimeClient", "AssistantService", "ServiceLauncher", "AutostartManager",

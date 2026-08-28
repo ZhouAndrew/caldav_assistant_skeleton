@@ -11,6 +11,7 @@ from .activity import ActivityService
 from .agenda import AgendaEngine, AgendaService, NextEngine
 from .caldav import SyncEngine
 from .caldav.library_adapter import LibraryCalDAVAdapter
+from .caldav.setup import CalDAVSetupService
 from .cli.actions import BuiltinActions
 from .cli.io import StdConsoleIO
 from .commands import CommandRegistry, CommandService
@@ -117,9 +118,14 @@ def _ipc_server_for_platform():
 def _ipc_client_for_platform():
     import sys
 
+    # A single high-level Agenda request can legitimately perform several bounded
+    # CalDAV HTTP operations.  Keep the IPC response budget larger than one
+    # individual CalDAV request while lifecycle probes continue to use their own
+    # short explicit timeouts.
+    response_timeout = 35.0
     if sys.platform.startswith("win"):
-        return WindowsNamedPipeIPCClient(_ipc_endpoint())
-    return UnixSocketIPCClient(_ipc_endpoint())
+        return WindowsNamedPipeIPCClient(_ipc_endpoint(), timeout=response_timeout)
+    return UnixSocketIPCClient(_ipc_endpoint(), timeout=response_timeout)
 
 
 def _build_base_url_provider(settings: SettingsService) -> ServerDiscovery:
@@ -160,6 +166,7 @@ def build_service_application() -> ServiceApplication:
         base_url_provider=base_url_provider,
         credentials=settings_service.get(CALDAV_CREDENTIALS, None),
     )
+    _caldav_setup = CalDAVSetupService(settings_service, base_url_provider, caldav)
     sync = SyncEngine(caldav, cache)
     tasks = TaskService(caldav, activity, undo)
     events = EventService(caldav, activity, undo)
@@ -176,8 +183,11 @@ def build_service_application() -> ServiceApplication:
         notifications,
         temporal,
         assistant_state,
-        tasks,
-        events,
+        # Reminder evaluation is background/read-only work.  Consume the latest
+        # verified SyncEngine cache instead of launching duplicate CalDAV scans in
+        # parallel with Sync and foreground Task/Event requests.
+        sync.cached_tasks,
+        sync.cached_events,
     )
     wordpress = WordPressService(WPCLIAdapter(), outbox_repo, activity)
 
@@ -209,6 +219,12 @@ def build_service_application() -> ServiceApplication:
     extensions.load_enabled()
 
     dispatcher = RuntimeDispatcher(ctx)
+    dispatcher.register_internal("caldav.status", _caldav_setup.status)
+    dispatcher.register_internal("caldav.set_base_url", _caldav_setup.set_base_url)
+    dispatcher.register_internal("caldav.set_credentials", _caldav_setup.set_credentials)
+    dispatcher.register_internal("caldav.clear_credentials", _caldav_setup.clear_credentials)
+    dispatcher.register_internal("caldav.test", _caldav_setup.test_connection)
+    dispatcher.register_internal("caldav.collections", _caldav_setup.collections)
     background = AssistantService(
         sync,
         reminders,
@@ -228,7 +244,11 @@ def build_service_application() -> ServiceApplication:
 
 
 def build_cli_application() -> CLIApplication:
-    runtime = RuntimeClient(_ipc_client_for_platform(), ServiceLauncher().start)
+    runtime = RuntimeClient(
+        _ipc_client_for_platform(),
+        ServiceLauncher().start,
+        request_timeout=30.0,
+    )
     tasks = RemoteTasksAPI(runtime)
     events = RemoteEventsAPI(runtime)
     agenda = RemoteAgendaAPI(runtime)

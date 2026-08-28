@@ -307,3 +307,23 @@ def test_failure_preserves_last_good_cache():
         status["error_type"]
         == "RuntimeError"
     )
+
+def test_cached_fact_views_restore_date_only_and_datetime_without_remote_reads():
+    due = date(2026, 8, 28)
+    start = datetime(2026, 8, 28, 9, 30, tzinfo=timezone.utc)
+    adapter = FakeAdapter(
+        tasks=[Task(id="t", summary="Task", due=due, categories=["school"])],
+        events=[Event(id="e", summary="Event", start=start)],
+    )
+    cache = MemoryCache()
+    engine = SyncEngine(adapter, cache)
+    engine.refresh()
+
+    adapter.error = AssertionError("cached reminder facts must not re-read CalDAV")
+    tasks = engine.cached_tasks()
+    events = engine.cached_events()
+
+    assert tasks[0].due == due
+    assert not isinstance(tasks[0].due, datetime)
+    assert tasks[0].categories == ["school"]
+    assert events[0].start == start

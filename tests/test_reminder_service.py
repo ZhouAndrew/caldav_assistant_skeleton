@@ -239,3 +239,68 @@ def test_floating_datetime_is_not_compared_to_aware_clock_by_guessing_timezone()
 
     assert service.process_due(now) == []
     assert notifications.calls == []
+
+
+def test_production_reminder_engine_bridge_builds_requests_before_due_and_next_due():
+    from caldav_assistant.api import Task
+    from caldav_assistant.internal.reminders.engine import ReminderEngine
+
+    now = datetime(2026, 8, 25, 10, 0, tzinfo=timezone.utc)
+    task = Task(
+        id="task-1",
+        summary="Report",
+        due=datetime(2026, 8, 25, 9, 0, tzinfo=timezone.utc),
+    )
+    notifications = FakeNotifications()
+    tasks = FakeQueryService([task])
+    events = FakeQueryService([])
+    service = ReminderService(
+        ReminderEngine(),
+        notifications,
+        FakeTemporal(),
+        FakeState(),
+        tasks,
+        events,
+    )
+
+    assert service.next_due(now) == task.due
+    sent = service.process_due(now)
+    assert len(sent) == 1
+    assert sent[0].object_id == "task-1"
+    assert notifications.calls == [("Report", "Task due", ())]
+    assert tasks.calls == 2
+    assert events.calls == 2
+
+
+def test_reminder_fact_sources_may_be_cache_loader_callables():
+    from caldav_assistant.api import Task
+    from caldav_assistant.internal.reminders.engine import ReminderEngine
+
+    now = datetime(2026, 8, 25, 10, 0, tzinfo=timezone.utc)
+    calls = {"tasks": 0, "events": 0}
+
+    def cached_tasks():
+        calls["tasks"] += 1
+        return [
+            Task(
+                id="cached-task",
+                summary="Cached report",
+                due=datetime(2026, 8, 25, 9, 0, tzinfo=timezone.utc),
+            )
+        ]
+
+    def cached_events():
+        calls["events"] += 1
+        return []
+
+    service = ReminderService(
+        ReminderEngine(),
+        FakeNotifications(),
+        FakeTemporal(),
+        FakeState(),
+        cached_tasks,
+        cached_events,
+    )
+
+    assert service.next_due(now) == datetime(2026, 8, 25, 9, 0, tzinfo=timezone.utc)
+    assert calls == {"tasks": 1, "events": 1}

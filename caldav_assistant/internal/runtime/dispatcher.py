@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Any
 
 
 class RuntimeDispatcher:
@@ -54,3 +55,15 @@ class RuntimeDispatcher:
         if method not in self._routes:
             raise ValueError(f"IPC method is not allowed: {method}")
         return self._routes[method](**(payload or {}))
+
+    # CALDAV_ASSISTANT_PRODUCTION_INTEGRATION_V1
+    def register_internal(self, method: str, handler: Any) -> None:
+        """Register one explicit service-side integration route."""
+        if not isinstance(method, str) or not method.strip():
+            raise ValueError("Runtime route must be non-empty text")
+        clean = method.strip()
+        if not callable(handler):
+            raise TypeError("Runtime route handler must be callable")
+        if clean in self._routes:
+            raise ValueError(f"Runtime route already registered: {clean}")
+        self._routes[clean] = handler

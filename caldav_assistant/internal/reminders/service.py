@@ -267,20 +267,57 @@ class ReminderService:
     # ------------------------------------------------------------------
     # ReminderEngine bridge
     # ------------------------------------------------------------------
-    def _engine_call(self, method_name: str, *, now: datetime | None = None):
+    def _engine_call(
+        self,
+        method_name: str,
+        *,
+        now: datetime | None = None,
+        requests: list[Any] | None = None,
+    ):
+        """Call one ReminderEngine brick using only the inputs it declares.
+
+        The production engine has two stages: ``evaluate(tasks, events, ...)``
+        builds NotificationRequests, while ``due(requests, ...)`` and
+        ``next_due(requests, ...)`` consume those requests.  Older compatibility
+        engines may expose a single ``evaluate``/``due`` brick with a different
+        signature.  Resolve arguments lazily from the inspected signature so a
+        method that does not need CalDAV data never triggers Task/Event scans.
+        """
         method = getattr(self.engine, method_name, None)
         if not callable(method):
             return None
 
-        values = {
-            "tasks": self.tasks.list(),
-            "events": self.events.list(),
-            "reminders": self.list(),
-            "explicit_reminders": self.list(),
-            "delivered_keys": self._delivered_keys(),
-            "now": now,
-            "at": now,
-            "after": now,
+        resolved: dict[str, Any] = {}
+
+        def once(name: str, supplier: Any) -> Any:
+            if name not in resolved:
+                resolved[name] = supplier() if callable(supplier) else supplier
+            return resolved[name]
+
+        def request_values() -> list[Any]:
+            if requests is not None:
+                return list(requests)
+            # ``due``/``next_due`` on the production engine operate on the output
+            # of ``evaluate``.  Evaluate exactly once for this engine call.
+            return self._evaluate(now)
+
+        def list_source(source: Any) -> list[Any]:
+            loader = source if callable(source) else getattr(source, "list", None)
+            if not callable(loader):
+                raise TypeError("Reminder fact source must be callable or provide list()")
+            return list(loader())
+
+        suppliers = {
+            "tasks": lambda: once("tasks", lambda: list_source(self.tasks)),
+            "events": lambda: once("events", lambda: list_source(self.events)),
+            "reminders": lambda: once("reminders", self.list),
+            "explicit_reminders": lambda: once("reminders", self.list),
+            "delivered": lambda: once("delivered", self._delivered_keys),
+            "delivered_keys": lambda: once("delivered", self._delivered_keys),
+            "requests": lambda: once("requests", request_values),
+            "now": lambda: now,
+            "at": lambda: now,
+            "after": lambda: now,
         }
 
         signature = inspect.signature(method)
@@ -288,10 +325,11 @@ class ReminderService:
         unknown_required: list[str] = []
 
         for name, parameter in signature.parameters.items():
-            if name in values:
+            supplier = suppliers.get(name)
+            if supplier is not None:
                 # ``None`` is meaningful for now/at/after and lets the engine use
                 # its own clock when desired.
-                kwargs[name] = values[name]
+                kwargs[name] = supplier()
             elif (
                 parameter.default is inspect.Parameter.empty
                 and parameter.kind

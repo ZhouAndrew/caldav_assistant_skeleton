@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from ...api import Activity
+from .outbox import SQLiteOutboxRepository
 
 
 class SQLiteStore:
@@ -190,21 +191,6 @@ class SQLiteActivityRepository:
             end.astimezone(timezone.utc),
         )
 
-
-class SQLiteOutboxRepository:
-    def __init__(self, store):
-        self.store = store
-        store.migrate()
-
-    def enqueue(self, payload):
-        with self.store.connect() as db:
-            db.execute(
-                "INSERT INTO outbox(payload) VALUES(?)",
-                (json.dumps(payload, default=str),),
-            )
-
-    def pending(self):
-        return []
 
 
 class SQLiteUndoRepository:

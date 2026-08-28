@@ -70,4 +70,29 @@ class RemoteSettingsAPI(_RemoteAPI):
     def describe(self, key): return self._call("describe", key=key)
     def list(self, category=None): return self._call("list", category=category)
 
+    # CALDAV_ASSISTANT_PRODUCTION_INTEGRATION_V1
+    def _caldav_call(self, name: str, **payload: Any):
+        """Call an explicit CalDAV Runtime route using RuntimeClient's kwargs contract."""
+        return self.runtime.call(f"caldav.{name}", **payload)
+
+    def caldav_status(self):
+        return self._caldav_call("status")
+
+    def set_caldav_base_url(self, value: str):
+        return self._caldav_call("set_base_url", value=value)
+
+    def set_caldav_credentials(self, username: str, password: str):
+        return self._caldav_call(
+            "set_credentials", username=username, password=password
+        )
+
+    def clear_caldav_credentials(self):
+        return self._caldav_call("clear_credentials")
+
+    def test_caldav_connection(self):
+        return self._caldav_call("test")
+
+    def caldav_collections(self):
+        return self._caldav_call("collections")
+
 __all__ = ["RemoteTasksAPI","RemoteEventsAPI","RemoteAgendaAPI","RemoteRemindersAPI","RemoteNotificationsAPI","RemoteWordPressAPI","RemoteActivityAPI","RemoteSettingsAPI"]
