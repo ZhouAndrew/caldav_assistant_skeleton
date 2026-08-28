@@ -90,12 +90,12 @@ class WPCLIAdapter:
 
     def create_log(self, text: str, **metadata: Any) -> dict[str, Any]:
         title = str(metadata.pop("title", "CalDAV Assistant Log"))
-        status = metadata.pop("status", "draft")
+        post_status = metadata.pop("post_status", metadata.pop("status", "draft"))
         post_type = metadata.pop("post_type", "post")
         return self.create_post(
             title,
             text,
-            status=status,
+            post_status=post_status,
             post_type=post_type,
             **metadata,
         )
