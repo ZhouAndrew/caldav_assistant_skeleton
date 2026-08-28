@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+"""Read-only Production Integration smoke test."""
+from __future__ import annotations
+
+import argparse
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--allow-unconfigured", action="store_true")
+    args = parser.parse_args()
+
+    from caldav_assistant.internal.bootstrap import build_cli_application
+    app = build_cli_application()
+
+    print("runtime:", app.runtime.call("runtime.ping", {}))
+    status = app.ctx.settings.caldav_status()
+    print("caldav.status:", status)
+
+    if not status.get("base_url_configured"):
+        print("result: CalDAV is not configured")
+        return 0 if args.allow_unconfigured else 2
+
+    print("caldav.test:", app.ctx.settings.test_caldav_connection())
+    print("caldav.collections:", app.ctx.settings.caldav_collections())
+    print("object_api.agenda.today:", app.ctx.agenda.today())
+    print("object_api.agenda.next:", app.ctx.agenda.next())
+    print("object_api.reminders.list:", app.ctx.reminders.list())
+    print("object_api.wordpress.pending:", app.ctx.wordpress.pending())
+    print("object_api.activity.today:", app.ctx.activity.today())
+    print("extensions.discover:", app.extensions.discover())
+
+    from caldav_assistant.easy import today as easy_today
+    print("easy.today:", easy_today())
+    print("result: PASS")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
