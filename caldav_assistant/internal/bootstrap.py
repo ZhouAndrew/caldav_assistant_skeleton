@@ -54,7 +54,7 @@ from .runtime.service import AssistantService
 from .runtime.service_launcher import ServiceLauncher
 from .session import SessionService
 from .settings import PublicSettingsAPI, SettingsService
-from .settings.keys import CALDAV_CREDENTIALS
+from .settings.keys import CALDAV_CREDENTIALS, WORDPRESS_PATH
 from .storage.sqlite import (
     SQLiteActivityRepository,
     SQLiteCacheRepository,
@@ -189,7 +189,11 @@ def build_service_application() -> ServiceApplication:
         sync.cached_tasks,
         sync.cached_events,
     )
-    wordpress = WordPressService(WPCLIAdapter(), outbox_repo, activity)
+    wordpress = WordPressService(
+        WPCLIAdapter(settings_service.get(WORDPRESS_PATH, None)),
+        outbox_repo,
+        activity,
+    )
 
     registry = CommandRegistry()
     commands = CommandService(registry)
