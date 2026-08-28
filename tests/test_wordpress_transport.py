@@ -52,7 +52,8 @@ def test_create_log_is_real_post_creation_not_in_memory_stub():
     assert command[:3] == ["wp", "post", "create"]
     assert "--post_title=Daily Log" in command
     assert "--post_content=Finished report" in command
-    assert "--status=publish" in command
+    assert "--post_status=publish" in command
+    assert "--post_type=post" in command
 
 
 def test_update_post_calls_wp_cli():
