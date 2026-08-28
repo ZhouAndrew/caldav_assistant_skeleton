@@ -118,10 +118,6 @@ def _ipc_server_for_platform():
 def _ipc_client_for_platform():
     import sys
 
-    # A single high-level Agenda request can legitimately perform several bounded
-    # CalDAV HTTP operations.  Keep the IPC response budget larger than one
-    # individual CalDAV request while lifecycle probes continue to use their own
-    # short explicit timeouts.
     response_timeout = 35.0
     if sys.platform.startswith("win"):
         return WindowsNamedPipeIPCClient(_ipc_endpoint(), timeout=response_timeout)
@@ -129,7 +125,6 @@ def _ipc_client_for_platform():
 
 
 def _build_base_url_provider(settings: SettingsService) -> ServerDiscovery:
-    """Build production CalDAV Base URL discovery with replaceable mDNS."""
     return ServerDiscovery(settings, adapters=[MDNSCalDAVDiscoveryAdapter()])
 
 
@@ -152,8 +147,6 @@ def build_service_application() -> ServiceApplication:
     assistant_state = SQLiteKeyValueRepository(store, "assistant_state")
     undo_repo = SQLiteUndoRepository(store)
 
-    # Internal infrastructure receives the authoritative SettingsService. Public
-    # Object/IPC callers receive only the validated PublicSettingsAPI boundary.
     settings_service = SettingsService(settings_repo)
     public_settings = PublicSettingsAPI(settings_service)
     session = SessionService()
@@ -170,6 +163,7 @@ def build_service_application() -> ServiceApplication:
     sync = SyncEngine(caldav, cache)
     tasks = TaskService(caldav, activity, undo)
     events = EventService(caldav, activity, undo)
+    undo.bind(tasks=tasks, events=events)
     agenda = AgendaService(
         tasks,
         events,
@@ -183,9 +177,6 @@ def build_service_application() -> ServiceApplication:
         notifications,
         temporal,
         assistant_state,
-        # Reminder evaluation is background/read-only work.  Consume the latest
-        # verified SyncEngine cache instead of launching duplicate CalDAV scans in
-        # parallel with Sync and foreground Task/Event requests.
         sync.cached_tasks,
         sync.cached_events,
     )
@@ -217,8 +208,6 @@ def build_service_application() -> ServiceApplication:
 
     extensions = ExtensionManager(commands, hooks, settings_service)
     _bind_hook_registrar(hooks)
-    # Easy API must already resolve to the authoritative service context while
-    # enabled extensions are imported.
     bind_current_context(ctx)
     extensions.load_enabled()
 
@@ -229,6 +218,7 @@ def build_service_application() -> ServiceApplication:
     dispatcher.register_internal("caldav.clear_credentials", _caldav_setup.clear_credentials)
     dispatcher.register_internal("caldav.test", _caldav_setup.test_connection)
     dispatcher.register_internal("caldav.collections", _caldav_setup.collections)
+    dispatcher.register_internal("undo.last", undo.undo_last)
     background = AssistantService(
         sync,
         reminders,
