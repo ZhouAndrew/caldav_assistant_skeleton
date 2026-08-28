@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -114,8 +114,6 @@ class SQLiteActivityRepository:
         timestamp_text, action, object_id, metadata_text = row
         timestamp = datetime.fromisoformat(timestamp_text)
         if timestamp.tzinfo is None:
-            # Compatibility for any journal rows created by the original scaffold,
-            # whose ActivityService used naive datetime.now().
             timestamp = timestamp.astimezone()
         timestamp = timestamp.astimezone(timezone.utc)
 
@@ -145,11 +143,7 @@ class SQLiteActivityRepository:
                     self._timestamp_text(timestamp),
                     action,
                     object_id,
-                    json.dumps(
-                        metadata or {},
-                        ensure_ascii=False,
-                        default=str,
-                    ),
+                    json.dumps(metadata or {}, ensure_ascii=False, default=str),
                 ),
             )
 
@@ -176,11 +170,6 @@ class SQLiteActivityRepository:
         return [self._decode(row) for row in rows]
 
     def today(self) -> list[Activity]:
-        """Compatibility helper for internal callers predating ActivityService v1.
-
-        Public code should call ActivityService.today(), which owns the local-day
-        semantics.  Keeping this method avoids breaking any scaffold-only caller.
-        """
         now = datetime.now(timezone.utc).astimezone()
         start = datetime.combine(now.date(), datetime.min.time(), tzinfo=now.tzinfo)
         from datetime import timedelta
@@ -192,15 +181,67 @@ class SQLiteActivityRepository:
         )
 
 
+_UNDO_TYPE = "__caldav_assistant_type__"
+
+
+def _undo_default(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return {_UNDO_TYPE: "datetime", "value": value.isoformat()}
+    if isinstance(value, date):
+        return {_UNDO_TYPE: "date", "value": value.isoformat()}
+    raise TypeError(f"Unsupported undo value: {type(value).__name__}")
+
+
+def _undo_object_hook(value: dict[str, Any]) -> Any:
+    kind = value.get(_UNDO_TYPE)
+    raw = value.get("value")
+    if kind == "datetime" and isinstance(raw, str):
+        return datetime.fromisoformat(raw)
+    if kind == "date" and isinstance(raw, str):
+        return date.fromisoformat(raw)
+    return value
+
 
 class SQLiteUndoRepository:
+    """Durable LIFO undo journal preserving temporal Python types."""
+
     def __init__(self, store):
         self.store = store
         store.migrate()
 
-    def remember(self, payload):
+    def remember(self, payload: dict[str, Any]) -> None:
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=False,
+            default=_undo_default,
+            separators=(",", ":"),
+        )
         with self.store.connect() as db:
-            db.execute(
-                "INSERT INTO undo(payload) VALUES(?)",
-                (json.dumps(payload, default=str),),
-            )
+            db.execute("INSERT INTO undo(payload) VALUES(?)", (encoded,))
+
+    def latest(self) -> dict[str, Any] | None:
+        with self.store.connect() as db:
+            row = db.execute(
+                "SELECT id,payload,created_at FROM undo ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        if row is None:
+            return None
+        item_id, payload_text, created_at = row
+        payload = json.loads(payload_text, object_hook=_undo_object_hook)
+        if not isinstance(payload, dict):
+            raise ValueError("Malformed undo payload")
+        return {"id": int(item_id), "payload": payload, "created_at": created_at}
+
+    def discard(self, item_id: int) -> None:
+        with self.store.connect() as db:
+            db.execute("DELETE FROM undo WHERE id=?", (int(item_id),))
+
+
+__all__ = [
+    "SQLiteStore",
+    "SQLiteKeyValueRepository",
+    "SQLiteCacheRepository",
+    "SQLiteActivityRepository",
+    "SQLiteOutboxRepository",
+    "SQLiteUndoRepository",
+]
