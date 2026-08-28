@@ -31,6 +31,11 @@ def _url(value:Any)->str|None:
     clean=_text(value,label="CalDAV base URL")
     if not (clean.startswith("http://") or clean.startswith("https://")):raise ValidationError("CalDAV base URL must use http:// or https://")
     return clean.rstrip("/")
+def _optional_path(value:Any)->str|None:
+    if value is None:return None
+    if not isinstance(value,str):raise ValidationError("WordPress path must be text")
+    clean=value.strip()
+    return clean or None
 def _credentials(value:Any)->dict[str,str]|None:
     if value is None:return None
     if not isinstance(value,dict):raise ValidationError("CalDAV credentials must be a mapping")
@@ -76,6 +81,7 @@ DEFAULT_SETTINGS_SCHEMA=SettingsSchema([
     SettingSpec(CALDAV_CREDENTIALS,"CalDAV credentials","CalDAV","secret",None,public_read=False,public_write=True,secret=True,validator=_credentials),
     SettingSpec(NOTIFICATIONS_ENABLED,"Notifications","Notifications","bool",True,validator=lambda v:_boolean(v,label="Notifications")),
     SettingSpec(WORDPRESS_ENABLED,"WordPress","WordPress","bool",True,validator=lambda v:_boolean(v,label="WordPress")),
+    SettingSpec(WORDPRESS_PATH,"WordPress path","WordPress","text",None,validator=_optional_path),
     SettingSpec(COMMAND_LANGUAGE,"Command language","Commands","choice","en",choices=("en",),validator=_command_language),
     SettingSpec(EXTENSIONS_ENABLED,"Extensions","Extensions","mapping",{},validator=_extension_map),
 ])
