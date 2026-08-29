@@ -72,7 +72,96 @@ from caldav_assistant.api import AssistantContext
 from caldav_assistant.api.v1 import *
 ```
 
-Easy API 保持同步、短小、Scratch-like；扩展不需要直接处理 CalDAV XML、IPC、SQLite 或操作系统通知 API。
+**普通扩展的第一入口是 `caldav_assistant.easy`。** Easy API 保持同步、短小、Scratch-like；扩展不需要直接处理 CalDAV XML、IPC、SQLite、依赖注入或操作系统通知 API。Object API 与 Full Extension API v1 面向确实需要更高级控制的扩展，而不是普通功能的必经路径。
+
+### Task 与 Event 的边界
+
+程序同时支持 VTODO/Task 和 VEVENT/Event，但二者不是同一种东西：
+
+- **Task** 是要完成的工作，可以 `start()`、`pause()`、`resume()`、`complete()`；
+- **Event** 是某个时间发生的事情，可以创建、修改、删除，但没有“完成”生命周期；
+- `today()`、`agenda()`、`next()` 可以把 Task 与 Event 放在同一日程视图里；
+- Task 生命周期动作只接受 Task。Easy API 若收到 Event，会明确拒绝，而不会把 Event 当作 Task 修改。
+
+因此：
+
+```python
+from caldav_assistant.easy import *
+
+complete("写报告")       # Task：允许按 UID 或标题解析
+edit_event("教研会议", location="会议室")  # Event：独立 Event API
+```
+
+而不是：
+
+```python
+complete(next_event())   # 不允许：Event 不是可完成的 Task
+```
+
+### 在程序里学习、创建和调试扩展
+
+不需要先寻找扩展目录或阅读内部源码。进入 CLI 后：
+
+```text
+> extension guide
+```
+
+程序会直接讲解 Python Easy API、Task/Event 区别、最小扩展示例和常用积木。
+
+创建一个最小的一文件扩展：
+
+```text
+> extension new school
+```
+
+程序会在受管理的用户扩展目录中生成 `school.py`，默认保持禁用。即使过去删除过同名扩展并留下启用设置，新文件也会重新从禁用状态开始。编辑文件后：
+
+```text
+> extension enable school
+```
+
+修改已经启用的扩展后：
+
+```text
+> extension reload school
+```
+
+如果扩展加载或运行 Hook 时出错，先看摘要：
+
+```text
+> extension errors
+```
+
+再看某个扩展的路径、错误和 traceback：
+
+```text
+> extension errors school
+```
+
+查看扩展目录：
+
+```text
+> extension path
+```
+
+已有外部 `.py` 文件或包含 `__init__.py` 的扩展目录仍可使用：
+
+```text
+> extension add /path/to/my_extension.py
+> extension enable my_extension
+```
+
+生成的最小扩展仍然只是普通 Easy API Python：
+
+```python
+from caldav_assistant.easy import command, show, today
+
+@command("school")
+def run():
+    show(today())
+```
+
+扩展的发现、启用、禁用、重载和错误隔离由 Extension Manager 负责；**功能本身仍由 Easy API 组合，并最终调用与 CLI/后台相同的 Core Services。**
 
 ## 架构边界
 
