@@ -51,9 +51,6 @@ class RuntimeDispatcher:
             "settings.list": ctx.settings.list,
         }
 
-        # Session is part of the full v1 AssistantContext, but keeping these routes
-        # conditional lets small unit/integration test contexts remain deliberately
-        # partial instead of forcing unrelated fake namespaces everywhere.
         session = getattr(ctx, "session", None)
         if session is not None:
             self._routes.update(
@@ -64,6 +61,12 @@ class RuntimeDispatcher:
                     "session.paused_tasks": session.paused_tasks,
                 }
             )
+            work_segments = getattr(session, "work_segments", None)
+            if callable(work_segments):
+                self._routes["session.work_segments"] = work_segments
+            work_seconds = getattr(session, "work_seconds", None)
+            if callable(work_seconds):
+                self._routes["session.work_seconds"] = work_seconds
 
     def handle(self, method, payload=None):
         if method not in self._routes:
