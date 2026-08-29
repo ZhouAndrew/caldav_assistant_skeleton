@@ -44,6 +44,10 @@ Then edit the generated Python file and enable it:
 After editing an enabled extension:
   extension reload NAME
 
+If an extension fails:
+  extension errors
+  extension errors NAME
+
 Useful Easy API bricks:
   tasks(), today_tasks(), overdue_tasks(), next_task(), choose_task()
   start(task), pause(task), resume(task), complete(task), set_due(task, when)
@@ -174,9 +178,44 @@ class ExtensionActions:
         name = self._one_name(parts, "unload")
         return self._record_line(self.manager.unload(name))
 
+    def _hook_failure_lines(self, owner: str | None = None) -> list[str]:
+        lines: list[str] = []
+        for failure in self.manager.hook_failures():
+            failure_owner = failure.owner or "unknown"
+            if owner is not None and failure_owner != owner:
+                continue
+            lines.append(
+                f"{failure_owner}: hook {failure.event}: "
+                f"{failure.error_type}: {failure.message}"
+            )
+        return lines
+
     def errors(self, *parts: Any) -> str:
+        if len(parts) > 1:
+            raise ValidationError(
+                "extension errors accepts zero arguments or one extension name"
+            )
+
         if parts:
-            raise ValidationError("extension errors does not take arguments")
+            name = self._one_name(parts, "errors")
+            getter = getattr(self.manager, "get", None)
+            if not callable(getter):
+                raise ValidationError(
+                    "Detailed extension diagnostics require ExtensionManager.get()"
+                )
+            record = getter(name)
+            lines = [self._record_line(record)]
+            path = getattr(record, "path", None)
+            if path is not None:
+                lines.append(f"Path: {path}")
+            traceback = getattr(record, "traceback", None)
+            if traceback:
+                lines.append("Traceback:\n" + str(traceback).rstrip())
+            hook_lines = self._hook_failure_lines(record.name)
+            lines.extend(hook_lines)
+            if not getattr(record, "error", None) and not traceback and not hook_lines:
+                lines.append("No recorded extension errors.")
+            return "\n".join(lines)
 
         lines: list[str] = []
         if self.manager.manager_error:
@@ -185,13 +224,7 @@ class ExtensionActions:
         for record in self.manager.errors():
             lines.append(self._record_line(record))
 
-        for failure in self.manager.hook_failures():
-            owner = failure.owner or "unknown"
-            lines.append(
-                f"{owner}: hook {failure.event}: "
-                f"{failure.error_type}: {failure.message}"
-            )
-
+        lines.extend(self._hook_failure_lines())
         return "\n".join(lines) if lines else "No extension errors."
 
 
@@ -212,7 +245,7 @@ def register_extension_cli_commands(
         commands.register_builtin(
             "extension",
             actions.extension,
-            description="Learn, create, and manage Python Easy API extensions",
+            description="Learn, create, debug, and manage Python Easy API extensions",
         )
     return actions
 
