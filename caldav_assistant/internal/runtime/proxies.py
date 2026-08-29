@@ -62,6 +62,13 @@ class RemoteActivityAPI(_RemoteAPI):
     def for_task(self, task): return self._call("for_task", task=task)
     def record(self, action, object_id=None, **metadata): return self._call("record", action=action, object_id=object_id, **metadata)
 
+class RemoteSessionAPI(_RemoteAPI):
+    prefix="session"
+    def current_task_id(self): return self._call("current_task_id")
+    def current_task(self): return self._call("current_task")
+    def paused_task_ids(self): return tuple(self._call("paused_task_ids") or ())
+    def paused_tasks(self): return list(self._call("paused_tasks") or ())
+
 class RemoteSettingsAPI(_RemoteAPI):
     prefix="settings"
     def get(self, key, default=None): return self._call("get", key=key, default=default)
@@ -70,29 +77,19 @@ class RemoteSettingsAPI(_RemoteAPI):
     def describe(self, key): return self._call("describe", key=key)
     def list(self, category=None): return self._call("list", category=category)
 
-    # CALDAV_ASSISTANT_PRODUCTION_INTEGRATION_V1
     def _caldav_call(self, name: str, **payload: Any):
-        """Call an explicit CalDAV Runtime route using RuntimeClient's kwargs contract."""
         return self.runtime.call(f"caldav.{name}", **payload)
 
-    def caldav_status(self):
-        return self._caldav_call("status")
-
-    def set_caldav_base_url(self, value: str):
-        return self._caldav_call("set_base_url", value=value)
-
+    def caldav_status(self): return self._caldav_call("status")
+    def set_caldav_base_url(self, value: str): return self._caldav_call("set_base_url", value=value)
     def set_caldav_credentials(self, username: str, password: str):
-        return self._caldav_call(
-            "set_credentials", username=username, password=password
-        )
+        return self._caldav_call("set_credentials", username=username, password=password)
+    def clear_caldav_credentials(self): return self._caldav_call("clear_credentials")
+    def test_caldav_connection(self): return self._caldav_call("test")
+    def caldav_collections(self): return self._caldav_call("collections")
 
-    def clear_caldav_credentials(self):
-        return self._caldav_call("clear_credentials")
-
-    def test_caldav_connection(self):
-        return self._caldav_call("test")
-
-    def caldav_collections(self):
-        return self._caldav_call("collections")
-
-__all__ = ["RemoteTasksAPI","RemoteEventsAPI","RemoteAgendaAPI","RemoteRemindersAPI","RemoteNotificationsAPI","RemoteWordPressAPI","RemoteActivityAPI","RemoteSettingsAPI"]
+__all__ = [
+    "RemoteTasksAPI","RemoteEventsAPI","RemoteAgendaAPI","RemoteRemindersAPI",
+    "RemoteNotificationsAPI","RemoteWordPressAPI","RemoteActivityAPI",
+    "RemoteSessionAPI","RemoteSettingsAPI"
+]
