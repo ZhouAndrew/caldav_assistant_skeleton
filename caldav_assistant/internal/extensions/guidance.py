@@ -1,6 +1,6 @@
 """User-facing Easy API extension guidance and development scaffolding.
 
-This module does not load extensions or execute commands.  It creates a typed, runnable
+This module does not load extensions or execute commands. It creates a typed, runnable
 Python source file inside the existing per-user extension directory and can prepare a
 minimal, non-destructive VS Code workspace configuration. ExtensionManager remains
 responsible for discovery/lifecycle/error isolation afterwards.
@@ -56,6 +56,7 @@ caldav-assistant is installed can provide autocomplete and type checking.
 """
 from __future__ import annotations
 
+from caldav_assistant.api import Agenda
 from caldav_assistant.easy import (
     ask_date,
     choose_task,
@@ -98,14 +99,15 @@ def _choose_required_task():
 def run(*parts: str) -> None:
     """One command demonstrating safe composition of Easy API bricks.
 
-    Extension commands receive CLI words as normal Python arguments.  This example uses
+    Extension commands receive CLI words as normal Python arguments. This example uses
     a small local action table style without creating another application-wide command
-    dispatcher.  Every data-changing operation still goes through the public Easy API.
+    dispatcher. Every data-changing operation still goes through the public Easy API.
     """
     action = parts[0].casefold() if parts else "today"
 
     if action == "today":
-        show(today())
+        items: Agenda = today()
+        show(items)
         return
 
     if action == "tasks":
@@ -155,7 +157,8 @@ def run(*parts: str) -> None:
         show(USAGE)
         return
 
-    show(f"Unsupported extension action: {{parts[0]}}\n\n{{USAGE}}")
+    show("Unsupported extension action: " + parts[0])
+    show(USAGE)
 '''
 
 
