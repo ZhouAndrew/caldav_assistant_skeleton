@@ -1,17 +1,22 @@
 """Opt-in terminal/debugging helpers for CalDAV Assistant.
 
-External programs stay outside Assistant Core.  ``shell`` preserves the original
-foreground-only debugging behaviour.  ``run`` is the explicit process launcher and can
-start either a foreground child or a detached background child.  Neither path uses
+External programs stay outside Assistant Core. ``shell`` preserves the original
+foreground-only debugging behaviour. ``run`` is the explicit process launcher and can
+start either a foreground child or a detached background child. Neither path uses
 ``shell=True``: argument boundaries remain explicit and pipelines still require the user
 to opt into a real shell such as ``bash -lc``.
+
+Detached background output is preserved in a per-user log file rather than discarded,
+so starting a process in the background does not make its diagnostics disappear.
 """
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import subprocess
 import sys
-from typing import Sequence
+import tempfile
+from typing import BinaryIO, Sequence
 
 from caldav_assistant.easy import command
 
@@ -31,7 +36,11 @@ def _default_shell() -> str:
 
 def _missing_program(command_argv: Sequence[str], exc: FileNotFoundError) -> ValueError:
     program = command_argv[0] if command_argv else ""
-    return ValueError(f"External command not found: {program}")
+    return ValueError(
+        f"External command not found or not directly executable: {program}. "
+        "If this is a shell built-in, pipeline, or redirection, run it through an "
+        "explicit shell such as: run bash -lc \"...\""
+    )
 
 
 def _background_args(argv: Sequence[str]) -> tuple[list[str], bool]:
@@ -51,12 +60,35 @@ def _background_args(argv: Sequence[str]) -> tuple[list[str], bool]:
     return parts, background
 
 
-def _start_background(command_argv: Sequence[str]) -> int:
-    """Start one detached child and return its PID without keeping CLI attached."""
+def _background_log() -> tuple[BinaryIO, Path]:
+    """Create a persistent per-user log, falling back to the system temp directory."""
+    preferred = Path.home() / ".caldav-assistant" / "run-logs"
+    roots = (preferred, Path(tempfile.gettempdir()) / "caldav-assistant-run-logs")
+    last_error: OSError | None = None
+    for root in roots:
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            handle = tempfile.NamedTemporaryFile(
+                mode="w+b",
+                prefix="run-",
+                suffix=".log",
+                dir=root,
+                delete=False,
+            )
+            return handle, Path(handle.name)
+        except OSError as exc:
+            last_error = exc
+    assert last_error is not None
+    raise ValueError(f"Cannot create background command log: {last_error}") from last_error
+
+
+def _start_background(command_argv: Sequence[str]) -> tuple[int, Path]:
+    """Start one detached child and return its PID plus persistent output-log path."""
+    log_handle, log_path = _background_log()
     kwargs: dict[str, object] = {
         "stdin": subprocess.DEVNULL,
-        "stdout": subprocess.DEVNULL,
-        "stderr": subprocess.DEVNULL,
+        "stdout": log_handle,
+        "stderr": subprocess.STDOUT,
         "close_fds": True,
     }
     if os.name == "nt":
@@ -70,8 +102,14 @@ def _start_background(command_argv: Sequence[str]) -> int:
     try:
         process = subprocess.Popen(list(command_argv), **kwargs)
     except FileNotFoundError as exc:
+        try:
+            log_path.unlink(missing_ok=True)
+        except OSError:
+            pass
         raise _missing_program(command_argv, exc) from exc
-    return int(process.pid)
+    finally:
+        log_handle.close()
+    return int(process.pid), log_path
 
 
 def _run_foreground(command_argv: Sequence[str]) -> int:
@@ -106,7 +144,7 @@ def run_external(*argv: str) -> int:
         shell pytest -q
         shell bash
 
-    With no arguments the user's configured shell is started.  Typing ``exit`` in that
+    With no arguments the user's configured shell is started. Typing ``exit`` in that
     shell returns to the CalDAV Assistant prompt.
     """
     command_argv = list(argv) if argv else [_default_shell()]
@@ -117,7 +155,7 @@ def run_external(*argv: str) -> int:
     "run",
     description=(
         "Run an external command; append 'in background' or use -b/--background "
-        "to detach it."
+        "to detach it and preserve output in a log."
     ),
 )
 def run_command(*argv: str):
@@ -136,7 +174,11 @@ def run_command(*argv: str):
 
         run git status
 
-    ``run`` intentionally requires a command.  Use ``shell`` with no arguments when an
+    Shell built-ins/pipelines/redirection are not guessed. Request a shell explicitly::
+
+        run bash -lc "printf hello | sed s/hello/world/"
+
+    ``run`` intentionally requires a command. Use ``shell`` with no arguments when an
     interactive shell is desired; an interactive shell is not meaningful once detached
     from stdin/stdout.
     """
@@ -147,8 +189,11 @@ def run_command(*argv: str):
 
     command_argv, background = _background_args(argv)
     if background:
-        pid = _start_background(command_argv)
-        return f"Started in background (PID {pid}): {' '.join(command_argv)}"
+        pid, log_path = _start_background(command_argv)
+        return (
+            f"Started in background (PID {pid}): {' '.join(command_argv)}\n"
+            f"Output log: {log_path}"
+        )
 
     code = _run_foreground(command_argv)
     return f"Command exited with code {code}."
