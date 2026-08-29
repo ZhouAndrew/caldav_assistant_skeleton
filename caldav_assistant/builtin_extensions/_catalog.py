@@ -28,7 +28,7 @@ OFFICIAL_EXTENSION_CATALOG = MappingProxyType(
                     "WordPress/Outbox service without making WordPress part of Task "
                     "business logic."
                 ),
-                "default_enabled": False,
+                "default_enabled": True,
             }
         ),
     }
