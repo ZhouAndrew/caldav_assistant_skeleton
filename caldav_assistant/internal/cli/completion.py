@@ -244,6 +244,21 @@ class ReadlineCompletionSession:
             self._matches = self.engine.complete(buffer, cursor)
         return self._matches[state] if state < len(self._matches) else None
 
+    def _bind_tab(self) -> None:
+        identity = " ".join(
+            (
+                str(getattr(self.readline, "backend", "")),
+                str(getattr(self.readline, "__doc__", "")),
+            )
+        ).casefold()
+        if "libedit" in identity:
+            self.readline.parse_and_bind("bind ^I rl_complete")
+            return
+        try:
+            self.readline.parse_and_bind("tab: complete")
+        except Exception:
+            self.readline.parse_and_bind("bind ^I rl_complete")
+
     def install(self) -> bool:
         if self.readline is None or not self._interactive_input():
             return False
@@ -256,11 +271,7 @@ class ReadlineCompletionSession:
             # Keep dots, dashes, slashes and question marks inside the token so
             # ``easy.complete``, ``edit-event`` and extension names complete intact.
             self.readline.set_completer_delims(" \t\n")
-            try:
-                self.readline.parse_and_bind("tab: complete")
-            except Exception:
-                # libedit-backed readline uses a different binding syntax.
-                self.readline.parse_and_bind("bind ^I rl_complete")
+            self._bind_tab()
             self.active = True
             return True
         except Exception:
