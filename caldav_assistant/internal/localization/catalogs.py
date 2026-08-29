@@ -46,32 +46,56 @@ _EN = {
     "command.edit-due.description": "Edit a Task due date.",
     "extension.none": "No extensions found. Run 'extension guide' to learn or 'extension new NAME' to create one.",
     "extension.list_title": "Extensions:",
-    "extension.usage": "Usage: extension {guide|new|path|add|load|enable|disable|reload|unload|errors} ...\nRun 'extension guide' to learn how to add a feature with Python Easy API.",
-    "extension.created": "Created Easy API extension {name} at {path} (disabled).\nEdit the file, then run: extension enable {name}",
+    "extension.official_title": "Official bundled extensions:",
+    "extension.user_title": "User extensions:",
+    "extension.none_official": "none",
+    "extension.none_user": "none",
+    "extension.origin.official": "official",
+    "extension.origin.user": "user",
+    "extension.origin.official_long": "Official (bundled with CalDAV Assistant)",
+    "extension.origin.user_long": "User extension",
+    "extension.list_hint": "Manage with: extension info NAME | enable/disable/reload NAME",
+    "extension.official_hint": "Official source code is shipped with the app. You can enable, disable, reload, inspect errors, or reset an official extension to its default state.",
+    "extension.official_source_note": "Official source is managed by application updates; manage its lifecycle with enable/disable/reload/reset instead of editing the bundled file.",
+    "extension.user_source_note": "User source is yours to edit. Run `extension dev` for VS Code/Pylance setup.",
+    "extension.reset_done": "Reset official extension to packaged default → {record}",
+    "extension.dev_created": "created",
+    "extension.dev_existing": "already existed; left unchanged",
+    "extension.dev": "VS Code extension workspace: {root}\nPylance settings: {settings} ({state})\nOpen that directory in VS Code, then select the Python interpreter where caldav-assistant is installed. The package ships py.typed + Easy API stubs for autocomplete and type checking.",
+    "extension.usage": "Usage: extension {guide|new|dev|path|official|user|info|reset|add|load|enable|disable|reload|unload|errors} ...\nRun 'extension guide' for Easy API and VS Code development help.",
+    "extension.created": "Created typed Easy API extension {name} at {path} (disabled).\nFor VS Code support run: extension dev\nThen enable it with: extension enable {name}",
     "extension.path": "Extension directory: {path}",
     "extension.guide": """Extensions add features with the Python Easy API.
 
 Start here:
-  from caldav_assistant.easy import *
+  from caldav_assistant.easy import command, show, overdue_tasks
 
 The important model:
   Task  = work you can start, pause, resume, and complete.
   Event = something scheduled to occur. An Event is not completed.
 
 Small example:
-  from caldav_assistant.easy import command, show, overdue_tasks
-
   @command(\"urgent\")
-  def urgent():
+  def urgent() -> None:
       show(overdue_tasks())
 
 Create a starter file:
   extension new NAME
 
-Then edit the generated Python file and enable it:
-  extension enable NAME
+Prepare the extension directory for VS Code/Pylance:
+  extension dev
 
-After editing an enabled extension:
+The installed package includes PEP 561 typing, an Easy API stub, and typed Object API
+Protocols. Select the Python interpreter where caldav-assistant is installed and VS
+Code can autocomplete imports, show signatures, and type-check Task/Event usage.
+
+Official bundled extensions:
+  extension official
+  extension info NAME
+  extension enable|disable NAME
+  extension reset NAME
+
+After editing an enabled user extension:
   extension reload NAME
 
 If an extension fails:
@@ -135,32 +159,56 @@ _ZH_CN = {
     "command.edit-due.description": "修改一个任务的截止日期。",
     "extension.none": "还没有扩展。输入 'extension guide' 学习，或输入 'extension new NAME' 创建一个。",
     "extension.list_title": "扩展：",
-    "extension.usage": "用法：extension {guide|new|path|add|load|enable|disable|reload|unload|errors} ...\n输入 'extension guide' 学习如何用 Python Easy API 添加功能。",
-    "extension.created": "已创建 Easy API 扩展 {name}：{path}（尚未启用）。\n编辑文件后运行：extension enable {name}",
+    "extension.official_title": "官方内置扩展：",
+    "extension.user_title": "用户扩展：",
+    "extension.none_official": "无",
+    "extension.none_user": "无",
+    "extension.origin.official": "官方",
+    "extension.origin.user": "用户",
+    "extension.origin.official_long": "官方扩展（随 CalDAV Assistant 提供）",
+    "extension.origin.user_long": "用户扩展",
+    "extension.list_hint": "管理：extension info NAME | enable/disable/reload NAME",
+    "extension.official_hint": "官方源码随软件提供。用户可以启用、禁用、重新加载、查看错误，或恢复官方默认启用状态。",
+    "extension.official_source_note": "官方源码由软件更新管理；请使用 enable/disable/reload/reset 管理生命周期，不要直接修改内置文件。",
+    "extension.user_source_note": "用户扩展源码由你管理。输入 `extension dev` 可准备 VS Code/Pylance 开发环境。",
+    "extension.reset_done": "已恢复官方扩展的出厂默认状态 → {record}",
+    "extension.dev_created": "已创建",
+    "extension.dev_existing": "已存在，未覆盖",
+    "extension.dev": "VS Code 扩展工作区：{root}\nPylance 设置：{settings}（{state}）\n用 VS Code 打开这个目录，然后选择安装了 caldav-assistant 的 Python 解释器。安装包自带 py.typed 和 Easy API 类型 stub，可用于自动补全和类型检查。",
+    "extension.usage": "用法：extension {guide|new|dev|path|official|user|info|reset|add|load|enable|disable|reload|unload|errors} ...\n输入 'extension guide' 查看 Easy API 与 VS Code 开发说明。",
+    "extension.created": "已创建带类型提示的 Easy API 扩展 {name}：{path}（尚未启用）。\nVS Code 支持：extension dev\n然后启用：extension enable {name}",
     "extension.path": "扩展目录：{path}",
     "extension.guide": """扩展功能以 Python Easy API 为第一入口。
 
-从这里开始：
-  from caldav_assistant.easy import *
+推荐从明确导入开始：
+  from caldav_assistant.easy import command, show, overdue_tasks
 
 先记住最重要的模型：
   Task（任务）= 要做的工作，可以 start / pause / resume / complete。
   Event（事件）= 在某个时间发生的事情；Event 不存在“完成”生命周期。
 
 最小示例：
-  from caldav_assistant.easy import command, show, overdue_tasks
-
   @command(\"urgent\")
-  def urgent():
+  def urgent() -> None:
       show(overdue_tasks())
 
-直接创建一个可编辑的模板：
+创建一个可编辑模板：
   extension new NAME
 
-编辑生成的 Python 文件，然后启用：
-  extension enable NAME
+准备 VS Code / Pylance 开发环境：
+  extension dev
 
-修改已经启用的扩展后：
+安装包自带 PEP 561 的 py.typed、Easy API 类型 stub 和 Object API Protocol。
+在 VS Code 中选择安装了 caldav-assistant 的 Python 解释器后，可以获得导入补全、
+函数签名、返回类型，以及 Task / Event 的类型检查。
+
+管理官方内置扩展：
+  extension official
+  extension info NAME
+  extension enable|disable NAME
+  extension reset NAME
+
+修改已经启用的用户扩展后：
   extension reload NAME
 
 扩展报错时：
