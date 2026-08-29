@@ -1,15 +1,17 @@
 """Lightweight Assistant Activity Journal service.
 
 MODULE CONTRACT
-- Imports/calls: public Activity/Task models + stable validation errors + injected
-  ActivityRepository collaborator.
+- Imports/calls: public Activity/Task models + stable validation errors + public
+  Hook/Event emitter + injected ActivityRepository collaborator.
 - Provides: ActivityService.record(), today(), and for_task().
 - Must not: read/write SQLite directly, inspect or mutate CalDAV Task/Event state,
   create WordPress posts, print CLI output, or infer authoritative object status
   from journal entries.
 
 The Activity Journal records Assistant behaviour history only.  CalDAV remains the
-source of truth for Task/Event state.
+source of truth for Task/Event state.  Selected successful lifecycle records may
+also publish Full Extension hooks; extensions decide whether those hooks cause any
+secondary integration such as WordPress logging.
 """
 from __future__ import annotations
 
@@ -19,6 +21,13 @@ from typing import Any, Callable
 
 from ...api import Activity, Task
 from ...api.v1.errors import ValidationError
+from ...api.v1.hooks import emit
+
+
+_TASK_LIFECYCLE_HOOKS = {
+    "task_started": "task.started",
+    "task_resumed": "task.resumed",
+}
 
 
 class ActivityService:
@@ -74,6 +83,22 @@ class ActivityService:
             raise TypeError("ActivityRepository must return Activity objects")
         return values
 
+    @staticmethod
+    def _emit_lifecycle_hook(item: Activity) -> None:
+        event_name = _TASK_LIFECYCLE_HOOKS.get(item.action)
+        if event_name is None:
+            return
+        try:
+            emit(
+                event_name,
+                payload={"activity": item},
+                source="activity-journal",
+            )
+        except Exception:
+            # The journal row is already durable and the authoritative Task action
+            # already happened.  Extension infrastructure must never reverse it.
+            return
+
     # ------------------------------------------------------------------
     # Public Object API
     # ------------------------------------------------------------------
@@ -108,6 +133,7 @@ class ActivityService:
             item.object_id,
             deepcopy(item.metadata),
         )
+        self._emit_lifecycle_hook(item)
         return item
 
     def today(self) -> list[Activity]:
