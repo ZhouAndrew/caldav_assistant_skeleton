@@ -17,6 +17,7 @@ from datetime import timedelta
 from typing import Any, Callable
 
 from .menu import Menu
+from .task_labels import task_labeler
 
 
 class PromptKit:
@@ -198,10 +199,28 @@ class PromptKit:
             return raw == confirmation
         return raw.casefold() == confirmation.casefold()
 
+    @staticmethod
+    def _task_shaped(item: Any) -> bool:
+        # Event has summary but no status in the frozen v1 model; Task has both.
+        return hasattr(item, "summary") and hasattr(item, "status") and hasattr(item, "id")
+
+    def _prepare_choices(self, items: Any, options: dict[str, Any]) -> tuple[list[Any], dict[str, Any]]:
+        materialized = list(items)
+        prepared = dict(options)
+        if materialized and all(self._task_shaped(item) for item in materialized):
+            materialized, label = task_labeler(materialized)
+            # Task identity is UID, not title.  Centralizing this here means every
+            # PromptKit-backed task chooser (including resume and ambiguous find)
+            # remains safe when many legitimate Tasks share the same summary.
+            prepared["item_label"] = label
+        return materialized, prepared
+
     def choose(self, title: str, items: Any, **options: Any) -> Any:
+        items, options = self._prepare_choices(items, options)
         return self.menu.choose(title, items, **options)
 
     def choose_many(self, title: str, items: Any, **options: Any) -> list[Any]:
+        items, options = self._prepare_choices(items, options)
         return self.menu.choose_many(title, items, **options)
 
     @staticmethod
@@ -214,9 +233,9 @@ class PromptKit:
         if self.tasks is None:
             self._write("Task service is unavailable.")
             return None
-        items = list(self.tasks.list(**filters) or ())
+        items, label = task_labeler(self.tasks.list(**filters) or ())
         title = title or self.t("prompt.choose_task", "Choose task")
-        return self.menu.choose(title, items, item_label=self._display_label)
+        return self.menu.choose(title, items, item_label=label)
 
     def choose_event(self, title: str | None = None, **filters: Any) -> Any:
         if self.events is None:
