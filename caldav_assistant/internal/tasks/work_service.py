@@ -1,8 +1,9 @@
-"""Task lifecycle semantics backed by CalDAV Work VEVENTs.
+"""Task lifecycle semantics backed by CalDAV Work VEVENTs when available.
 
-The base TaskService remains useful for pure unit/object API use. Production uses
-this subclass so start/pause/resume/complete work-session facts are stored only in
-CalDAV, not in the local Activity Journal or assistant_state table.
+Production prefers authoritative CalDAV Work VEVENTs for cross-device work intervals,
+but work-history storage is an optional enhancement rather than a prerequisite for
+using Tasks.  When no work-log VEVENT collection is configured, lifecycle actions
+fall back to the base TaskService and its Activity Journal records.
 """
 from __future__ import annotations
 
@@ -18,30 +19,55 @@ class CalDAVWorkTaskService(TaskService):
         super().__init__(*args, **kwargs)
         self.worklog = worklog
 
+    def _worklog_configured(self) -> bool:
+        if self.worklog is None:
+            return False
+        configured = getattr(self.worklog, "configured", None)
+        if not callable(configured):
+            return True
+        try:
+            return bool(configured())
+        except Exception:
+            return False
+
     def _session_current_id(self) -> str | None:
-        if self.worklog is not None:
+        # The Session service owns the user-facing current/paused interpretation.
+        # With a configured work log it delegates to WorkLogService; without one it
+        # derives state from explicit Activity Journal lifecycle records.
+        if self.session is not None:
+            return super()._session_current_id()
+        if self._worklog_configured():
             return self.worklog.current_task_id()
-        return super()._session_current_id()
+        return None
 
     def _session_paused_ids(self) -> tuple[str, ...]:
-        if self.worklog is None:
+        if self.session is not None:
             return super()._session_paused_ids()
+        if not self._worklog_configured():
+            return ()
+
         current = self.worklog.current_task_id()
         try:
             items = self.list(status="IN-PROCESS")
         except Exception:
             return ()
-        return tuple(
-            task.id
-            for task in items
-            if task.id
-            and task.id != current
-            and task.status == "IN-PROCESS"
-            and not task.completed
-        )
+
+        paused: list[str] = []
+        for task in items:
+            task_id = str(getattr(task, "id", "") or "").strip()
+            if not task_id or task_id == current or task.completed:
+                continue
+            try:
+                # An IN-PROCESS VTODO is not enough to mean "paused by this
+                # Assistant".  A prior Assistant work segment is the proof.
+                if self.worklog.segments_for(task):
+                    paused.append(task_id)
+            except Exception:
+                continue
+        return tuple(paused)
 
     def start(self, task: Task | str) -> ActionResult:
-        if self.worklog is None:
+        if not self._worklog_configured():
             return super().start(task)
 
         obj = self.get(task)
@@ -49,7 +75,7 @@ class CalDAVWorkTaskService(TaskService):
         if obj.completed or obj.status in {"COMPLETED", "CANCELLED"}:
             raise ValidationError("A completed or cancelled Task cannot be started")
 
-        current_id = self.worklog.current_task_id()
+        current_id = self._session_current_id()
         if current_id == task_id:
             raise ValidationError("This Task is already the current work")
         if current_id:
@@ -59,7 +85,7 @@ class CalDAVWorkTaskService(TaskService):
 
         segment = self.worklog.start_segment(obj)
         try:
-            return self._update(
+            result = self._update(
                 obj,
                 {
                     "status": "IN-PROCESS",
@@ -75,22 +101,38 @@ class CalDAVWorkTaskService(TaskService):
                 pass
             raise
 
+        self._record(
+            "task_started",
+            result.affected,
+            work_session_before="none",
+            work_session_after="current",
+            **self._plan_context(obj),
+        )
+        return result
+
     def pause(self, task: Task | str) -> ActionResult:
-        if self.worklog is None:
+        if not self._worklog_configured():
             return super().pause(task)
 
         obj = self.get(task)
         task_id = self._require_id(obj)
         if obj.status != "IN-PROCESS":
             raise ValidationError("A planned Task is not running and cannot be paused")
-        if self.worklog.current_task_id() != task_id:
+        if self._session_current_id() != task_id:
             raise ValidationError("Only the Task you are working on now can be paused")
 
         self.worklog.close_segment(obj, required=True)
+        self._record(
+            "task_paused",
+            obj,
+            work_session_before="current",
+            work_session_after="paused",
+            **self._plan_context(obj),
+        )
         return ActionResult(True, affected=obj, undo_available=False)
 
     def resume(self, task: Task | str) -> ActionResult:
-        if self.worklog is None:
+        if not self._worklog_configured():
             return super().resume(task)
 
         obj = self.get(task)
@@ -100,28 +142,47 @@ class CalDAVWorkTaskService(TaskService):
         if obj.status != "IN-PROCESS":
             raise ValidationError("Only an in-progress Task can be resumed")
 
-        current_id = self.worklog.current_task_id()
+        current_id = self._session_current_id()
         if current_id:
             if current_id == task_id:
                 raise ValidationError("This Task is already the current work")
             raise ValidationError(
                 "Another Task is currently being worked on; pause or complete it before resuming this Task"
             )
+        if task_id not in self._session_paused_ids():
+            raise ValidationError("Only a Task you previously paused can be resumed")
         if self.worklog.open_for(obj) is not None:
             raise ValidationError("This Task already has an open CalDAV work interval")
 
         self.worklog.start_segment(obj)
+        self._record(
+            "task_resumed",
+            obj,
+            work_session_before="paused",
+            work_session_after="current",
+            **self._plan_context(obj),
+        )
         return ActionResult(True, affected=obj, undo_available=False)
 
     def complete(self, task: Task | str) -> ActionResult:
-        if self.worklog is None:
+        if not self._worklog_configured():
             return super().complete(task)
 
         obj = self.get(task)
         task_id = self._require_id(obj)
+        current_id = self._session_current_id()
+        paused_ids = self._session_paused_ids()
+        work_session_before = (
+            "current"
+            if current_id == task_id
+            else "paused"
+            if task_id in paused_ids
+            else "none"
+        )
+
         closed = None
         completed_at = self.worklog.now()
-        if self.worklog.current_task_id() == task_id:
+        if current_id == task_id:
             closed = self.worklog.close_segment(obj, required=True)
             # Use the same authoritative clock instant for VTODO completion as the
             # closed interval when possible.
@@ -129,7 +190,7 @@ class CalDAVWorkTaskService(TaskService):
                 completed_at = closed.end
 
         try:
-            return self._update(
+            result = self._update(
                 obj,
                 {
                     "status": "COMPLETED",
@@ -145,6 +206,15 @@ class CalDAVWorkTaskService(TaskService):
                 except Exception:
                     pass
             raise
+
+        self._record(
+            "task_completed",
+            result.affected,
+            work_session_before=work_session_before,
+            work_session_after="none",
+            **self._plan_context(obj),
+        )
+        return result
 
 
 __all__ = ["CalDAVWorkTaskService"]
