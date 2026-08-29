@@ -188,7 +188,16 @@ class WPCLIAdapter:
         one draft post for the day is created.  A hidden request marker makes Outbox
         retries idempotent without adding visible noise to the post.
         """
-        now = self._local_now()
+        logged_at = metadata.pop("_logged_at", None)
+        if logged_at:
+            try:
+                now = datetime.fromisoformat(str(logged_at))
+            except ValueError as exc:
+                raise ValidationError("Invalid WordPress log timestamp") from exc
+            if now.tzinfo is None:
+                now = now.astimezone()
+        else:
+            now = self._local_now()
         daily_title = self._daily_title(now)
         entry_title = metadata.pop("title", None)
         request_id = metadata.pop("_request_id", None)
