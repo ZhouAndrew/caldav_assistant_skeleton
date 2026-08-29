@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 
 from caldav_assistant.api import Task
 from caldav_assistant.internal.session import SessionService
@@ -15,6 +15,7 @@ class Adapter:
             start=date(2026, 8, 29),
             due=date(2026, 8, 30),
             priority=5,
+            status="NEEDS-ACTION",
         )
 
     def list_tasks(self, **filters):
