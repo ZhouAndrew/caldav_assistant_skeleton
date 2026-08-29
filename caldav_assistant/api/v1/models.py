@@ -1,7 +1,7 @@
 """Stable public v1 domain objects.
 
-These are deliberately small data objects.  Validation and authoritative mutation
-remain in Core Services.  Convenience methods merely delegate to the service that
+These are deliberately small data objects. Validation and authoritative mutation
+remain in Core Services. Convenience methods merely delegate to the service that
 bound the object; they never reproduce Task/Event business rules.
 """
 from __future__ import annotations
@@ -34,8 +34,6 @@ class Task:
     priority: int | None = None
     categories: list[str] = field(default_factory=list)
     overdue: bool = False
-    # Advanced/raw access is retained for compatibility with the existing v1
-    # scaffold. Easy API itself never exposes a raw-CalDAV helper.
     raw: Any = None
     _service: Any = field(default=None, repr=False, compare=False)
 
@@ -120,6 +118,20 @@ class Agenda:
         return self.items[index]
 
 
+@dataclass(frozen=True, slots=True)
+class NotificationRequest:
+    """Platform-neutral notification decision returned by reminder rules."""
+
+    key: str
+    when: datetime
+    title: str
+    body: str = ""
+    actions: tuple[str, ...] = ()
+    source: str = ""
+    object_id: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
 @dataclass
 class Reminder:
     id: str = ""
@@ -142,6 +154,7 @@ __all__ = [
     "Event",
     "AgendaItem",
     "Agenda",
+    "NotificationRequest",
     "Reminder",
     "Activity",
 ]

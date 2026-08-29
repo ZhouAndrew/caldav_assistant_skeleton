@@ -1,8 +1,6 @@
 """CalDAV Assistant Full Extension / Object API v1.
 
 Everything exported here is part of the versioned public API surface.
-Implementations live behind AssistantContext namespaces; this module contains no
-adapter selection, IPC wiring, storage access, or Core business logic.
 """
 from .context import AssistantContext
 from .errors import (
@@ -36,6 +34,7 @@ from .models import (
     Reminder,
     Task,
 )
+from .reminder_rules import NotificationRequest, reminder_rule
 
 __all__ = [
     "AssistantContext",
@@ -46,6 +45,8 @@ __all__ = [
     "Reminder",
     "Activity",
     "ActionResult",
+    "NotificationRequest",
+    "reminder_rule",
     "CalDAVAssistantError",
     "NotFoundError",
     "AmbiguousError",

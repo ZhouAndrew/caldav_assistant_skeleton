@@ -45,6 +45,7 @@ class ReminderService:
         state: Any,
         tasks: Any,
         events: Any,
+        rules: Any = None,
     ) -> None:
         self.engine = engine
         self.notifications = notifications
@@ -52,6 +53,7 @@ class ReminderService:
         self.state = state
         self.tasks = tasks
         self.events = events
+        self.rules = rules
 
     # ------------------------------------------------------------------
     # Explicit Assistant reminders (local auxiliary state, not CalDAV facts)
@@ -87,7 +89,6 @@ class ReminderService:
                 return datetime.fromisoformat(raw)
             return date.fromisoformat(raw)
 
-        # Read old/simple state defensively if it already exists.
         raw = str(value)
         try:
             return datetime.fromisoformat(raw)
@@ -110,7 +111,6 @@ class ReminderService:
                     )
                 )
             except (TypeError, ValueError):
-                # A single corrupt local helper row must not hide valid reminders.
                 continue
         return result
 
@@ -128,31 +128,18 @@ class ReminderService:
         self.state.set(self._ITEMS_KEY, payload)
 
     def list(self, **filters: Any) -> list[Reminder]:
-        """Return explicit Assistant reminders, optionally filtered by metadata.
-
-        ``id`` and ``title`` filter their public fields; all other filters match
-        ``Reminder.metadata``. Unknown filters simply produce no match.
-        """
         items = self._load_items()
         if not filters:
             return sorted(items, key=self._reminder_sort_key)
 
         def matches(item: Reminder) -> bool:
             for key, expected in filters.items():
-                if key == "id":
-                    actual = item.id
-                elif key == "title":
-                    actual = item.title
-                else:
-                    actual = item.metadata.get(key)
+                actual = item.id if key == "id" else item.title if key == "title" else item.metadata.get(key)
                 if actual != expected:
                     return False
             return True
 
-        return sorted(
-            [item for item in items if matches(item)],
-            key=self._reminder_sort_key,
-        )
+        return sorted([item for item in items if matches(item)], key=self._reminder_sort_key)
 
     @staticmethod
     def _reminder_sort_key(item: Reminder) -> tuple[int, str]:
@@ -166,13 +153,7 @@ class ReminderService:
     def create(self, title: str, when: Any, **options: Any) -> Reminder:
         title = self._validate_title(title)
         parsed = self._parse_when(when)
-
-        reminder = Reminder(
-            id=f"rem-{uuid4().hex}",
-            title=title,
-            when=parsed,
-            metadata=dict(options),
-        )
+        reminder = Reminder(id=f"rem-{uuid4().hex}", title=title, when=parsed, metadata=dict(options))
         items = self._load_items()
         items.append(reminder)
         self._save_items(items)
@@ -182,7 +163,6 @@ class ReminderService:
         reminder_id = reminder.id if isinstance(reminder, Reminder) else reminder
         if not isinstance(reminder_id, str) or not reminder_id.strip():
             raise ValidationError("Reminder id must not be empty")
-
         for item in self._load_items():
             if item.id == reminder_id.strip():
                 return item
@@ -191,25 +171,17 @@ class ReminderService:
     def snooze(self, reminder: Reminder | str, until: Any) -> Reminder:
         target = self._resolve(reminder)
         target.when = self._parse_when(until)
-
-        items = self._load_items()
-        items = [target if item.id == target.id else item for item in items]
+        items = [target if item.id == target.id else item for item in self._load_items()]
         self._save_items(items)
-
-        # A snoozed explicit reminder is a new delivery opportunity.  Engine delivery
-        # keys normally contain the reminder id; remove only those keys, leaving Task/
-        # Event de-duplication untouched.
         delivered = self._delivered_keys()
         retained = {key for key in delivered if target.id not in key}
         if retained != delivered:
             self._save_delivered_keys(retained)
-
         return target
 
     def cancel(self, reminder: Reminder | str) -> Reminder:
         target = self._resolve(reminder)
-        items = [item for item in self._load_items() if item.id != target.id]
-        self._save_items(items)
+        self._save_items([item for item in self._load_items() if item.id != target.id])
         return target
 
     # ------------------------------------------------------------------
@@ -226,35 +198,17 @@ class ReminderService:
 
     @staticmethod
     def _request_key(request: Any) -> str:
-        for name in (
-            "delivery_key",
-            "dedupe_key",
-            "key",
-            "reminder_id",
-            "id",
-        ):
+        for name in ("delivery_key", "dedupe_key", "key", "reminder_id", "id"):
             value = getattr(request, name, None)
             if callable(value):
                 value = value()
             if value not in (None, ""):
                 return str(value)
-
         when = ReminderService._request_when(request)
         kind = getattr(request, "kind", "")
-        entity = (
-            getattr(request, "entity_id", None)
-            or getattr(request, "object_id", None)
-            or ""
-        )
+        entity = getattr(request, "entity_id", None) or getattr(request, "object_id", None) or ""
         title = getattr(request, "title", "")
-        return "|".join(
-            [
-                str(kind),
-                str(entity),
-                when.isoformat() if isinstance(when, date) else "",
-                str(title),
-            ]
-        )
+        return "|".join([str(kind), str(entity), when.isoformat() if isinstance(when, date) else "", str(title)])
 
     @staticmethod
     def _request_when(request: Any) -> date | datetime | None:
@@ -267,22 +221,18 @@ class ReminderService:
     # ------------------------------------------------------------------
     # ReminderEngine bridge
     # ------------------------------------------------------------------
-    def _engine_call(
-        self,
-        method_name: str,
-        *,
-        now: datetime | None = None,
-        requests: list[Any] | None = None,
-    ):
-        """Call one ReminderEngine brick using only the inputs it declares.
+    def _rule_values(self) -> tuple[Any, ...]:
+        if self.rules is None:
+            return ()
+        getter = getattr(self.rules, "rules", None)
+        if callable(getter):
+            return tuple(getter())
+        try:
+            return tuple(self.rules)
+        except TypeError:
+            return ()
 
-        The production engine has two stages: ``evaluate(tasks, events, ...)``
-        builds NotificationRequests, while ``due(requests, ...)`` and
-        ``next_due(requests, ...)`` consume those requests.  Older compatibility
-        engines may expose a single ``evaluate``/``due`` brick with a different
-        signature.  Resolve arguments lazily from the inspected signature so a
-        method that does not need CalDAV data never triggers Task/Event scans.
-        """
+    def _engine_call(self, method_name: str, *, now: datetime | None = None, requests: list[Any] | None = None):
         method = getattr(self.engine, method_name, None)
         if not callable(method):
             return None
@@ -297,8 +247,6 @@ class ReminderService:
         def request_values() -> list[Any]:
             if requests is not None:
                 return list(requests)
-            # ``due``/``next_due`` on the production engine operate on the output
-            # of ``evaluate``.  Evaluate exactly once for this engine call.
             return self._evaluate(now)
 
         def list_source(source: Any) -> list[Any]:
@@ -312,6 +260,7 @@ class ReminderService:
             "events": lambda: once("events", lambda: list_source(self.events)),
             "reminders": lambda: once("reminders", self.list),
             "explicit_reminders": lambda: once("reminders", self.list),
+            "rules": lambda: once("rules", self._rule_values),
             "delivered": lambda: once("delivered", self._delivered_keys),
             "delivered_keys": lambda: once("delivered", self._delivered_keys),
             "requests": lambda: once("requests", request_values),
@@ -323,42 +272,28 @@ class ReminderService:
         signature = inspect.signature(method)
         kwargs: dict[str, Any] = {}
         unknown_required: list[str] = []
-
         for name, parameter in signature.parameters.items():
             supplier = suppliers.get(name)
             if supplier is not None:
-                # ``None`` is meaningful for now/at/after and lets the engine use
-                # its own clock when desired.
                 kwargs[name] = supplier()
-            elif (
-                parameter.default is inspect.Parameter.empty
-                and parameter.kind
-                not in (
-                    inspect.Parameter.VAR_POSITIONAL,
-                    inspect.Parameter.VAR_KEYWORD,
-                )
+            elif parameter.default is inspect.Parameter.empty and parameter.kind not in (
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
             ):
                 unknown_required.append(name)
-
         if unknown_required:
             raise TypeError(
-                f"Unsupported ReminderEngine.{method_name} contract; "
-                f"required parameters: {', '.join(unknown_required)}"
+                f"Unsupported ReminderEngine.{method_name} contract; required parameters: {', '.join(unknown_required)}"
             )
-
         return method(**kwargs)
 
     def _evaluate(self, now: datetime | None = None) -> list[Any]:
         result = self._engine_call("evaluate", now=now)
         if result is not None:
             return list(result)
-
-        # Compatibility with engines that expose ``due`` directly.
         result = self._engine_call("due", now=now)
         if result is None:
-            raise TypeError(
-                "ReminderEngine must provide evaluate(...) or due(...)"
-            )
+            raise TypeError("ReminderEngine must provide evaluate(...) or due(...)")
         return list(result)
 
     @staticmethod
@@ -371,38 +306,23 @@ class ReminderService:
 
     @staticmethod
     def _is_due(when: date | datetime | None, now: datetime) -> bool:
-        # Date-only values deliberately are NOT converted to midnight. ReminderEngine
-        # may apply an explicit configured policy later; this service does not invent it.
         if not isinstance(when, datetime):
             return False
-
         if when.tzinfo is None and now.tzinfo is not None:
-            # Do not guess a timezone for a floating datetime.
             return False
         if when.tzinfo is not None and now.tzinfo is None:
             return False
-
         return when <= now
 
     def due(self, now: datetime | None = None) -> list[Any]:
-        """Return due, not-yet-delivered NotificationRequests without sending."""
         moment = self._coerce_now(now)
-
         direct = self._engine_call("due", now=moment)
         requests = list(direct) if direct is not None else self._evaluate(moment)
         delivered = self._delivered_keys()
-
-        return [
-            request
-            for request in requests
-            if self._request_key(request) not in delivered
-            and self._is_due(self._request_when(request), moment)
-        ]
+        return [request for request in requests if self._request_key(request) not in delivered and self._is_due(self._request_when(request), moment)]
 
     def next_due(self, now: datetime | None = None) -> datetime | None:
-        """Return the next precise wake time; never coerce date-only to midnight."""
         moment = self._coerce_now(now)
-
         direct = self._engine_call("next_due", now=moment)
         if direct is not None:
             if isinstance(direct, datetime):
@@ -410,7 +330,6 @@ class ReminderService:
             direct_when = self._request_when(direct)
             if isinstance(direct_when, datetime):
                 return direct_when
-
         delivered = self._delivered_keys()
         candidates: list[datetime] = []
         for request in self._evaluate(moment):
@@ -419,19 +338,11 @@ class ReminderService:
             when = self._request_when(request)
             if isinstance(when, datetime):
                 candidates.append(when)
-
         return min(candidates) if candidates else None
 
     def process_due(self, now: datetime | None = None) -> list[Any]:
-        """Deliver due requests and persist de-duplication only after success.
-
-        If NotificationService raises, the failing request is intentionally not marked
-        delivered.  Successfully delivered requests before it stay marked, so a retry
-        cannot duplicate them.
-        """
         sent: list[Any] = []
         delivered = self._delivered_keys()
-
         for request in self.due(now):
             title = self._validate_title(getattr(request, "title", ""))
             body = getattr(request, "body", None)
@@ -440,12 +351,9 @@ class ReminderService:
             if body is None:
                 body = ""
             actions = getattr(request, "actions", None)
-
             self.notifications.send(title, str(body), actions)
-
             key = self._request_key(request)
             delivered.add(key)
             self._save_delivered_keys(delivered)
             sent.append(request)
-
         return sent
