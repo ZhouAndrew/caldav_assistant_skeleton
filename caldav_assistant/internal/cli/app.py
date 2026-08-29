@@ -154,14 +154,19 @@ def run_repl(app: Any) -> int:
     _ui_show(app, _t(app, "cli.hint", "Type 'help' for commands. Ctrl-D or Ctrl-C exits."))
     last_code = 0
     while True:
-        try:
-            line = app.io.read("> ")
-        except EOFError:
-            _ui_show(app, "")
-            return last_code
-        except KeyboardInterrupt:
-            _ui_show(app, "")
-            return 130
+        pending = getattr(app, "_pending_repl_line", None)
+        if pending is not None:
+            line = str(pending)
+            delattr(app, "_pending_repl_line")
+        else:
+            try:
+                line = app.io.read("> ")
+            except EOFError:
+                _ui_show(app, "")
+                return last_code
+            except KeyboardInterrupt:
+                _ui_show(app, "")
+                return 130
         try:
             parsed = parse_command_line(line)
         except ValueError as exc:
