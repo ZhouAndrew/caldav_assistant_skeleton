@@ -98,7 +98,7 @@ edit_event("教研会议", location="会议室")  # Event：独立 Event API
 complete(next_event())   # 不允许：Event 不是可完成的 Task
 ```
 
-### 在程序里学习和创建扩展
+### 在程序里学习、创建和调试扩展
 
 不需要先寻找扩展目录或阅读内部源码。进入 CLI 后：
 
@@ -114,7 +114,7 @@ complete(next_event())   # 不允许：Event 不是可完成的 Task
 > extension new school
 ```
 
-程序会在受管理的用户扩展目录中生成 `school.py`，默认保持禁用。编辑文件后：
+程序会在受管理的用户扩展目录中生成 `school.py`，默认保持禁用。即使过去删除过同名扩展并留下启用设置，新文件也会重新从禁用状态开始。编辑文件后：
 
 ```text
 > extension enable school
@@ -124,6 +124,18 @@ complete(next_event())   # 不允许：Event 不是可完成的 Task
 
 ```text
 > extension reload school
+```
+
+如果扩展加载或运行 Hook 时出错，先看摘要：
+
+```text
+> extension errors
+```
+
+再看某个扩展的路径、错误和 traceback：
+
+```text
+> extension errors school
 ```
 
 查看扩展目录：
