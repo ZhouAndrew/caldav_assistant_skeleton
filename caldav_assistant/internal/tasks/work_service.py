@@ -1,6 +1,6 @@
 """Task lifecycle semantics backed by CalDAV Work VEVENTs.
 
-The base TaskService remains useful for pure unit/object API use.  Production uses
+The base TaskService remains useful for pure unit/object API use. Production uses
 this subclass so start/pause/resume/complete work-session facts are stored only in
 CalDAV, not in the local Activity Journal or assistant_state table.
 """
@@ -17,9 +17,6 @@ class CalDAVWorkTaskService(TaskService):
     def __init__(self, *args: Any, worklog: Any = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.worklog = worklog
-
-    def _caldav_work_enabled(self) -> bool:
-        return self.worklog is not None
 
     def _session_current_id(self) -> str | None:
         if self.worklog is not None:
@@ -123,8 +120,13 @@ class CalDAVWorkTaskService(TaskService):
         obj = self.get(task)
         task_id = self._require_id(obj)
         closed = None
+        completed_at = self.worklog.now()
         if self.worklog.current_task_id() == task_id:
             closed = self.worklog.close_segment(obj, required=True)
+            # Use the same authoritative clock instant for VTODO completion as the
+            # closed interval when possible.
+            if getattr(closed, "end", None) is not None:
+                completed_at = closed.end
 
         try:
             return self._update(
@@ -132,7 +134,7 @@ class CalDAVWorkTaskService(TaskService):
                 {
                     "status": "COMPLETED",
                     "completed": True,
-                    "completed_at": self._normalize_changes({"status": "COMPLETED"})["completed_at"],
+                    "completed_at": completed_at,
                 },
                 activity_action=None,
             )
