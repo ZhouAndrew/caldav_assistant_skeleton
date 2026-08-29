@@ -223,7 +223,7 @@ def test_only_current_work_can_be_paused_and_only_paused_work_resumed():
 
     service.start("1")
 
-    with pytest.raises(ValidationError, match="working on now"):
+    with pytest.raises(ValidationError, match="planned Task"):
         service.pause("2")
 
     with pytest.raises(ValidationError, match="Another Task"):
