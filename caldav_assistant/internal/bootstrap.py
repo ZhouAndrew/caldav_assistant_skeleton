@@ -78,6 +78,9 @@ from .wordpress.transports import WPCLIAdapter
 from .worklog import WorkLogService
 
 
+_WORK_EVENT_CATEGORY = "caldav-assistant-work"
+
+
 @dataclass
 class ServiceApplication:
     ctx: AssistantContext
@@ -136,6 +139,18 @@ def _build_base_url_provider(settings: SettingsService) -> ServerDiscovery:
     return ServerDiscovery(settings, adapters=[MDNSCalDAVDiscoveryAdapter()])
 
 
+def _ordinary_cached_events(loader):
+    def load():
+        return [
+            event
+            for event in loader()
+            if _WORK_EVENT_CATEGORY
+            not in set(getattr(event, "categories", ()) or ())
+        ]
+
+    return load
+
+
 def _register_builtin_commands(registry: CommandRegistry, ctx: AssistantContext) -> None:
     builtins = BuiltinActions(ctx)
     registry.register("today", builtins.today, protected=True)
@@ -155,6 +170,15 @@ def build_service_application() -> ServiceApplication:
     assistant_state = SQLiteKeyValueRepository(store, "assistant_state")
     undo_repo = SQLiteUndoRepository(store)
 
+    # Old builds stored current/paused work UIDs locally. Production no longer
+    # reads or writes those keys: CalDAV Work VEVENTs are the only work-session
+    # facts. Remove stale copies so there is not even an inert duplicate left.
+    for deprecated_key in ("current_task_uid", "paused_task_uids"):
+        try:
+            assistant_state.delete(deprecated_key)
+        except Exception:
+            pass
+
     settings_service = SettingsService(settings_repo)
     public_settings = PublicSettingsAPI(settings_service)
     activity = ActivityService(activity_repo)
@@ -169,9 +193,6 @@ def build_service_application() -> ServiceApplication:
     _caldav_setup = CalDAVSetupService(settings_service, base_url_provider, caldav)
     sync = SyncEngine(caldav, cache)
 
-    # Ordinary creation follows explicit user-selected collection roles. The
-    # transport still refuses to guess when a role is not configured and multiple
-    # compatible collections exist.
     routed_caldav = CollectionRoutingCalDAVAdapter(
         caldav,
         task_collection_url=lambda: settings_service.get(CALDAV_TASK_COLLECTION_URL, None),
@@ -190,8 +211,6 @@ def build_service_application() -> ServiceApplication:
     )
     completion_log = TaskCompletionLogService(worklog, wordpress)
 
-    # Production work-session facts are derived from CalDAV Work VEVENTs. No
-    # current/paused UID is persisted in assistant_state.
     session = CalDAVSessionService(worklog)
     tasks = CompletionLoggingTaskService(
         routed_caldav,
@@ -220,7 +239,7 @@ def build_service_application() -> ServiceApplication:
         temporal,
         assistant_state,
         sync.cached_tasks,
-        sync.cached_events,
+        _ordinary_cached_events(sync.cached_events),
     )
 
     registry = CommandRegistry()
