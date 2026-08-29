@@ -114,6 +114,14 @@ class Menu:
         ]
 
     @staticmethod
+    def _exact(choices: Sequence[Choice], text: str) -> Choice | None:
+        needle = text.strip().casefold()
+        if not needle:
+            return None
+        matches = [choice for choice in choices if choice.label.strip().casefold() == needle]
+        return matches[0] if len(matches) == 1 else None
+
+    @staticmethod
     def _parse_many(text: str, max_index: int) -> list[int] | None:
         values: list[int] = []
         try:
@@ -138,7 +146,7 @@ class Menu:
 
     def _show_help(self, *, multiple: bool, searchable: bool, paged: bool, extra: str | None) -> None:
         lines = [
-            "number: choose",
+            "number or exact label: choose",
             f"0/back: {self._t('menu.back', 'Back')}",
             f"q/cancel: {self._t('menu.cancel', 'Cancel')}",
             f"?/help: {self._t('menu.help', 'Help')}",
@@ -231,6 +239,10 @@ class Menu:
                 page = max(0, page - 1)
                 continue
 
+            exact = self._exact(filtered, raw)
+            if exact is not None and not multiple:
+                return exact.value
+
             search_query = None
             if searchable and raw.startswith("/"):
                 search_query = raw[1:].strip()
@@ -260,7 +272,7 @@ class Menu:
                 if 1 <= index <= len(filtered):
                     return filtered[index - 1].value
 
-            self._write("Invalid choice. Enter a number, 0/back, q/cancel, or ?/help.")
+            self._write("Invalid choice. Enter a number or exact label, 0/back, q/cancel, or ?/help.")
 
     def choose_many(self, title: str, items: Iterable[Any], **options: Any) -> list[Any]:
         return list(self.choose(title, items, multiple=True, **options) or [])
