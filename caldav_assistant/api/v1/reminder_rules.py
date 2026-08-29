@@ -1,8 +1,8 @@
 """Stable v1 reminder-rule extension surface.
 
 Reminder rules are advisory bricks: they inspect public Task/Event objects and
-return platform-neutral NotificationRequest values. Delivery and Task mutation
-remain owned by Core services.
+return platform-neutral notification requests. Delivery and Task mutation remain
+owned by Core services.
 """
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from contextvars import ContextVar
 from typing import Any, Callable, Iterator
 
 from .errors import ExtensionError
-from .models import NotificationRequest
 
 
 Registrar = Callable[[Any, str | None], Any]
@@ -22,6 +21,19 @@ _active_registrar: ContextVar[Registrar | None] = ContextVar(
 _active_owner: ContextVar[str | None] = ContextVar(
     "caldav_assistant_active_reminder_rule_owner", default=None
 )
+
+
+def NotificationRequest(*args: Any, **kwargs: Any):
+    """Construct the platform-neutral Core request without import-time coupling.
+
+    The lazy import is intentional: Public API initialization must never import the
+    ReminderEngine back through ``internal``. At rule-evaluation time the Core is
+    already initialized, so the returned object is the exact request type consumed
+    by ReminderEngine and ReminderService.
+    """
+    from ...internal.reminders.engine import NotificationRequest as _Request
+
+    return _Request(*args, **kwargs)
 
 
 def _bind_reminder_rule_registrar(registrar: Registrar) -> None:
