@@ -45,6 +45,7 @@ from .runtime.proxies import (
     RemoteEventsAPI,
     RemoteNotificationsAPI,
     RemoteRemindersAPI,
+    RemoteSessionAPI,
     RemoteSettingsAPI,
     RemoteTasksAPI,
     RemoteWordPressAPI,
@@ -149,7 +150,6 @@ def build_service_application() -> ServiceApplication:
 
     settings_service = SettingsService(settings_repo)
     public_settings = PublicSettingsAPI(settings_service)
-    session = SessionService()
     activity = ActivityService(activity_repo)
     undo = UndoManager(undo_repo)
     temporal = TemporalService(TemporalParser())
@@ -161,7 +161,14 @@ def build_service_application() -> ServiceApplication:
     )
     _caldav_setup = CalDAVSetupService(settings_service, base_url_provider, caldav)
     sync = SyncEngine(caldav, cache)
-    tasks = TaskService(caldav, activity, undo)
+
+    # Human work-session state is Assistant-owned auxiliary state.  The Task facts
+    # themselves remain in CalDAV.  SessionService and TaskService share only the
+    # small persisted current/paused UID state.
+    session = SessionService(assistant_state)
+    tasks = TaskService(caldav, activity, undo, session)
+    session.bind_tasks(tasks)
+
     events = EventService(caldav, activity, undo)
     undo.bind(tasks=tasks, events=events)
     agenda = AgendaService(
@@ -251,6 +258,7 @@ def build_cli_application() -> CLIApplication:
     wordpress = RemoteWordPressAPI(runtime)
     activity = RemoteActivityAPI(runtime)
     settings = RemoteSettingsAPI(runtime)
+    session = RemoteSessionAPI(runtime)
     temporal = TemporalService(TemporalParser())
     io = StdConsoleIO()
     locale = LocaleService(settings)
@@ -263,7 +271,6 @@ def build_cli_application() -> CLIApplication:
         events,
         locale=locale,
     )
-    session = SessionService()
     registry = CommandRegistry()
     commands = CommandService(registry)
     bind_command_registry(registry)
