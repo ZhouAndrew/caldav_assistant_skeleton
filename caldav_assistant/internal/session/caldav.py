@@ -72,10 +72,16 @@ class CalDAVSessionService:
             return self.worklog.current_task_id()
 
         current: list[str] = []
+        seen: set[str] = set()
         for task in self._in_progress_tasks():
             task_id = str(getattr(task, "id", "") or "").strip()
-            if not task_id or bool(getattr(task, "completed", False)):
+            if (
+                not task_id
+                or task_id in seen
+                or bool(getattr(task, "completed", False))
+            ):
                 continue
+            seen.add(task_id)
             if self._latest_activity_action(task) in _CURRENT_ACTIONS:
                 current.append(task_id)
 
@@ -101,11 +107,18 @@ class CalDAVSessionService:
     def paused_task_ids(self) -> tuple[str, ...]:
         current = self.current_task_id()
         paused: list[str] = []
+        seen: set[str] = set()
 
         for task in self._in_progress_tasks():
             task_id = str(getattr(task, "id", "") or "").strip()
-            if not task_id or task_id == current or bool(getattr(task, "completed", False)):
+            if (
+                not task_id
+                or task_id in seen
+                or task_id == current
+                or bool(getattr(task, "completed", False))
+            ):
                 continue
+            seen.add(task_id)
 
             if self._worklog_configured():
                 try:
