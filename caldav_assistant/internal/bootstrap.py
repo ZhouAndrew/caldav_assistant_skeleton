@@ -53,9 +53,9 @@ from .runtime.proxies import (
 from .runtime.scheduler import PlatformWakeScheduler
 from .runtime.service import AssistantService
 from .runtime.service_launcher import ServiceLauncher
-from .session import SessionService
+from .session import CalDAVSessionService
 from .settings import PublicSettingsAPI, SettingsService
-from .settings.keys import CALDAV_CREDENTIALS, WORDPRESS_PATH
+from .settings.keys import CALDAV_CREDENTIALS, CALDAV_WORKLOG_COLLECTION_URL, WORDPRESS_PATH
 from .storage.sqlite import (
     SQLiteActivityRepository,
     SQLiteCacheRepository,
@@ -69,6 +69,7 @@ from .temporal import TemporalParser, TemporalService
 from .undo import UndoManager
 from .wordpress import WordPressService
 from .wordpress.transports import WPCLIAdapter
+from .worklog import WorkLogService
 
 
 @dataclass
@@ -162,25 +163,27 @@ def build_service_application() -> ServiceApplication:
     _caldav_setup = CalDAVSetupService(settings_service, base_url_provider, caldav)
     sync = SyncEngine(caldav, cache)
 
-    # Long-term work logs use only the durable WordPress Outbox on the Task
-    # completion path. Remote WordPress transport is flushed independently by the
-    # background service and can never gate authoritative CalDAV completion.
+    worklog = WorkLogService(
+        caldav,
+        lambda: settings_service.get(CALDAV_WORKLOG_COLLECTION_URL, None),
+    )
+
     wordpress = WordPressService(
         WPCLIAdapter(settings_service.get(WORDPRESS_PATH, None)),
         outbox_repo,
         activity,
     )
-    completion_log = TaskCompletionLogService(activity, wordpress)
+    completion_log = TaskCompletionLogService(worklog, wordpress)
 
-    # Human work-session state is Assistant-owned auxiliary state.  The Task facts
-    # themselves remain in CalDAV.  SessionService and TaskService share only the
-    # small persisted current/paused UID state.
-    session = SessionService(assistant_state)
+    # Production work-session facts are derived from CalDAV Work VEVENTs.  No
+    # current/paused UID is persisted in assistant_state.
+    session = CalDAVSessionService(worklog)
     tasks = CompletionLoggingTaskService(
         caldav,
         activity,
         undo,
         session,
+        worklog=worklog,
         completion_log=completion_log,
     )
     session.bind_tasks(tasks)
