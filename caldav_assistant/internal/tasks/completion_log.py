@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any, Iterable
 
 from ...api import Activity, Task
+from .service import TaskService
 
 
 _ACTION_LABELS = {
@@ -114,4 +115,33 @@ class TaskCompletionLogService:
         )
 
 
-__all__ = ["TaskCompletionLogService"]
+class CompletionLoggingTaskService(TaskService):
+    """Production TaskService decorator that adds non-blocking long-term logs.
+
+    CalDAV completion is authoritative and happens first.  WordPress transport is
+    never attempted here: only a durable Outbox enqueue is requested.  If even that
+    auxiliary enqueue fails, Task completion still succeeds and the failure is
+    recorded in the local Activity Journal when possible.
+    """
+
+    def __init__(self, *args: Any, completion_log: TaskCompletionLogService, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.completion_log = completion_log
+
+    def complete(self, task: Task | str):
+        result = super().complete(task)
+        try:
+            self.completion_log.queue_for(result.affected)
+        except Exception as exc:
+            try:
+                self._record(
+                    "task_completion_log_queue_failed",
+                    result.affected,
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+            except Exception:
+                pass
+        return result
+
+
+__all__ = ["TaskCompletionLogService", "CompletionLoggingTaskService"]
