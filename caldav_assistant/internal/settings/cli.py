@@ -13,7 +13,14 @@ from typing import Any
 
 from ...api.v1.errors import ValidationError
 from ..commands.service import CommandService
-from .keys import CALDAV_BASE_URL, CALDAV_CREDENTIALS, EXTENSIONS_ENABLED
+from .keys import (
+    CALDAV_BASE_URL,
+    CALDAV_CREDENTIALS,
+    CALDAV_EVENT_COLLECTION_URL,
+    CALDAV_TASK_COLLECTION_URL,
+    CALDAV_WORKLOG_COLLECTION_URL,
+    EXTENSIONS_ENABLED,
+)
 from .schema import DEFAULT_SETTINGS_SCHEMA, SettingSpec
 
 
@@ -120,7 +127,6 @@ class SettingsActions:
             value = method()
             return dict(value) if isinstance(value, dict) else {}
 
-        # Local/unit fallback. Credentials are intentionally not readable.
         base_url = self.ctx.settings.get(CALDAV_BASE_URL, None)
         return {
             "base_url": base_url,
@@ -160,7 +166,6 @@ class SettingsActions:
             )
             result = {"credentials_configured": True}
 
-        # Never print username/password or the returned mapping.
         self._show("✓ CalDAV credentials configured.")
         return result
 
@@ -189,39 +194,147 @@ class SettingsActions:
         self._show(f"✓ CalDAV connection: {count} collection(s)")
         return result
 
-    def _show_caldav_collections(self) -> Any:
+    def _caldav_collections(self) -> list[Any]:
         method = getattr(self.ctx.settings, "caldav_collections", None)
         if not callable(method):
             raise ValidationError(
                 "CalDAV collection discovery requires the production Runtime bridge"
             )
-        items = method() or []
+        return list(method() or [])
+
+    @staticmethod
+    def _collection_name(item: Any) -> str:
+        if not isinstance(item, dict):
+            return str(item)
+        return str(
+            item.get("name")
+            or item.get("display_name")
+            or item.get("url")
+            or item.get("href")
+            or item
+        )
+
+    @staticmethod
+    def _collection_url(item: Any) -> str | None:
+        if not isinstance(item, dict):
+            return None
+        value = item.get("url") or item.get("href") or item.get("id")
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    @staticmethod
+    def _collection_components(item: Any) -> tuple[str, ...]:
+        if not isinstance(item, dict):
+            return ()
+        raw = item.get("components") or item.get("supported_components") or ()
+        return tuple(str(value).upper() for value in raw)
+
+    def _show_caldav_collections(self) -> Any:
+        items = self._caldav_collections()
         lines = ["CalDAV collections"]
         if not items:
             lines.append("(none)")
         for index, item in enumerate(items, 1):
-            if isinstance(item, dict):
-                name = (
-                    item.get("name")
-                    or item.get("display_name")
-                    or item.get("url")
-                    or item.get("href")
-                    or str(item)
-                )
-                components = (
-                    item.get("components")
-                    or item.get("supported_components")
-                    or ()
-                )
-                suffix = (
-                    " [" + ", ".join(map(str, components)) + "]"
-                    if components else ""
-                )
-                lines.append(f"{index}. {name}{suffix}")
-            else:
-                lines.append(f"{index}. {item}")
+            name = self._collection_name(item)
+            components = self._collection_components(item)
+            suffix = " [" + ", ".join(components) + "]" if components else ""
+            lines.append(f"{index}. {name}{suffix}")
         self._show("\n".join(lines))
         return items
+
+    def _role_name(self, url: Any, items: list[Any]) -> str:
+        if not url:
+            return "Not configured"
+        wanted = str(url)
+        for item in items:
+            if self._collection_url(item) == wanted:
+                return self._collection_name(item)
+        return "Unavailable collection"
+
+    def _choose_collection_role(
+        self,
+        title: str,
+        key: str,
+        component: str,
+        items: list[Any],
+    ) -> Any:
+        compatible = [
+            item
+            for item in items
+            if component.upper() in self._collection_components(item)
+            and self._collection_url(item)
+        ]
+        if not compatible:
+            self._show(f"No discovered collection supports {component.upper()}.")
+            return None
+
+        labels: list[str] = []
+        mapping: dict[str, str] = {}
+        for index, item in enumerate(compatible, 1):
+            components = self._collection_components(item)
+            suffix = " [" + ", ".join(components) + "]" if components else ""
+            label = f"{index}. {self._collection_name(item)}{suffix}"
+            labels.append(label)
+            mapping[label] = str(self._collection_url(item))
+
+        selected = self._choose(title, labels)
+        if selected is None:
+            return None
+        url = mapping.get(selected)
+        if not url:
+            raise ValidationError("Unknown collection selection")
+        value = self.ctx.settings.set(key, url)
+        name = self._collection_name(
+            next(item for item in compatible if self._collection_url(item) == url)
+        )
+        self._show(f"✓ {title}: {name}")
+        return value
+
+    def _collection_roles_panel(self) -> None:
+        while True:
+            items = self._caldav_collections()
+            if not items:
+                self._show("No CalDAV collections were found. Test the connection first.")
+                return
+
+            task_url = self.ctx.settings.get(CALDAV_TASK_COLLECTION_URL, None)
+            event_url = self.ctx.settings.get(CALDAV_EVENT_COLLECTION_URL, None)
+            work_url = self.ctx.settings.get(CALDAV_WORKLOG_COLLECTION_URL, None)
+            task_label = f"Default task collection: {self._role_name(task_url, items)}"
+            event_label = f"Default event collection: {self._role_name(event_url, items)}"
+            work_label = f"Work log collection: {self._role_name(work_url, items)}"
+
+            selected = self._choose(
+                "Collection roles",
+                [task_label, event_label, work_label, "Show collections"],
+            )
+            if selected is None:
+                return
+            if selected == task_label:
+                self._choose_collection_role(
+                    "Default task collection",
+                    CALDAV_TASK_COLLECTION_URL,
+                    "VTODO",
+                    items,
+                )
+            elif selected == event_label:
+                self._choose_collection_role(
+                    "Default event collection",
+                    CALDAV_EVENT_COLLECTION_URL,
+                    "VEVENT",
+                    items,
+                )
+            elif selected == work_label:
+                self._choose_collection_role(
+                    "Work log collection",
+                    CALDAV_WORKLOG_COLLECTION_URL,
+                    "VEVENT",
+                    items,
+                )
+            elif selected == "Show collections":
+                self._show_caldav_collections()
 
     def _use_discovered_server(
         self,
@@ -260,6 +373,7 @@ class SettingsActions:
                 [
                     f"CalDAV credentials: {credentials}",
                     "Test connection",
+                    "Collection roles",
                     "Collections",
                     "Clear credentials",
                 ]
@@ -276,6 +390,8 @@ class SettingsActions:
                 self._set_caldav_credentials()
             elif selected == "Test connection":
                 self._test_caldav_connection()
+            elif selected == "Collection roles":
+                self._collection_roles_panel()
             elif selected == "Collections":
                 self._show_caldav_collections()
             elif selected == "Clear credentials":
@@ -336,7 +452,7 @@ class SettingsActions:
             "settings get KEY\n"
             "settings set KEY VALUE\n"
             "settings reset KEY\n"
-            "settings caldav status|test|collections\n"
+            "settings caldav status|test|collections|roles\n"
             "settings caldav server URL\n"
             "settings caldav credentials\n"
             "settings caldav clear-credentials"
@@ -389,6 +505,10 @@ class SettingsActions:
             return self._test_caldav_connection()
         if action in {"collections", "list"}:
             return self._show_caldav_collections()
+        if action in {"roles", "collection-roles"}:
+            if len(parts) != 1:
+                raise ValidationError("settings caldav roles takes no arguments")
+            return self._collection_roles_panel()
         if action == "server":
             if len(parts) != 2:
                 raise ValidationError("settings caldav server requires one URL")
