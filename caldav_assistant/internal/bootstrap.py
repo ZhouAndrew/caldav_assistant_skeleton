@@ -175,7 +175,7 @@ def build_service_application() -> ServiceApplication:
     )
     completion_log = TaskCompletionLogService(worklog, wordpress)
 
-    # Production work-session facts are derived from CalDAV Work VEVENTs.  No
+    # Production work-session facts are derived from CalDAV Work VEVENTs. No
     # current/paused UID is persisted in assistant_state.
     session = CalDAVSessionService(worklog)
     tasks = CompletionLoggingTaskService(
@@ -196,6 +196,7 @@ def build_service_application() -> ServiceApplication:
         AgendaEngine(),
         NextEngine(),
         assistant_state,
+        session=session,
     )
     notifications = NotificationService(_notification_adapter_for_platform())
     reminders = ReminderService(
