@@ -44,16 +44,26 @@ class RuntimeDispatcher:
             "activity.today": ctx.activity.today,
             "activity.for_task": ctx.activity.for_task,
             "activity.record": ctx.activity.record,
-            "session.current_task_id": ctx.session.current_task_id,
-            "session.current_task": ctx.session.current_task,
-            "session.paused_task_ids": ctx.session.paused_task_ids,
-            "session.paused_tasks": ctx.session.paused_tasks,
             "settings.get": ctx.settings.get,
             "settings.set": ctx.settings.set,
             "settings.reset": ctx.settings.reset,
             "settings.describe": ctx.settings.describe,
             "settings.list": ctx.settings.list,
         }
+
+        # Session is part of the full v1 AssistantContext, but keeping these routes
+        # conditional lets small unit/integration test contexts remain deliberately
+        # partial instead of forcing unrelated fake namespaces everywhere.
+        session = getattr(ctx, "session", None)
+        if session is not None:
+            self._routes.update(
+                {
+                    "session.current_task_id": session.current_task_id,
+                    "session.current_task": session.current_task,
+                    "session.paused_task_ids": session.paused_task_ids,
+                    "session.paused_tasks": session.paused_tasks,
+                }
+            )
 
     def handle(self, method, payload=None):
         if method not in self._routes:
