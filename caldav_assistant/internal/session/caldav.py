@@ -1,11 +1,12 @@
 """Read human work-session state from CalDAV facts.
 
-There is deliberately no persistent local state here.  The current Task is the
+There is deliberately no persistent local state here. The current Task is the
 Task referenced by the single open Work VEVENT; paused Tasks are IN-PROCESS VTODOs
 without that open interval.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 
@@ -62,7 +63,27 @@ class CalDAVSessionService:
                 continue
         return result
 
-    # Production Task lifecycle writes through WorkLogService directly.  These
+    def work_segments(self, task: Any) -> list[Any]:
+        """Return authoritative CalDAV Work VEVENT segments for one Task."""
+        return list(self.worklog.segments_for(task))
+
+    def work_seconds(self, task: Any, now: datetime | None = None) -> float:
+        """Return accumulated active work seconds, including an open interval."""
+        moment = now or self.worklog.now()
+        total = 0.0
+        for item in self.work_segments(task):
+            start = getattr(item, "start", None)
+            end = getattr(item, "end", None)
+            if not isinstance(start, datetime):
+                continue
+            stop = end if isinstance(end, datetime) else moment
+            if stop.tzinfo is None and start.tzinfo is not None:
+                continue
+            if stop >= start:
+                total += (stop - start).total_seconds()
+        return max(0.0, total)
+
+    # Production Task lifecycle writes through WorkLogService directly. These
     # compatibility methods intentionally persist nothing locally.
     def set_current(self, task: Any) -> None:
         return None
