@@ -35,10 +35,36 @@ OFFICIAL_EXTENSION_CATALOG = MappingProxyType(
             {
                 "title": "Developer terminal tools",
                 "description": (
-                    "Adds clear plus a foreground shell command for temporarily "
-                    "running external debugging tools and interactive shells."
+                    "Adds terminal clearing, a foreground interactive shell, and an "
+                    "explicit external process launcher with detached background mode."
                 ),
                 "default_enabled": False,
+                "commands": (
+                    MappingProxyType(
+                        {
+                            "name": "clear",
+                            "aliases": ("cls",),
+                            "description": "Clear the current terminal screen.",
+                        }
+                    ),
+                    MappingProxyType(
+                        {
+                            "name": "shell",
+                            "aliases": ("sh",),
+                            "description": "Run a foreground command or interactive shell.",
+                        }
+                    ),
+                    MappingProxyType(
+                        {
+                            "name": "run",
+                            "aliases": (),
+                            "description": (
+                                "Run an external command; append 'in background' or "
+                                "use -b/--background to detach it."
+                            ),
+                        }
+                    ),
+                ),
             }
         ),
     }
