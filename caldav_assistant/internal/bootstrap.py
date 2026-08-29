@@ -88,7 +88,6 @@ _WORK_EVENT_CATEGORY = "caldav-assistant-work"
 _DEFAULT_ENABLED_EXTENSIONS = (
     "software_intro",
     "wordpress_work_session_log",
-    "developer_tools",
 )
 
 
