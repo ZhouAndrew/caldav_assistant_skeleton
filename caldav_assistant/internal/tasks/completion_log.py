@@ -1,34 +1,18 @@
-"""Build durable long-term work logs for completed Tasks.
-
-Activity Journal remains the fine-grained local event stream.  This module turns the
-successful events for one Task into a human-readable completion summary and queues it
-for WordPress without waiting for remote transport.
-"""
+"""Build human long-term logs from authoritative CalDAV Work VEVENTs."""
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Iterable
 
-from ...api import Activity, Task
-from .service import TaskService
-
-
-_ACTION_LABELS = {
-    "task_started": "Started work",
-    "task_paused": "Paused work",
-    "task_resumed": "Resumed work",
-    "task_completed": "Completed task",
-    "task_planned_start_changed": "Changed planned start",
-    "task_due_changed": "Changed due",
-    "task_priority_changed": "Changed priority",
-}
+from ...api import Event, Task
+from .work_service import CalDAVWorkTaskService
 
 
 class TaskCompletionLogService:
-    """Queue one WordPress work log when a Task reaches completion."""
+    """Queue one WordPress summary derived from CalDAV work intervals."""
 
-    def __init__(self, activity: Any, wordpress: Any) -> None:
-        self.activity = activity
+    def __init__(self, worklog: Any, wordpress: Any) -> None:
+        self.worklog = worklog
         self.wordpress = wordpress
 
     @staticmethod
@@ -51,25 +35,19 @@ class TaskCompletionLogService:
         return f"{secs}s"
 
     @classmethod
-    def _work_segments(cls, activities: Iterable[Activity]) -> list[tuple[datetime, datetime]]:
-        segments: list[tuple[datetime, datetime]] = []
-        opened: datetime | None = None
-        for item in sorted(activities, key=lambda value: value.timestamp):
-            if item.action in {"task_started", "task_resumed"}:
-                opened = item.timestamp
-                continue
-            if item.action in {"task_paused", "task_completed"} and opened is not None:
-                if item.timestamp >= opened:
-                    segments.append((opened, item.timestamp))
-                opened = None
-        return segments
-
-    @classmethod
-    def render(cls, task: Task, activities: Iterable[Activity]) -> str:
-        items = sorted(list(activities), key=lambda value: value.timestamp)
-        relevant = [item for item in items if item.action in _ACTION_LABELS]
-        segments = cls._work_segments(relevant)
-        total_seconds = sum((end - start).total_seconds() for start, end in segments)
+    def render(cls, task: Task, segments: Iterable[Event]) -> str:
+        items = sorted(
+            [item for item in segments if isinstance(item, Event)],
+            key=lambda item: item.start or datetime.min,
+        )
+        closed = [
+            item
+            for item in items
+            if isinstance(item.start, datetime)
+            and isinstance(item.end, datetime)
+            and item.end >= item.start
+        ]
+        total_seconds = sum((item.end - item.start).total_seconds() for item in closed)
 
         lines = [
             f"Task completed: {task.summary}",
@@ -83,23 +61,25 @@ class TaskCompletionLogService:
             "Work history",
         ]
 
-        if relevant:
-            for item in relevant:
-                label = _ACTION_LABELS[item.action]
-                lines.append(f"- {cls._stamp(item.timestamp)} — {label}")
+        if closed:
+            for index, item in enumerate(closed):
+                start_label = "Started work" if index == 0 else "Resumed work"
+                end_label = "Completed/ended interval" if index == len(closed) - 1 else "Paused work"
+                lines.append(f"- {cls._stamp(item.start)} — {start_label}")
+                lines.append(f"- {cls._stamp(item.end)} — {end_label}")
         else:
-            lines.append("- No Assistant work-session history was recorded.")
+            lines.append("- No completed CalDAV work interval was recorded.")
 
         lines.extend(["", "Work segments"])
-        if segments:
-            for start, end in segments:
+        if closed:
+            for item in closed:
                 lines.append(
-                    f"- {cls._stamp(start)} → {cls._stamp(end)} "
-                    f"({cls._duration((end - start).total_seconds())})"
+                    f"- {cls._stamp(item.start)} → {cls._stamp(item.end)} "
+                    f"({cls._duration((item.end - item.start).total_seconds())})"
                 )
             lines.append(f"- Total active time: {cls._duration(total_seconds)}")
         else:
-            lines.append("- No complete start/pause/resume/end interval was recorded.")
+            lines.append("- No complete work interval was recorded.")
 
         if task.description.strip():
             lines.extend(["", "Task notes", task.description.strip()])
@@ -107,21 +87,19 @@ class TaskCompletionLogService:
         return "\n".join(lines).strip()
 
     def queue_for(self, task: Task) -> Any:
-        activities = self.activity.for_task(task)
-        text = self.render(task, activities)
+        segments = self.worklog.segments_for(task)
+        text = self.render(task, segments)
         return self.wordpress.queue_log(
             text,
             title=f"Completed — {task.summary}",
         )
 
 
-class CompletionLoggingTaskService(TaskService):
-    """Production TaskService decorator that adds non-blocking long-term logs.
+class CompletionLoggingTaskService(CalDAVWorkTaskService):
+    """Production lifecycle + non-blocking WordPress completion summary.
 
-    CalDAV completion is authoritative and happens first.  WordPress transport is
-    never attempted here: only a durable Outbox enqueue is requested.  If even that
-    auxiliary enqueue fails, Task completion still succeeds and the failure is
-    recorded in the local Activity Journal when possible.
+    CalDAV VTODO/VEVENT writes happen first.  WordPress transport remains decoupled:
+    only the durable Outbox is queued after authoritative completion.
     """
 
     def __init__(self, *args: Any, completion_log: TaskCompletionLogService, **kwargs: Any) -> None:
@@ -132,15 +110,10 @@ class CompletionLoggingTaskService(TaskService):
         result = super().complete(task)
         try:
             self.completion_log.queue_for(result.affected)
-        except Exception as exc:
-            try:
-                self._record(
-                    "task_completion_log_queue_failed",
-                    result.affected,
-                    error=f"{type(exc).__name__}: {exc}",
-                )
-            except Exception:
-                pass
+        except Exception:
+            # The Task and its Work VEVENTs are already authoritative CalDAV facts.
+            # An auxiliary WordPress summary must never reverse completion.
+            pass
         return result
 
 
