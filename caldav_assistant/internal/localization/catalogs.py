@@ -74,6 +74,10 @@ Then edit the generated Python file and enable it:
 After editing an enabled extension:
   extension reload NAME
 
+If an extension fails:
+  extension errors
+  extension errors NAME
+
 Useful Easy API bricks:
   tasks(), today_tasks(), overdue_tasks(), next_task(), choose_task()
   start(task), pause(task), resume(task), complete(task), set_due(task, when)
@@ -158,6 +162,10 @@ _ZH_CN = {
 
 修改已经启用的扩展后：
   extension reload NAME
+
+扩展报错时：
+  extension errors
+  extension errors NAME
 
 常用 Easy API 积木：
   tasks(), today_tasks(), overdue_tasks(), next_task(), choose_task()
