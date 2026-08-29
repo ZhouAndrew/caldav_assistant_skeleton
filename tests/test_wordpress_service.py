@@ -89,11 +89,17 @@ def test_log_is_enqueued_before_transport_and_removed_only_after_success():
     assert isinstance(result, ActionResult)
     assert result.success is True
     assert outbox.pending() == []
-    assert adapter.calls == [("log", "Finished report", {"category": "work"})]
+    assert len(adapter.calls) == 1
+    operation, text, metadata = adapter.calls[0]
+    assert operation == "log"
+    assert text == "Finished report"
+    assert metadata["category"] == "work"
+    assert metadata["_logged_at"]
+    assert metadata["_request_id"]
     assert activity.calls[-1][0][0] == "wordpress_log_created"
 
 
-def test_offline_wordpress_keeps_durable_pending_item_and_does_not_raise():
+def test_offline_retry_keeps_original_log_time_and_request_identity():
     service, adapter, outbox, activity = make_service(False)
 
     result = service.log("Saved even while offline")
@@ -101,6 +107,11 @@ def test_offline_wordpress_keeps_durable_pending_item_and_does_not_raise():
     assert result.success is True
     assert "pending" in result.message.lower()
     assert len(outbox.pending()) == 1
+    pending_payload = outbox.pending()[0]["payload"]
+    metadata = pending_payload["args"]["metadata"]
+    logged_at = metadata["_logged_at"]
+    request_id = metadata["_request_id"]
+    assert request_id == pending_payload["request_id"]
     assert outbox.pending()[0]["attempts"] == 1
     assert "offline" in outbox.pending()[0]["last_error"]
     assert activity.calls == []
@@ -109,7 +120,25 @@ def test_offline_wordpress_keeps_durable_pending_item_and_does_not_raise():
     summary = service.flush()
     assert summary == {"attempted": 1, "sent": 1, "failed": 0, "pending": 0}
     assert outbox.pending() == []
+    _, text, retried_metadata = adapter.calls[-1]
+    assert text == "Saved even while offline"
+    assert retried_metadata["_logged_at"] == logged_at
+    assert retried_metadata["_request_id"] == request_id
     assert activity.calls[-1][0][0] == "wordpress_log_created"
+
+
+def test_queue_log_captures_timestamp_before_background_delivery():
+    service, adapter, outbox, _ = make_service(True)
+
+    result = service.queue_log("Started — Anki", title="Started — Anki")
+
+    assert result.success is True
+    assert adapter.calls == []
+    payload = outbox.pending()[0]["payload"]
+    metadata = payload["args"]["metadata"]
+    assert metadata["title"] == "Started — Anki"
+    assert metadata["_logged_at"]
+    assert metadata["_request_id"] == payload["request_id"]
 
 
 def test_create_and_update_post_share_the_same_outbox_first_path():
