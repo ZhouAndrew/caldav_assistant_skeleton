@@ -20,6 +20,13 @@ def _when(value: date | datetime | None) -> str:
     return value.strftime("%Y-%m-%d")
 
 
+def _local_when(value: date | datetime | None) -> str:
+    """Render actual activity instants in the machine's local timezone."""
+    if isinstance(value, datetime) and value.tzinfo is not None:
+        value = value.astimezone()
+    return _when(value)
+
+
 def _task_line(task: Task, *, index: int | None = None) -> str:
     prefix = f"{index:>3}. " if index is not None else ""
     marker = "OVERDUE" if task.overdue else task.status.replace("-", " ")
@@ -53,6 +60,13 @@ def _agenda_line(item: AgendaItem, index: int) -> str:
 
 def render_task(task: Task) -> list[str]:
     lines = [task.summary or "(untitled task)"]
+
+    # ``current`` attaches this transient field to a detached Task copy. It is
+    # deliberately separate from Task.start, which is CalDAV DTSTART/planned time.
+    working_since = getattr(task, "_assistant_working_since", None)
+    if working_since is not None:
+        lines.append(f"Working since: {_local_when(working_since)}")
+
     if task.start is not None:
         # Avoid overloading the human command "start" (begin working now) with
         # CalDAV DTSTART (the planned/scheduled start field).
