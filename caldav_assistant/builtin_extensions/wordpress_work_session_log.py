@@ -16,10 +16,9 @@ from caldav_assistant.easy import tasks, write_log
 
 def _stamp(value: Any) -> str:
     if isinstance(value, datetime):
-        if value.tzinfo is None:
-            value = value.astimezone()
-        else:
-            value = value.astimezone()
+        # Keep the timestamp produced by ActivityService intact.  Converting again
+        # with astimezone() makes logs depend on whichever timezone the CLI process
+        # happens to use and can even change the calendar date.
         return value.isoformat(timespec="seconds")
     if isinstance(value, date):
         return value.isoformat()

@@ -31,6 +31,16 @@ OFFICIAL_EXTENSION_CATALOG = MappingProxyType(
                 "default_enabled": True,
             }
         ),
+        "developer_tools": MappingProxyType(
+            {
+                "title": "Developer terminal tools",
+                "description": (
+                    "Adds clear plus a foreground shell command for temporarily "
+                    "running external debugging tools and interactive shells."
+                ),
+                "default_enabled": False,
+            }
+        ),
     }
 )
 
