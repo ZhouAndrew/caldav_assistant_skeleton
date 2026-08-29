@@ -64,6 +64,13 @@ class RemoteActivityAPI(_RemoteAPI):
 
 class RemoteSessionAPI(_RemoteAPI):
     prefix="session"
+    def __init__(self, runtime):
+        super().__init__(runtime)
+        # Frozen Session API scratch context. These values describe what this CLI
+        # process most recently showed/selected, so they deliberately stay local
+        # instead of becoming authoritative service-side state.
+        self.last_items = []
+        self.current_selection = None
     def current_task_id(self): return self._call("current_task_id")
     def current_task(self): return self._call("current_task")
     def paused_task_ids(self): return tuple(self._call("paused_task_ids") or ())
