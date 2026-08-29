@@ -24,7 +24,7 @@ class Calls:
 
 def make_context():
     calls = Calls()
-    next_task = Task(id="t1", summary="Report")
+    next_task = Task(id="t1", summary="Report final")
     next_event = Event(id="e1", summary="Lesson")
 
     class Tasks:
