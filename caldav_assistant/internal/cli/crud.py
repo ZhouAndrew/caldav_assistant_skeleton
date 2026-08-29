@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from ...api.v1.errors import ValidationError
+from ...api.v1.errors import AmbiguousError, NotFoundError, ValidationError
+
+
+_WORK_EVENT_CATEGORY = "caldav-assistant-work"
 
 
 class CrudActions:
@@ -67,6 +70,17 @@ class CrudActions:
             return None
         return [item.strip() for item in text.split(",") if item.strip()]
 
+    @staticmethod
+    def _ordinary_event(value: Any) -> bool:
+        return _WORK_EVENT_CATEGORY not in set(getattr(value, "categories", ()) or ())
+
+    def _ordinary_events(self) -> list[Any]:
+        return [
+            item
+            for item in (self.ctx.events.list() or ())
+            if self._ordinary_event(item)
+        ]
+
     def _task_target(self, parts: tuple[Any, ...]) -> Any:
         if not parts:
             choose_task = getattr(self.ctx.ui, "choose_task", None)
@@ -76,12 +90,28 @@ class CrudActions:
         return self.ctx.tasks.find(self._join(parts, label="Task"))
 
     def _event_target(self, parts: tuple[Any, ...]) -> Any:
+        items = self._ordinary_events()
         if not parts:
-            choose_event = getattr(self.ctx.ui, "choose_event", None)
-            if not callable(choose_event):
+            choose = getattr(self.ctx.ui, "choose", None)
+            if not callable(choose):
                 raise ValidationError("Event selection requires interactive UI")
-            return choose_event()
-        return self.ctx.events.find(self._join(parts, label="Event"))
+            return choose(
+                "Choose event",
+                items,
+                item_label=lambda item: self._summary(item),
+            )
+
+        query = self._join(parts, label="Event")
+        needle = query.casefold()
+        exact = [item for item in items if self._summary(item).casefold() == needle]
+        matches = exact or [
+            item for item in items if needle in self._summary(item).casefold()
+        ]
+        if not matches:
+            raise NotFoundError(query)
+        if len(matches) > 1:
+            raise AmbiguousError(query)
+        return matches[0]
 
     # ------------------------------------------------------------------
     # Create
@@ -187,8 +217,8 @@ class CrudActions:
             elif first in {"event", "calendar", "e"}:
                 kind, title_parts = "Event", parts[1:]
             else:
-                # `add buy milk` is intentionally not guessed as Task versus Event;
-                # the frozen CLI contract requires an explicit Task/Event selector.
+                # A bare title is preserved, but Task/Event remains an explicit
+                # selection rather than a hidden guess.
                 title_parts = parts
 
         if kind is None:
@@ -234,7 +264,7 @@ class CrudActions:
     def events(self, *parts: Any) -> None:
         if parts:
             raise ValidationError("events does not take arguments")
-        items = list(self.ctx.events.list() or ())
+        items = self._ordinary_events()
         self._show(f"Events · {len(items)}")
         if not items:
             self._show("(none)")
@@ -307,6 +337,19 @@ class CrudActions:
         )
         return bool(confirm("Continue?", default=False))
 
+    def _reject_active_task_delete(self, task: Any) -> None:
+        session = getattr(self.ctx, "session", None)
+        getter = getattr(session, "current_task_id", None)
+        if not callable(getter):
+            return
+        current_id = getter()
+        task_id = str(getattr(task, "id", "") or "")
+        if current_id and str(current_id) == task_id:
+            raise ValidationError(
+                "The current Task cannot be deleted while work is active. "
+                "Pause or complete it first so no open work interval is orphaned."
+            )
+
     def remove(self, *parts: Any) -> Any:
         kind: str | None = None
         target_parts: tuple[Any, ...] = ()
@@ -329,7 +372,11 @@ class CrudActions:
             if kind == "Task"
             else self._event_target(target_parts)
         )
-        if target is None or not self._confirm_delete(kind, target):
+        if target is None:
+            return None
+        if kind == "Task":
+            self._reject_active_task_delete(target)
+        if not self._confirm_delete(kind, target):
             return None
 
         if kind == "Task":
