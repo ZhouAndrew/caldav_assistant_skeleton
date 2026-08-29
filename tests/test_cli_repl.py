@@ -130,6 +130,27 @@ def test_run_cli_uses_one_shot_when_argv_present_and_repl_when_empty(monkeypatch
     assert run_cli([], app=repl) == 0
 
 
+def test_repl_emits_start_hook_but_one_shot_does_not():
+    calls = []
+
+    class Hooks:
+        def emit(self, event, *args):
+            calls.append((event, args))
+
+    one = make_app()
+    one.extensions = SimpleNamespace(hooks=Hooks())
+    one.commands.register_builtin("ok", lambda: "ok")
+    assert run_one_shot(one, ["ok"]) == 0
+    assert calls == []
+
+    repl = make_app(["exit"])
+    repl.extensions = SimpleNamespace(hooks=Hooks())
+    from caldav_assistant.internal.cli.actions import EXIT_REPL
+    repl.commands.register_builtin("exit", lambda: EXIT_REPL)
+    assert run_repl(repl) == 0
+    assert calls == [("cli.repl.started", (repl.ctx,))]
+
+
 def test_agenda_is_rendered_for_humans_without_raw_ics():
     app = make_app()
     raw = "BEGIN:VCALENDAR\r\nBEGIN:VTODO\r\nUID:secret\r\nEND:VTODO\r\nEND:VCALENDAR"
