@@ -19,6 +19,7 @@ from .keys import (
     CALDAV_EVENT_COLLECTION_URL,
     CALDAV_TASK_COLLECTION_URL,
     CALDAV_WORKLOG_COLLECTION_URL,
+    EXPERIMENTAL_FAST_QUERY_CACHE,
     EXTENSIONS_ENABLED,
 )
 from .schema import DEFAULT_SETTINGS_SCHEMA, SettingSpec
@@ -31,6 +32,7 @@ _CATEGORY_ORDER = (
     "WordPress",
     "Commands",
     "Extensions",
+    "Experimental",
 )
 
 
@@ -117,6 +119,130 @@ class SettingsActions:
             "for lifecycle management."
         )
         self._show("\n".join(lines))
+
+    # ------------------------------------------------------------------
+    # Experimental cache diagnostics (CLI-internal Runtime bridge)
+    # ------------------------------------------------------------------
+    def _cache_status(self) -> dict[str, Any]:
+        method = getattr(self.ctx.settings, "_experimental_cache_status", None)
+        if not callable(method):
+            raise ValidationError(
+                "Cache diagnostics require the production Runtime bridge"
+            )
+        value = method()
+        return dict(value) if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _format_cache_status(status: dict[str, Any]) -> str:
+        enabled = "On" if status.get("enabled") else "Off"
+        available = bool(status.get("snapshot_available"))
+        lines = ["Experimental cache", f"Fast query cache: {enabled}"]
+        if available:
+            lines.append(
+                "Snapshot: Available "
+                f"({status.get('task_count', 0)} task(s), "
+                f"{status.get('event_count', 0)} event(s))"
+            )
+            lines.append(
+                "Verified from CalDAV: "
+                + str(status.get("synced_at") or "Unknown")
+            )
+            if status.get("cache_updated_at"):
+                reason = status.get("cache_update_reason") or "local update"
+                lines.append(
+                    "Local cache update: "
+                    f"{status.get('cache_updated_at')} ({reason})"
+                )
+        else:
+            lines.append("Snapshot: Not available")
+
+        sync_status = status.get("sync_status")
+        if isinstance(sync_status, dict):
+            state = str(sync_status.get("state") or "unknown")
+            if state == "error":
+                error_type = str(sync_status.get("error_type") or "Error")
+                error = str(sync_status.get("error") or "Unknown error")
+                failed_at = sync_status.get("failed_at")
+                suffix = f" at {failed_at}" if failed_at else ""
+                lines.append(f"Last sync: ERROR{suffix} — {error_type}: {error}")
+            else:
+                mode = sync_status.get("effective_mode") or sync_status.get("requested_mode")
+                suffix = f" ({mode})" if mode else ""
+                lines.append(f"Last sync: {state.upper()}{suffix}")
+
+        counts = status.get("read_counts")
+        if isinstance(counts, dict):
+            lines.append(
+                "Reads since background service start: "
+                f"cache={int(counts.get('cache', 0) or 0)}, "
+                f"CalDAV={int(counts.get('caldav', 0) or 0)}"
+            )
+
+        recent = status.get("recent_reads")
+        if isinstance(recent, list) and recent:
+            lines.append("Recent reads:")
+            for item in recent[-6:]:
+                if not isinstance(item, dict):
+                    continue
+                operation = item.get("operation") or "read"
+                source = item.get("source") or "unknown"
+                reason = item.get("reason") or "unknown"
+                lines.append(f"  {operation} → {source} ({reason})")
+        else:
+            lines.append("Recent reads: none yet")
+
+        return "\n".join(lines)
+
+    def cache_status_text(self) -> str:
+        return self._format_cache_status(self._cache_status())
+
+    def _refresh_cache(self) -> dict[str, Any]:
+        method = getattr(self.ctx.settings, "_experimental_cache_refresh", None)
+        if not callable(method):
+            raise ValidationError(
+                "Cache refresh requires the production Runtime bridge"
+            )
+        value = method()
+        return dict(value) if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _format_refresh_result(result: dict[str, Any]) -> str:
+        return (
+            "✓ Cache refreshed from authoritative CalDAV: "
+            f"{result.get('task_count', 0)} task(s), "
+            f"{result.get('event_count', 0)} event(s)."
+        )
+
+    def _experimental_panel(self) -> None:
+        spec = self.schema.get(EXPERIMENTAL_FAST_QUERY_CACHE)
+        while True:
+            current = self._get(spec)
+            toggle_label = f"{spec.label}: {_display_value(current)}"
+            selected = self._choose(
+                "Experimental",
+                [
+                    toggle_label,
+                    "Cache status",
+                    "Refresh cache now",
+                    "How this works",
+                ],
+            )
+            if selected is None:
+                return
+            if selected == toggle_label:
+                self._edit_spec(spec)
+            elif selected == "Cache status":
+                self._show(self.cache_status_text())
+            elif selected == "Refresh cache now":
+                self._show(self._format_refresh_result(self._refresh_cache()))
+            elif selected == "How this works":
+                self._show(
+                    "The fast query cache is experimental and defaults to Off.\n"
+                    "CalDAV remains the Task/Event source of truth.\n"
+                    "When On, reads may use the last verified local snapshot.\n"
+                    "Cache misses fall back to CalDAV. Writes always go to CalDAV first.\n"
+                    "Turning it Off restores direct CalDAV reads."
+                )
 
     # ------------------------------------------------------------------
     # Production CalDAV setup (secret remains write-only)
@@ -404,6 +530,9 @@ class SettingsActions:
         if category == "Extensions":
             self._extensions_panel()
             return
+        if category == "Experimental":
+            self._experimental_panel()
+            return
 
         specs = [
             spec
@@ -455,7 +584,8 @@ class SettingsActions:
             "settings caldav status|test|collections|roles\n"
             "settings caldav server URL\n"
             "settings caldav credentials\n"
-            "settings caldav clear-credentials"
+            "settings caldav clear-credentials\n"
+            "settings cache status|refresh"
         )
 
     def list_settings(self, category: str | None = None) -> str:
@@ -524,6 +654,18 @@ class SettingsActions:
             return self._clear_caldav_credentials()
         raise ValidationError(f"Unknown CalDAV settings action: {parts[0]}")
 
+    def _cache_command(self, *parts: Any) -> str:
+        if not parts:
+            return self.cache_status_text()
+        if len(parts) != 1:
+            raise ValidationError("settings cache accepts status or refresh")
+        action = str(parts[0]).strip().casefold()
+        if action == "status":
+            return self.cache_status_text()
+        if action == "refresh":
+            return self._format_refresh_result(self._refresh_cache())
+        raise ValidationError(f"Unknown cache settings action: {parts[0]}")
+
     def settings(self, *parts: Any) -> Any:
         if not parts:
             return self.interactive()
@@ -535,6 +677,8 @@ class SettingsActions:
             return self._usage()
         if action == "caldav":
             return self._caldav_command(*parts[1:])
+        if action == "cache":
+            return self._cache_command(*parts[1:])
         if action == "categories":
             if len(parts) != 1:
                 raise ValidationError("settings categories takes no arguments")
