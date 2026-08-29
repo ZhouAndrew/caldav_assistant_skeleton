@@ -2,8 +2,8 @@
 
 Work history is authoritative CalDAV data, not Assistant-local journal state.
 Each active work interval is represented by a VEVENT in the user-selected work-log
-collection.  An open interval has DTSTART and the open marker category; pause/done
-closes it with DTEND.  Resume creates a new interval.
+collection. An open interval has DTSTART and the open marker category; pause/done
+closes it with DTEND. Resume creates a new interval.
 """
 from __future__ import annotations
 
@@ -65,7 +65,10 @@ class WorkLogService:
 
     @classmethod
     def _is_work_event(cls, event: Event) -> bool:
-        return cls.CATEGORY in set(event.categories or ()) and cls._task_id_from_event(event) is not None
+        return (
+            cls.CATEGORY in set(event.categories or ())
+            and cls._task_id_from_event(event) is not None
+        )
 
     @classmethod
     def _is_open(cls, event: Event) -> bool:
@@ -76,10 +79,18 @@ class WorkLogService:
         )
 
     def _all_work_events(self) -> list[Event]:
-        # The adapter applies category filtering server-side when possible and
-        # always revalidates it locally.  We still revalidate the marker here.
+        # Work markers are only authoritative inside the explicitly selected
+        # Work Log collection. An identically tagged event in another calendar
+        # must never become the user's current work by accident.
+        target = self._collection_url()
         items = self.adapter.list_events(category=self.CATEGORY)
-        return [item for item in items if isinstance(item, Event) and self._is_work_event(item)]
+        return [
+            item
+            for item in items
+            if isinstance(item, Event)
+            and self._is_work_event(item)
+            and str(getattr(item, "_caldav_collection_url", "") or "") == target
+        ]
 
     def open_events(self) -> list[Event]:
         return [event for event in self._all_work_events() if self._is_open(event)]
