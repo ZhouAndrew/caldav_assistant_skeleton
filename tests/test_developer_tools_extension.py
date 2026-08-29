@@ -114,8 +114,10 @@ def test_run_human_background_suffix_detaches_input_preserves_output_log_and_ret
         calls.append((argv, kwargs))
         return Process()
 
-    monkeypatch.setattr(
-        "caldav_assistant.builtin_extensions.developer_tools._background_log",
+    run_handler = commands.resolve("run").handler
+    monkeypatch.setitem(
+        run_handler.__globals__,
+        "_background_log",
         lambda: (log_handle, log_path),
     )
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
@@ -156,10 +158,8 @@ def test_run_background_has_script_friendly_flag_forms(tmp_path, monkeypatch):
         path = tmp_path / f"bg-{len(seen)}.log"
         return path.open("w+b"), path
 
-    monkeypatch.setattr(
-        "caldav_assistant.builtin_extensions.developer_tools._background_log",
-        fake_log,
-    )
+    run_handler = commands.resolve("run").handler
+    monkeypatch.setitem(run_handler.__globals__, "_background_log", fake_log)
     monkeypatch.setattr(
         subprocess,
         "Popen",
