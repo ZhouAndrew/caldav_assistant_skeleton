@@ -9,7 +9,11 @@ from ..api import AssistantContext
 from ..api.v1.hooks import _bind_hook_registrar
 from .activity import ActivityService
 from .agenda import AgendaEngine, AgendaService, NextEngine
-from .caldav import CollectionRoutingCalDAVAdapter, SyncEngine
+from .caldav import (
+    CollectionRoutingCalDAVAdapter,
+    ExperimentalCacheCalDAVAdapter,
+    SyncEngine,
+)
 from .caldav.library_adapter import LibraryCalDAVAdapter
 from .caldav.setup import CalDAVSetupService
 from .cli.actions import BuiltinActions, register_cli_builtin_commands
@@ -60,6 +64,7 @@ from .settings.keys import (
     CALDAV_EVENT_COLLECTION_URL,
     CALDAV_TASK_COLLECTION_URL,
     CALDAV_WORKLOG_COLLECTION_URL,
+    EXPERIMENTAL_FAST_QUERY_CACHE,
     EXTENSIONS_ENABLED,
     WORDPRESS_PATH,
 )
@@ -247,9 +252,16 @@ def build_service_application() -> ServiceApplication:
         task_collection_url=lambda: settings_service.get(CALDAV_TASK_COLLECTION_URL, None),
         event_collection_url=lambda: settings_service.get(CALDAV_EVENT_COLLECTION_URL, None),
     )
+    app_caldav = ExperimentalCacheCalDAVAdapter(
+        routed_caldav,
+        sync,
+        enabled=lambda: bool(
+            settings_service.get(EXPERIMENTAL_FAST_QUERY_CACHE, False)
+        ),
+    )
 
     worklog = WorkLogService(
-        routed_caldav,
+        app_caldav,
         lambda: settings_service.get(CALDAV_WORKLOG_COLLECTION_URL, None),
     )
 
@@ -262,7 +274,7 @@ def build_service_application() -> ServiceApplication:
 
     session = CalDAVSessionService(worklog, activity=activity)
     tasks = CompletionLoggingTaskService(
-        routed_caldav,
+        app_caldav,
         activity,
         undo,
         session,
@@ -271,7 +283,7 @@ def build_service_application() -> ServiceApplication:
     )
     session.bind_tasks(tasks)
 
-    events = EventService(routed_caldav, activity, undo)
+    events = EventService(app_caldav, activity, undo)
     undo.bind(tasks=tasks, events=events)
     agenda = AgendaService(
         tasks,
