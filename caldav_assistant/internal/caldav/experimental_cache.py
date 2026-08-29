@@ -3,7 +3,8 @@
 CalDAV remains authoritative.  This adapter only serves reads from the last
 verified :class:`SyncEngine` snapshot when the explicit experimental setting is
 enabled.  All mutations still go to the real CalDAV adapter first; the cache is
-patched only after that authoritative write succeeds.
+patched only after that authoritative write succeeds and only while the experiment
+is enabled.
 """
 from __future__ import annotations
 
@@ -98,6 +99,8 @@ class ExperimentalCacheCalDAVAdapter:
         verification.  ``cache_updated_at`` records the local write-through patch
         separately so diagnostics never pretend a full sync occurred.
         """
+        if not self._active():
+            return
         snapshot = self.sync.cached_snapshot()
         if not isinstance(snapshot, Mapping):
             return
@@ -162,8 +165,8 @@ class ExperimentalCacheCalDAVAdapter:
                     return event
         return self.adapter.get_event(event_id)
 
-    # Mutations remain authoritative.  The successful server result is then used
-    # to keep the experimental snapshot coherent without an extra blocking scan.
+    # Mutations remain authoritative.  A successful server result is used to keep
+    # the experimental snapshot coherent without an extra blocking scan.
     def create_task(self, task: Task) -> Task:
         result = self.adapter.create_task(task)
         self._patch_snapshot("task", obj=result)
