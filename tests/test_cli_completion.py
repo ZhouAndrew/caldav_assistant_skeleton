@@ -97,6 +97,10 @@ class FakeReadline:
         return self.end
 
 
+class FakeLibeditReadline(FakeReadline):
+    """libedit compatibility backend"""
+
+
 def test_readline_session_installs_completer_and_restores_previous_state():
     readline = FakeReadline()
     session = ReadlineCompletionSession(
@@ -108,9 +112,22 @@ def test_readline_session_installs_completer_and_restores_previous_state():
     assert session.install() is True
     assert callable(readline.completer)
     assert readline.delims == " \t\n"
+    assert readline.bindings == ["tab: complete"]
     assert readline.completer("easy.comp", 0) == "easy.complete"
     assert readline.completer("easy.comp", 1) is None
 
     session.restore()
     assert readline.completer == "old"
     assert readline.delims == " old-delims "
+
+
+def test_libedit_backend_uses_native_tab_binding():
+    readline = FakeLibeditReadline()
+    session = ReadlineCompletionSession(
+        make_app(),
+        readline_module=readline,
+        force=True,
+    )
+
+    assert session.install() is True
+    assert readline.bindings == ["bind ^I rl_complete"]
