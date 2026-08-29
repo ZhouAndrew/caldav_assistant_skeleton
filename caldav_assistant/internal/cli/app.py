@@ -18,6 +18,7 @@ from typing import Any, Sequence
 from ...api.v1.errors import CalDAVAssistantError, NotFoundError, ValidationError
 from ...api.v1.models import Agenda, AgendaItem, Event, Task
 from .actions import EXIT_REPL, register_cli_builtin_commands
+from .crud import register_crud_cli_commands
 from .presenter import emit_agenda, emit_lines, render_lines
 from ..extensions.cli import register_extension_cli_commands
 from ..settings.cli import register_settings_cli_command
@@ -266,6 +267,7 @@ def run_cli(argv: Sequence[str] | None = None, *, app: Any = None) -> int:
         app = build_cli_application()
 
     register_cli_builtin_commands(app.commands, app.ctx)
+    register_crud_cli_commands(app.commands, app.ctx)
 
     if "settings" not in app.commands.registry:
         register_settings_cli_command(app.commands, app.ctx)
