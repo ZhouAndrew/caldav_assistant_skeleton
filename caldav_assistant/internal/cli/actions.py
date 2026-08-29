@@ -8,8 +8,9 @@ MODULE CONTRACT
 - Must not: instantiate TaskService/EventService/CalDAVAdapter, access IPC/SQLite/XML,
   print directly, or become a giant command dispatcher.
 
-The action layer contains small composition bricks.  Business mutations remain in the
-authoritative Core services behind ``ctx.tasks`` / ``ctx.events`` / etc.
+CLI lifecycle words describe human work, not CalDAV scheduling fields:
+``start`` = begin working now; ``pause`` = pause current work; ``resume`` = continue
+something previously paused. Planned DTSTART remains an edit/scheduling concern.
 """
 from __future__ import annotations
 
@@ -43,9 +44,6 @@ class BuiltinActions:
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx
 
-    # ------------------------------------------------------------------
-    # Presentation / selection bricks
-    # ------------------------------------------------------------------
     def _show(self, value: Any) -> None:
         show = getattr(self.ctx.ui, "show", None)
         if callable(show):
@@ -73,26 +71,26 @@ class BuiltinActions:
         return value
 
     def _ambiguous_task_choice(self, query: str) -> Any:
-        """Present candidates; never silently decides between ambiguous Tasks."""
         candidates = [
             task
             for task in self.ctx.tasks.list()
             if query.casefold() in self._summary(task).casefold()
         ]
         if not candidates:
-            # Preserve the original stable Ambiguous/NotFound semantics upstream.
             raise AmbiguousError(query)
         choose = getattr(self.ctx.ui, "choose", None)
         if not callable(choose):
             raise AmbiguousError(query)
-        return choose(f"Multiple tasks match: {query}", candidates)
+        return choose(
+            f"Multiple tasks match: {query}",
+            candidates,
+            item_label=lambda task: self._summary(task),
+        )
 
     def _task_from_parts(self, parts: tuple[Any, ...]) -> Any:
         if not parts:
             return self.ctx.ui.choose_task()
 
-        # Programmatic callers (notification / extension / tests) may already hold a
-        # Task object.  CLI text callers arrive as strings.
         if len(parts) == 1 and not isinstance(parts[0], str):
             return parts[0]
 
@@ -101,6 +99,33 @@ class BuiltinActions:
             return self.ctx.tasks.find(query)
         except AmbiguousError:
             return self._ambiguous_task_choice(query)
+
+    def _session_current_task(self) -> Any:
+        session = getattr(self.ctx, "session", None)
+        getter = getattr(session, "current_task", None)
+        return getter() if callable(getter) else None
+
+    def _session_paused_tasks(self) -> list[Any]:
+        session = getattr(self.ctx, "session", None)
+        getter = getattr(session, "paused_tasks", None)
+        return list(getter() or ()) if callable(getter) else []
+
+    def _recommended_task(self) -> Any:
+        try:
+            result = self.ctx.agenda.next(kind="task")
+        except TypeError:
+            result = self.ctx.agenda.next()
+        value = getattr(result, "value", result)
+        if value is None:
+            return None
+        # Task-shaped public objects have a status field; Event does not.
+        if not hasattr(value, "status"):
+            return None
+        if bool(getattr(value, "completed", False)):
+            return None
+        if str(getattr(value, "status", "")) == "CANCELLED":
+            return None
+        return value
 
     def _explain_task_action(self, verb: str, task: Any, **details: Any) -> None:
         text = f"{verb} → {self._summary(task)}"
@@ -129,39 +154,104 @@ class BuiltinActions:
         self._no_args("next", parts)
         return self.ctx.agenda.next()
 
+    def current(self, *parts: Any) -> Any:
+        self._no_args("current", parts)
+        task = self._session_current_task()
+        if task is None:
+            paused = self._session_paused_tasks()
+            if paused:
+                return "No task is active right now. You have paused work; use 'resume' to continue it."
+            return "No task is active right now. Use 'start' to begin working on the recommended task."
+        return task
+
     # ------------------------------------------------------------------
     # Task lifecycle commands
     # ------------------------------------------------------------------
     def done(self, *target_parts: Any) -> Any:
-        task = self._task_from_parts(target_parts)
+        if target_parts:
+            task = self._task_from_parts(target_parts)
+        else:
+            task = self._session_current_task()
+            if task is None:
+                task = self.ctx.ui.choose_task()
         if task is None:
             return None
         self._explain_task_action("Complete", task)
         return self.ctx.tasks.complete(task)
 
     def start(self, *target_parts: Any) -> Any:
-        task = self._task_from_parts(target_parts)
+        current = self._session_current_task()
+        if current is not None:
+            if target_parts:
+                requested = self._task_from_parts(target_parts)
+                if getattr(requested, "id", None) == getattr(current, "id", None):
+                    return f"Already working on: {self._summary(current)}"
+            raise ValidationError(
+                f"You are already working on '{self._summary(current)}'. Pause or complete it before starting another task."
+            )
+
+        if target_parts:
+            task = self._task_from_parts(target_parts)
+        else:
+            task = self._recommended_task()
+            if task is None:
+                raise ValidationError(
+                    "No actionable task is currently recommended. Use 'start <task name>' to choose a specific task."
+                )
+            confirm = getattr(self.ctx.ui, "confirm", None)
+            if callable(confirm):
+                accepted = confirm(
+                    f"Start working now on '{self._summary(task)}'?",
+                    default=True,
+                )
+                if not accepted:
+                    return None
+
         if task is None:
             return None
-        self._explain_task_action("Start", task)
+        self._explain_task_action("Start working", task)
         return self.ctx.tasks.start(task)
 
-    def pause(self, *target_parts: Any) -> Any:
-        task = self._task_from_parts(target_parts)
+    def pause(self, *parts: Any) -> Any:
+        if parts:
+            raise ValidationError(
+                "pause does not take a task name; it pauses the task you are working on now"
+            )
+        task = self._session_current_task()
         if task is None:
-            return None
-        self._explain_task_action("Pause", task)
+            raise ValidationError("No task is currently being worked on, so there is nothing to pause")
+        self._explain_task_action("Pause current work", task)
         return self.ctx.tasks.pause(task)
 
-    def resume(self, *target_parts: Any) -> Any:
-        task = self._task_from_parts(target_parts)
+    def resume(self, *parts: Any) -> Any:
+        if parts:
+            raise ValidationError(
+                "resume does not take an arbitrary task name; it continues work you previously paused"
+            )
+        current = self._session_current_task()
+        if current is not None:
+            raise ValidationError(
+                f"You are already working on '{self._summary(current)}'. Pause or complete it before resuming something else."
+            )
+
+        paused = self._session_paused_tasks()
+        if not paused:
+            raise ValidationError("There is no paused work to resume")
+        if len(paused) == 1:
+            task = paused[0]
+        else:
+            task = self.ctx.ui.choose(
+                "Resume which paused task?",
+                paused,
+                item_label=lambda item: self._summary(item),
+            )
         if task is None:
             return None
-        self._explain_task_action("Resume", task)
+        self._explain_task_action("Resume work", task)
         return self.ctx.tasks.resume(task)
 
     # ------------------------------------------------------------------
-    # Edit command: Scratch-style composition, not a monolithic editor
+    # Edit command: scheduling/data editing, not work-session lifecycle
     # ------------------------------------------------------------------
     def _edit_due(self, task: Any) -> Any:
         due = self.ctx.ui.ask_date("New due date")
@@ -212,7 +302,11 @@ class BuiltinActions:
         return action(task)
 
     def edit_due(self, task: Any = None, due: Any = None) -> Any:
-        """Compatibility brick retained for the existing ``edit-due`` registration."""
+        """Compatibility brick retained for older integrations.
+
+        Normal users should use ``edit``; this command is intentionally hidden from
+        the default help list so compatibility machinery does not become UX.
+        """
         if task is None:
             task = self.ctx.ui.choose_task()
         elif isinstance(task, str):
@@ -262,6 +356,8 @@ class BuiltinActions:
 
         lines = ["Commands:"]
         for entry in self.ctx.commands.list():
+            if entry.name == "edit-due":
+                continue
             description = f" — {entry.description}" if entry.description else ""
             lines.append(f"  {entry.name}{description}")
         return "\n".join(lines)
@@ -272,18 +368,18 @@ class BuiltinActions:
 
 
 _BUILTINS: tuple[BuiltinCommand, ...] = (
-    BuiltinCommand("today", "today", "Show today's agenda."),
-    BuiltinCommand("next", "next", "Show the recommended next item."),
-    BuiltinCommand("edit", "edit", "Interactively edit a Task using PromptKit bricks."),
-    BuiltinCommand("done", "done", "Complete a Task.", aliases=("complete",)),
-    BuiltinCommand("start", "start", "Start a Task."),
-    BuiltinCommand("pause", "pause", "Pause a Task."),
-    BuiltinCommand("resume", "resume", "Resume a Task."),
-    BuiltinCommand("log", "log", "Write a long-term log through WordPressService."),
-    BuiltinCommand("help", "help", "List commands or show command help.", aliases=("?",)),
-    BuiltinCommand("exit", "exit", "Leave the interactive REPL.", aliases=("quit", "q")),
-    # Retained for compatibility with the original scaffold/bootstrap.
-    BuiltinCommand("edit-due", "edit_due", "Change one Task due date."),
+    BuiltinCommand("today", "today", "Show today's relevant tasks and events."),
+    BuiltinCommand("next", "next", "Show the recommended next thing to do."),
+    BuiltinCommand("current", "current", "Show the task you are working on now.", aliases=("now",)),
+    BuiltinCommand("edit", "edit", "Change a task's title, due date, priority, or other planned details."),
+    BuiltinCommand("done", "done", "Mark a task complete.", aliases=("complete",)),
+    BuiltinCommand("start", "start", "Begin working on a task now."),
+    BuiltinCommand("pause", "pause", "Pause the task you are working on now."),
+    BuiltinCommand("resume", "resume", "Continue a task you previously paused."),
+    BuiltinCommand("log", "log", "Save a long-term activity note through WordPressService."),
+    BuiltinCommand("help", "help", "List commands or explain one command.", aliases=("?",)),
+    BuiltinCommand("exit", "exit", "Leave the interactive CLI.", aliases=("quit", "q")),
+    BuiltinCommand("edit-due", "edit_due", "Compatibility command: change one Task due date."),
 )
 
 
@@ -292,12 +388,6 @@ def builtin_command_specs() -> tuple[BuiltinCommand, ...]:
 
 
 def register_cli_builtin_commands(commands: Any, ctx: Any) -> None:
-    """Register missing protected core commands into the *same* CommandRegistry.
-
-    Existing protected commands from the original bootstrap are deliberately left in
-    place.  This function does not override user/extension commands silently: any
-    collision that is not already the same built-in name remains visible.
-    """
     actions = BuiltinActions(ctx)
     existing = set(commands.names(include_aliases=True))
 
@@ -305,13 +395,8 @@ def register_cli_builtin_commands(commands: Any, ctx: Any) -> None:
         if spec.name in existing:
             continue
 
-        # A canonical core name must not silently steal an alias already registered by
-        # another producer.
         collisions = set(spec.aliases) & existing
-        if collisions:
-            aliases = ()
-        else:
-            aliases = spec.aliases
+        aliases = () if collisions else spec.aliases
 
         commands.register_builtin(
             spec.name,
