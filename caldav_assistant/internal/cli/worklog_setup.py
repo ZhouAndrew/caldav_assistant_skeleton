@@ -94,7 +94,7 @@ class WorkLogSetup:
             return True
 
         self._show(
-            "Optional work history setup — choose a VEVENT calendar to store precise "
+            "Work history setup (optional) — choose a VEVENT calendar to store precise "
             "Start/Pause/Resume intervals. Cancel to continue with Activity Journal only."
         )
 
