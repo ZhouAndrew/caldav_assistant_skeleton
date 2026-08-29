@@ -26,17 +26,18 @@ def make_manager(tmp_path: Path):
     commands = CommandService(CommandRegistry())
     bundled = tmp_path / "bundled"
     bundled.mkdir()
-    (bundled / "software_intro.py").write_text(
-        '"""test official extension"""\n',
-        encoding="utf-8",
-    )
+    for name in ("software_intro", "wordpress_work_session_log"):
+        (bundled / f"{name}.py").write_text(
+            f'"""test official extension: {name}"""\n',
+            encoding="utf-8",
+        )
     manager = ExtensionManager(
         commands,
         HookRegistry(),
         FakeSettings(),
         root=tmp_path / "user-extensions",
         bundled_root=bundled,
-        default_enabled=("software_intro",),
+        default_enabled=("software_intro", "wordpress_work_session_log"),
     )
     register_extension_cli_commands(commands, manager)
     return manager, commands
@@ -47,15 +48,20 @@ def test_official_extensions_are_distinguished_and_manageable(tmp_path):
 
     listing = commands.run("extensions")
     official = commands.run("extension", "official")
-    info = commands.run("extension", "info", "software_intro")
+    intro_info = commands.run("extension", "info", "software_intro")
+    wordpress_info = commands.run("extension", "info", "wordpress_work_session_log")
 
     assert "Official bundled extensions" in listing
     assert "software_intro:" in listing
+    assert "wordpress_work_session_log:" in listing
     assert "[official]" in listing
     assert "software_intro" in official
-    assert "Origin: Official" in info
-    assert "Default: enabled" in info
-    assert "application updates" in info
+    assert "wordpress_work_session_log" in official
+    assert "Origin: Official" in intro_info
+    assert "Default: enabled" in intro_info
+    assert "application updates" in intro_info
+    assert "WordPress work-session log" in wordpress_info
+    assert "Default: enabled" in wordpress_info
 
     disabled = commands.run("extension", "disable", "software_intro")
     assert disabled.startswith("software_intro:")
@@ -67,6 +73,11 @@ def test_official_extensions_are_distinguished_and_manageable(tmp_path):
     assert "packaged default" in reset
     assert manager.get("software_intro").enabled is True
     assert manager.settings.get("extensions.enabled") == {"software_intro": True}
+
+    commands.run("extension", "disable", "wordpress_work_session_log")
+    wordpress_reset = commands.run("extension", "reset", "wordpress_work_session_log")
+    assert "packaged default" in wordpress_reset
+    assert manager.get("wordpress_work_session_log").enabled is True
 
 
 def test_user_extension_is_not_mislabelled_as_official(tmp_path):
