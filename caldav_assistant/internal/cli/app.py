@@ -216,9 +216,19 @@ def run_one_shot(app: Any, argv: Sequence[str]) -> int:
     return code
 
 
+def _emit_repl_started(app: Any) -> None:
+    """Give enabled extensions one failure-isolated interactive-start hook."""
+    extensions = getattr(app, "extensions", None)
+    hooks = getattr(extensions, "hooks", None)
+    emit = getattr(hooks, "emit", None)
+    if callable(emit):
+        emit("cli.repl.started", app.ctx)
+
+
 def run_repl(app: Any) -> int:
     _ui_show(app, _t(app, "cli.banner", "CalDAV Assistant"))
     _ui_show(app, _t(app, "cli.hint", "Type 'help' for commands. Ctrl-D or Ctrl-C exits."))
+    _emit_repl_started(app)
     last_code = 0
     while True:
         pending = getattr(app, "_pending_repl_line", None)
