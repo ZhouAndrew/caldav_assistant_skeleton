@@ -171,7 +171,7 @@ class PromptKit:
                 return default
             if raw in {"y", "yes", "true", "1"}:
                 return True
-            if raw in {"n", "no", "false", "0"}:
+            if raw in {"n", "no", "false"}:
                 return False
             if raw in self.CANCEL_TOKENS:
                 return None
