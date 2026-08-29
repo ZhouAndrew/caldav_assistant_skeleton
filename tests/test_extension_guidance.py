@@ -42,6 +42,7 @@ def test_extension_guide_teaches_easy_api_and_task_event_boundary(tmp_path):
     assert "Event" in guide
     assert "complete(task)" in guide
     assert "Event is not completed" in guide
+    assert "extension errors NAME" in guide
 
 
 def test_extension_guide_is_available_in_simplified_chinese(tmp_path):
@@ -108,3 +109,22 @@ def test_extension_path_exposes_the_managed_directory_without_requiring_platform
 
     assert str(manager.root) in text
     assert Path(manager.root).name == "extensions"
+
+
+def test_extension_errors_name_shows_path_error_and_traceback(tmp_path):
+    manager, commands = make(tmp_path)
+    manager.root.mkdir(parents=True, exist_ok=True)
+    source = manager.root / "broken.py"
+    source.write_text('raise RuntimeError("boom")\n', encoding="utf-8")
+    manager.discover()
+
+    record = manager.enable("broken")
+    assert record.status == "error"
+
+    summary = commands.run("extension", "errors")
+    detail = commands.run("extension", "errors", "broken")
+
+    assert "RuntimeError: boom" in summary
+    assert str(source) in detail
+    assert "RuntimeError: boom" in detail
+    assert "Traceback:" in detail
