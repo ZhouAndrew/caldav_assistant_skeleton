@@ -203,3 +203,42 @@ def test_disabled_experiment_does_not_write_through_snapshot():
 
     assert adapter.task_update_calls == 1
     assert after == before
+
+
+def test_diagnostics_explain_cache_hits_and_caldav_fallbacks():
+    state, adapter, sync, wrapped = make_system(enabled=False)
+    sync.refresh()
+
+    wrapped.list_tasks()
+    state["enabled"] = True
+    wrapped.list_tasks()
+    adapter.tasks.append(Task(id="new", summary="New after snapshot"))
+    wrapped.get_task("new")
+
+    status = wrapped.diagnostics()
+
+    assert status["enabled"] is True
+    assert status["snapshot_available"] is True
+    assert status["task_count"] == 1
+    assert status["event_count"] == 1
+    assert status["synced_at"]
+    assert status["sync_status"]["state"] == "ok"
+    assert status["read_counts"] == {"cache": 1, "caldav": 2}
+    assert [item["reason"] for item in status["recent_reads"][-3:]] == [
+        "experiment-disabled",
+        "snapshot-hit",
+        "cache-miss",
+    ]
+
+
+def test_no_snapshot_diagnostic_names_the_fallback_reason():
+    _, adapter, _, wrapped = make_system(enabled=True)
+
+    wrapped.list_events()
+    status = wrapped.diagnostics()
+
+    assert adapter.event_list_calls == 1
+    assert status["snapshot_available"] is False
+    assert status["recent_reads"][-1]["operation"] == "events.list"
+    assert status["recent_reads"][-1]["source"] == "caldav"
+    assert status["recent_reads"][-1]["reason"] == "no-snapshot"
