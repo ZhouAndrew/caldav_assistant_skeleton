@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Iterator
 
 from ...api.v1.errors import ExtensionError, ValidationError
+from ...api.v1.reminder_rules import _bind_reminder_rule_registrar
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +66,9 @@ def bind_reminder_rule_registry(registry: ReminderRuleRegistry) -> None:
         raise TypeError("registry must be ReminderRuleRegistry")
     global _bound_registry
     _bound_registry = registry
+    _bind_reminder_rule_registrar(
+        lambda rule, owner=None: registry.register(rule, owner=owner)
+    )
 
 
 @contextmanager
@@ -87,11 +91,7 @@ def reminder_rule_registration_scope(
 
 
 def reminder_rule(rule: Any = None):
-    """Register a classic-AI reminder rule from extension code.
-
-    A rule receives ``(Task|Event, now)`` and returns NotificationRequest(s) or None.
-    It never gets permission to mutate the item merely by being a rule.
-    """
+    """Internal compatibility alias for classic-AI reminder registration."""
     def decorate(target: Any):
         registry = _active_registry.get() or _bound_registry
         if registry is None:
