@@ -41,6 +41,16 @@ def _event_line(event: Event, *, index: int | None = None) -> str:
     return f"{prefix}{event.summary or '(untitled event)'}{suffix}"
 
 
+def _agenda_line(item: AgendaItem, index: int) -> str:
+    value = item.value
+    if isinstance(value, Task):
+        return _task_line(value, index=index)
+    if isinstance(value, Event):
+        return _event_line(value, index=index)
+    label = getattr(value, "summary", None) or getattr(value, "title", None)
+    return f"{index:>3}. {label or '(item)'}"
+
+
 def render_task(task: Task) -> list[str]:
     lines = [task.summary or "(untitled task)"]
     if task.start is not None:
@@ -91,15 +101,7 @@ def render_agenda(agenda: Agenda) -> list[str]:
         return ["Nothing scheduled."]
 
     lines = [f"Agenda · {len(agenda.items)} item{'s' if len(agenda.items) != 1 else ''}", ""]
-    for index, item in enumerate(agenda.items, start=1):
-        value = item.value
-        if isinstance(value, Task):
-            lines.append(_task_line(value, index=index))
-        elif isinstance(value, Event):
-            lines.append(_event_line(value, index=index))
-        else:
-            label = getattr(value, "summary", None) or getattr(value, "title", None)
-            lines.append(f"{index:>3}. {label or '(item)'}")
+    lines.extend(_agenda_line(item, index) for index, item in enumerate(agenda.items, start=1))
     return lines
 
 
@@ -114,6 +116,52 @@ def render_lines(result: Any) -> list[str] | None:
     if isinstance(result, Event):
         return render_event(result)
     return None
+
+
+def _pager_input(app: Any, position: int, total: int) -> bool:
+    try:
+        raw = app.io.read(
+            f"-- {position}/{total} -- [Enter] more, q stop: "
+        )
+    except (EOFError, KeyboardInterrupt):
+        return False
+    answer = str(raw).strip()
+    token = answer.casefold()
+    if token in {"q", "quit", "stop", "0"}:
+        return False
+    if not answer:
+        return True
+
+    # Humans naturally type the next command at a pager prompt. Preserve it and
+    # hand it back to the REPL rather than consuming it as "show more".
+    setattr(app, "_pending_repl_line", answer)
+    return False
+
+
+def emit_agenda(app: Any, agenda: Agenda, *, paginate: bool = False, page_size: int = 10) -> None:
+    total = len(agenda.items)
+    if total == 0:
+        app.ctx.ui.show("Nothing scheduled.")
+        return
+
+    app.ctx.ui.show(f"Agenda · {total} item{'s' if total != 1 else ''}")
+    app.ctx.ui.show("")
+
+    if not paginate or total <= page_size:
+        for index, item in enumerate(agenda.items, start=1):
+            app.ctx.ui.show(_agenda_line(item, index))
+        return
+
+    position = 0
+    while position < total:
+        end = min(position + page_size, total)
+        for index in range(position, end):
+            app.ctx.ui.show(_agenda_line(agenda.items[index], index + 1))
+        position = end
+        if position >= total:
+            break
+        if not _pager_input(app, position, total):
+            break
 
 
 def emit_lines(app: Any, lines: Iterable[str], *, paginate: bool = False, page_size: int = 10) -> None:
@@ -132,24 +180,8 @@ def emit_lines(app: Any, lines: Iterable[str], *, paginate: bool = False, page_s
         position = end
         if position >= total:
             break
-        try:
-            raw = app.io.read(
-                f"-- {position}/{total} -- [Enter] more, q stop: "
-            )
-        except (EOFError, KeyboardInterrupt):
+        if not _pager_input(app, position, total):
             break
-        answer = str(raw).strip()
-        token = answer.casefold()
-        if token in {"q", "quit", "stop", "0"}:
-            break
-        if not answer:
-            continue
-
-        # A pager is not a command prompt, but humans naturally type the next
-        # command there. Preserve that input and hand it back to the REPL instead
-        # of silently consuming it as "show more".
-        setattr(app, "_pending_repl_line", answer)
-        break
 
 
 __all__ = [
@@ -158,5 +190,6 @@ __all__ = [
     "render_agenda_item",
     "render_task",
     "render_event",
+    "emit_agenda",
     "emit_lines",
 ]

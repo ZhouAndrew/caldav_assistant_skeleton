@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from ...api.v1.errors import AmbiguousError, ValidationError
+from .worklog_setup import WorkLogSetup
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +128,14 @@ class BuiltinActions:
             return None
         return value
 
+    def _ensure_worklog_ready(self) -> bool:
+        settings = getattr(self.ctx, "settings", None)
+        # Unit/small contexts may intentionally omit the production CalDAV setup
+        # bridge. In the real CLI RemoteSettingsAPI exposes caldav_collections().
+        if settings is None or not callable(getattr(settings, "caldav_collections", None)):
+            return True
+        return WorkLogSetup(self.ctx).ensure()
+
     def _explain_task_action(self, verb: str, task: Any, **details: Any) -> None:
         text = f"{verb} → {self._summary(task)}"
         visible = [
@@ -208,6 +217,8 @@ class BuiltinActions:
                     return None
 
         if task is None:
+            return None
+        if not self._ensure_worklog_ready():
             return None
         self._explain_task_action("Start working", task)
         return self.ctx.tasks.start(task)

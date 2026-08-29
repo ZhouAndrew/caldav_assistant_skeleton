@@ -16,8 +16,9 @@ import sys
 from typing import Any, Sequence
 
 from ...api.v1.errors import CalDAVAssistantError, NotFoundError
+from ...api.v1.models import Agenda
 from .actions import EXIT_REPL, register_cli_builtin_commands
-from .presenter import emit_lines, render_lines
+from .presenter import emit_agenda, emit_lines, render_lines
 from ..extensions.cli import register_extension_cli_commands
 from ..settings.cli import register_settings_cli_command
 from ..runtime.cli import register_background_cli_command
@@ -87,6 +88,10 @@ def _render_result(app: Any, result: Any, *, paginate: bool = False) -> None:
                 _ui_show(app, ("✓ " if success else "✗ ") + str(label))
                 return
         _ui_show(app, "✓ Done." if success else "✗ Operation failed.")
+        return
+
+    if isinstance(result, Agenda):
+        emit_agenda(app, result, paginate=paginate)
         return
 
     safe_lines = render_lines(result)

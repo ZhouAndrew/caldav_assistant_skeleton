@@ -49,9 +49,9 @@ class WorkLogService:
             if not required:
                 return None
             raise ValidationError(
-                "Work history calendar is not configured. To record Start/Pause/Resume "
-                "as CalDAV events, choose one in Settings > CalDAV > Collection roles > "
-                "Work log collection. WordPress is not required for this."
+                "Work log collection is not configured. Start/Pause/Resume records "
+                "work history as CalDAV events; choose one in Settings > CalDAV > "
+                "Collection roles > Work log collection. WordPress is not required."
             )
         return value.strip()
 
