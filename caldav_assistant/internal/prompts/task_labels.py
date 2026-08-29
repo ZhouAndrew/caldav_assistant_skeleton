@@ -22,8 +22,9 @@ def _summary(task: Any) -> str:
 
 def _format_when(value: Any) -> str:
     if isinstance(value, datetime):
-        if value.tzinfo is not None:
-            value = value.astimezone()
+        # Presentation must not silently reinterpret a CalDAV timestamp in the
+        # machine's current timezone.  Preserve the wall-clock/date carried by the
+        # domain object; timezone normalization belongs to the temporal/domain layer.
         return value.strftime("%Y-%m-%d %H:%M")
     if isinstance(value, date):
         return value.isoformat()
