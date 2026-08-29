@@ -12,7 +12,7 @@ from .agenda import AgendaEngine, AgendaService, NextEngine
 from .caldav import CollectionRoutingCalDAVAdapter, SyncEngine
 from .caldav.library_adapter import LibraryCalDAVAdapter
 from .caldav.setup import CalDAVSetupService
-from .cli.actions import BuiltinActions
+from .cli.actions import BuiltinActions, register_cli_builtin_commands
 from .cli.io import StdConsoleIO
 from .commands import CommandRegistry, CommandService
 from .commands.decorators import bind_command_registry
@@ -60,6 +60,7 @@ from .settings.keys import (
     CALDAV_EVENT_COLLECTION_URL,
     CALDAV_TASK_COLLECTION_URL,
     CALDAV_WORKLOG_COLLECTION_URL,
+    EXTENSIONS_ENABLED,
     WORDPRESS_PATH,
 )
 from .storage.sqlite import (
@@ -107,6 +108,27 @@ def _state_dir() -> Path:
 
 def _builtin_extension_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "builtin_extensions"
+
+
+def _ensure_default_extension_settings(settings: SettingsService) -> None:
+    """Materialize bundled default-on state so Settings and ExtensionManager agree.
+
+    Explicit user choices always win.  Persisting only missing defaults keeps the
+    existing disable-persistence contract while making the ordinary Settings panel
+    truthful instead of reporting ``Enabled: none`` for an actually enabled bundled
+    extension.
+    """
+    state = settings.get(EXTENSIONS_ENABLED, None)
+    if not isinstance(state, dict):
+        state = {}
+    updated = dict(state)
+    changed = False
+    for name in _DEFAULT_ENABLED_EXTENSIONS:
+        if name not in updated:
+            updated[name] = True
+            changed = True
+    if changed:
+        settings.set(EXTENSIONS_ENABLED, updated)
 
 
 def _build_extension_manager(
@@ -171,6 +193,9 @@ def _ordinary_cached_events(loader):
 
 
 def _register_builtin_commands(registry: CommandRegistry, ctx: AssistantContext) -> None:
+    # Service-side command registration stays deliberately small/headless.  The
+    # interactive CLI uses register_cli_builtin_commands() below so aliases and help
+    # metadata are installed atomically instead of being partially pre-registered.
     builtins = BuiltinActions(ctx)
     registry.register("today", builtins.today, protected=True)
     registry.register("next", builtins.next, protected=True)
@@ -189,9 +214,10 @@ def build_service_application() -> ServiceApplication:
     assistant_state = SQLiteKeyValueRepository(store, "assistant_state")
     undo_repo = SQLiteUndoRepository(store)
 
-    # Old builds stored current/paused work UIDs locally. Production no longer
-    # reads or writes those keys: CalDAV Work VEVENTs are the only work-session
-    # facts. Remove stale copies so there is not even an inert duplicate left.
+    # Old builds stored current/paused UIDs as mutable local state.  Production now
+    # derives session state from Assistant Work VEVENTs when configured, otherwise
+    # from explicit Activity Journal lifecycle records, so stale duplicate keys are
+    # removed rather than trusted.
     for deprecated_key in ("current_task_uid", "paused_task_uids"):
         try:
             assistant_state.delete(deprecated_key)
@@ -199,6 +225,7 @@ def build_service_application() -> ServiceApplication:
             pass
 
     settings_service = SettingsService(settings_repo)
+    _ensure_default_extension_settings(settings_service)
     public_settings = PublicSettingsAPI(settings_service)
     activity = ActivityService(activity_repo)
     undo = UndoManager(undo_repo)
@@ -230,7 +257,7 @@ def build_service_application() -> ServiceApplication:
     )
     completion_log = TaskCompletionLogService(worklog, wordpress)
 
-    session = CalDAVSessionService(worklog)
+    session = CalDAVSessionService(worklog, activity=activity)
     tasks = CompletionLoggingTaskService(
         routed_caldav,
         activity,
@@ -359,7 +386,12 @@ def build_cli_application() -> CLIApplication:
     )
     bind_current_context(ctx)
     _bind_hook_registrar(hooks)
-    _register_builtin_commands(registry, ctx)
+
+    # Register the complete interactive command contract in one pass.  This avoids
+    # the previous partial pre-registration that caused aliases such as `complete`
+    # and help descriptions to disappear from the final CLI registry.
+    register_cli_builtin_commands(commands, ctx)
+
     extensions = _build_extension_manager(commands, hooks, settings)
     return CLIApplication(ctx, runtime, commands, extensions, io)
 
