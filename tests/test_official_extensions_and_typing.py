@@ -50,14 +50,17 @@ def test_official_extensions_are_distinguished_and_manageable(tmp_path):
     info = commands.run("extension", "info", "software_intro")
 
     assert "Official bundled extensions" in listing
-    assert "[official] software_intro" in listing
+    assert "software_intro:" in listing
+    assert "[official]" in listing
     assert "software_intro" in official
     assert "Origin: Official" in info
     assert "Default: enabled" in info
     assert "application updates" in info
 
     disabled = commands.run("extension", "disable", "software_intro")
+    assert disabled.startswith("software_intro:")
     assert "disabled" in disabled
+    assert "[official]" in disabled
     assert manager.settings.get("extensions.enabled") == {"software_intro": False}
 
     reset = commands.run("extension", "reset", "software_intro")
@@ -74,7 +77,8 @@ def test_user_extension_is_not_mislabelled_as_official(tmp_path):
     user = commands.run("extension", "user")
     info = commands.run("extension", "info", "school")
 
-    assert "[user] school" in listing
+    assert "school:" in listing
+    assert "[user]" in listing
     assert "school" in user
     assert "Origin: User extension" in info
     assert "extension dev" in info
