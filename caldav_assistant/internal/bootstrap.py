@@ -9,7 +9,7 @@ from ..api import AssistantContext
 from ..api.v1.hooks import _bind_hook_registrar
 from .activity import ActivityService
 from .agenda import AgendaEngine, AgendaService, NextEngine
-from .caldav import SyncEngine
+from .caldav import CollectionRoutingCalDAVAdapter, SyncEngine
 from .caldav.library_adapter import LibraryCalDAVAdapter
 from .caldav.setup import CalDAVSetupService
 from .cli.actions import BuiltinActions
@@ -55,7 +55,13 @@ from .runtime.service import AssistantService
 from .runtime.service_launcher import ServiceLauncher
 from .session import CalDAVSessionService
 from .settings import PublicSettingsAPI, SettingsService
-from .settings.keys import CALDAV_CREDENTIALS, CALDAV_WORKLOG_COLLECTION_URL, WORDPRESS_PATH
+from .settings.keys import (
+    CALDAV_CREDENTIALS,
+    CALDAV_EVENT_COLLECTION_URL,
+    CALDAV_TASK_COLLECTION_URL,
+    CALDAV_WORKLOG_COLLECTION_URL,
+    WORDPRESS_PATH,
+)
 from .storage.sqlite import (
     SQLiteActivityRepository,
     SQLiteCacheRepository,
@@ -163,8 +169,17 @@ def build_service_application() -> ServiceApplication:
     _caldav_setup = CalDAVSetupService(settings_service, base_url_provider, caldav)
     sync = SyncEngine(caldav, cache)
 
-    worklog = WorkLogService(
+    # Ordinary creation follows explicit user-selected collection roles. The
+    # transport still refuses to guess when a role is not configured and multiple
+    # compatible collections exist.
+    routed_caldav = CollectionRoutingCalDAVAdapter(
         caldav,
+        task_collection_url=lambda: settings_service.get(CALDAV_TASK_COLLECTION_URL, None),
+        event_collection_url=lambda: settings_service.get(CALDAV_EVENT_COLLECTION_URL, None),
+    )
+
+    worklog = WorkLogService(
+        routed_caldav,
         lambda: settings_service.get(CALDAV_WORKLOG_COLLECTION_URL, None),
     )
 
@@ -179,7 +194,7 @@ def build_service_application() -> ServiceApplication:
     # current/paused UID is persisted in assistant_state.
     session = CalDAVSessionService(worklog)
     tasks = CompletionLoggingTaskService(
-        caldav,
+        routed_caldav,
         activity,
         undo,
         session,
@@ -188,7 +203,7 @@ def build_service_application() -> ServiceApplication:
     )
     session.bind_tasks(tasks)
 
-    events = EventService(caldav, activity, undo)
+    events = EventService(routed_caldav, activity, undo)
     undo.bind(tasks=tasks, events=events)
     agenda = AgendaService(
         tasks,
