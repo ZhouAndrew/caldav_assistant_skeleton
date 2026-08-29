@@ -150,46 +150,50 @@ class ExperimentalCacheCalDAVAdapter:
 
         ``synced_at`` intentionally remains the timestamp of the last full remote
         verification.  ``cache_updated_at`` records the local write-through patch
-        separately so diagnostics never pretend a full sync occurred.
+        separately so diagnostics never pretend a full sync occurred.  The same
+        lock used by SyncEngine refreshes also protects write-through updates, so a
+        periodic/manual scan cannot replace a concurrently patched snapshot.
         """
         if not self._active():
             return
-        snapshot = self.sync.cached_snapshot()
-        if not isinstance(snapshot, Mapping):
-            return
 
-        key = "tasks" if kind == "task" else "events"
-        values = snapshot.get(key, [])
-        if not isinstance(values, list):
-            return
+        with self.sync._sync_lock:
+            snapshot = self.sync.cached_snapshot()
+            if not isinstance(snapshot, Mapping):
+                return
 
-        updated_values = [
-            dict(item)
-            for item in values
-            if isinstance(item, Mapping)
-            and (remove_id is None or str(item.get("id") or "") != str(remove_id))
-        ]
+            key = "tasks" if kind == "task" else "events"
+            values = snapshot.get(key, [])
+            if not isinstance(values, list):
+                return
 
-        if obj is not None:
-            serializer = (
-                self.sync._task_to_dict
-                if kind == "task"
-                else self.sync._event_to_dict
-            )
-            serialized = serializer(obj)
-            obj_id = str(serialized.get("id") or "")
             updated_values = [
-                item
-                for item in updated_values
-                if str(item.get("id") or "") != obj_id
+                dict(item)
+                for item in values
+                if isinstance(item, Mapping)
+                and (remove_id is None or str(item.get("id") or "") != str(remove_id))
             ]
-            updated_values.append(serialized)
 
-        updated = dict(snapshot)
-        updated[key] = updated_values
-        updated["cache_updated_at"] = datetime.now(timezone.utc).isoformat()
-        updated["cache_update_reason"] = "authoritative-write"
-        self.sync.cache.set(self.sync.SNAPSHOT_KEY, updated)
+            if obj is not None:
+                serializer = (
+                    self.sync._task_to_dict
+                    if kind == "task"
+                    else self.sync._event_to_dict
+                )
+                serialized = serializer(obj)
+                obj_id = str(serialized.get("id") or "")
+                updated_values = [
+                    item
+                    for item in updated_values
+                    if str(item.get("id") or "") != obj_id
+                ]
+                updated_values.append(serialized)
+
+            updated = dict(snapshot)
+            updated[key] = updated_values
+            updated["cache_updated_at"] = datetime.now(timezone.utc).isoformat()
+            updated["cache_update_reason"] = "authoritative-write"
+            self.sync.cache.set(self.sync.SNAPSHOT_KEY, updated)
 
     def list_tasks(self, **filters: Any) -> Sequence[Task]:
         if not self._active():
