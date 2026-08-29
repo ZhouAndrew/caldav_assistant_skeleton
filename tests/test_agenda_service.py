@@ -47,7 +47,7 @@ def test_today_is_projected_by_agenda_engine_not_forwarded_as_caldav_filter():
     assert engine.calls == [(["task"], ["event"], {"days": 1, "user_state": state})]
 
 
-def test_next_builds_candidate_agenda_and_uses_frozen_next_engine_contract():
+def test_next_builds_candidate_agenda_and_uses_human_work_context():
     from datetime import datetime
 
     tasks = Query(["task"])
@@ -59,7 +59,10 @@ def test_next_builds_candidate_agenda_and_uses_frozen_next_engine_contract():
         events,
         engine,
         next_engine,
-        {"current_task_uid": "task-current"},
+        {
+            "current_task_uid": "task-current",
+            "paused_task_uids": ["task-paused"],
+        },
     )
 
     now = datetime.now().astimezone()
@@ -72,6 +75,7 @@ def test_next_builds_candidate_agenda_and_uses_frozen_next_engine_contract():
                 "kind": "task",
                 "now": now,
                 "current_task_uid": "task-current",
+                "skipped_uids": ("task-paused",),
             },
         )
     ]
