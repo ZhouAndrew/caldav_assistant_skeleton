@@ -9,6 +9,8 @@ MODULE CONTRACT
 
 CalDAV remains the Task source of truth.  The Assistant-owned work-session stores
 only which task the human is actively working on or has temporarily paused.
+Activity Journal entries describe successful planning changes and human work-session
+transitions; they never replace authoritative Task state.
 """
 from __future__ import annotations
 
@@ -180,6 +182,15 @@ class TaskService:
             },
         }
 
+    @staticmethod
+    def _plan_context(task: Task) -> dict[str, Any]:
+        """Small planning snapshot attached to human work-session events."""
+        return {
+            "planned_start": deepcopy(task.start),
+            "due": deepcopy(task.due),
+            "priority": deepcopy(task.priority),
+        }
+
     def _record(self, action: str, task: Task, **metadata: Any) -> None:
         if self.activity is not None:
             self.activity.record(action, task.id, **metadata)
@@ -250,7 +261,7 @@ class TaskService:
         created = self._bind(self.adapter.create_task(candidate))
         self._require_id(created)
         undo_available = self._remember({"action": "task.create", "task_id": created.id})
-        self._record("task_created", created)
+        self._record("task_created", created, after=self._snapshot(created))
         return ActionResult(True, affected=created, undo_available=undo_available)
 
     def _update(
@@ -258,7 +269,8 @@ class TaskService:
         task: Task | str,
         changes: dict[str, Any],
         *,
-        activity_action: str = "task_updated",
+        activity_action: str | None = "task_updated",
+        activity_metadata: dict[str, Any] | None = None,
         validate: bool = True,
         undo: bool = True,
     ) -> ActionResult:
@@ -284,27 +296,60 @@ class TaskService:
                 }
             )
 
-        self._record(activity_action, updated, changes=deepcopy(normalized))
+        if activity_action is not None:
+            metadata = dict(activity_metadata or {})
+            metadata.update(
+                {
+                    "before": deepcopy(before),
+                    "after": deepcopy(normalized),
+                    "changes": deepcopy(normalized),
+                }
+            )
+            self._record(activity_action, updated, **metadata)
         return ActionResult(True, affected=updated, undo_available=undo_available)
 
     def update(self, task: Task | str, **changes: Any) -> ActionResult:
-        action = "task_due_changed" if set(changes) == {"due"} else "task_updated"
+        keys = set(changes)
+        if keys == {"start"}:
+            action = "task_planned_start_changed"
+        elif keys == {"due"}:
+            action = "task_due_changed"
+        elif keys == {"priority"}:
+            action = "task_priority_changed"
+        else:
+            action = "task_updated"
         return self._update(task, changes, activity_action=action)
 
     def complete(self, task: Task | str) -> ActionResult:
+        obj = self.get(task)
+        task_id = self._require_id(obj)
+        work_session_before = (
+            "current"
+            if self._session_current_id() == task_id
+            else "paused"
+            if task_id in self._session_paused_ids()
+            else "none"
+        )
         result = self._update(
-            task,
+            obj,
             {
                 "status": "COMPLETED",
                 "completed": True,
                 "completed_at": datetime.now(timezone.utc),
             },
-            activity_action="task_completed",
+            activity_action=None,
         )
         if self.session is not None:
             forget = getattr(self.session, "forget", None)
             if callable(forget):
                 forget(result.affected)
+        self._record(
+            "task_completed",
+            result.affected,
+            work_session_before=work_session_before,
+            work_session_after="none",
+            **self._plan_context(obj),
+        )
         return result
 
     def start(self, task: Task | str) -> ActionResult:
@@ -314,6 +359,8 @@ class TaskService:
             raise ValidationError("A completed or cancelled Task cannot be started")
 
         current_id = self._session_current_id()
+        if current_id == task_id:
+            raise ValidationError("This Task is already the current work")
         if current_id and current_id != task_id:
             raise ValidationError(
                 "Another Task is currently being worked on; pause or complete it before starting a different Task"
@@ -326,12 +373,19 @@ class TaskService:
                 "completed": False,
                 "completed_at": None,
             },
-            activity_action="task_started",
+            activity_action=None,
         )
         if self.session is not None:
             setter = getattr(self.session, "set_current", None)
             if callable(setter):
                 setter(result.affected)
+        self._record(
+            "task_started",
+            result.affected,
+            work_session_before="none",
+            work_session_after="current",
+            **self._plan_context(obj),
+        )
         return result
 
     def pause(self, task: Task | str) -> ActionResult:
@@ -347,7 +401,13 @@ class TaskService:
             marker = getattr(self.session, "mark_paused", None)
             if callable(marker):
                 marker(obj)
-        self._record("task_paused", obj)
+        self._record(
+            "task_paused",
+            obj,
+            work_session_before="current",
+            work_session_after="paused",
+            **self._plan_context(obj),
+        )
         return ActionResult(True, affected=obj, undo_available=False)
 
     def resume(self, task: Task | str) -> ActionResult:
@@ -373,28 +433,48 @@ class TaskService:
                 "completed": False,
                 "completed_at": None,
             },
-            activity_action="task_resumed",
+            activity_action=None,
             undo=False,
         )
         if self.session is not None:
             setter = getattr(self.session, "set_current", None)
             if callable(setter):
                 setter(result.affected)
+        self._record(
+            "task_resumed",
+            result.affected,
+            work_session_before="paused",
+            work_session_after="current",
+            **self._plan_context(obj),
+        )
         return result
 
     def delete(self, task: Task | str) -> ActionResult:
         obj = self.get(task)
         task_id = self._require_id(obj)
         snapshot = self._snapshot(obj)
+        work_session_before = (
+            "current"
+            if self._session_current_id() == task_id
+            else "paused"
+            if task_id in self._session_paused_ids()
+            else "none"
+        )
 
         self.adapter.delete_task(task_id)
 
         undo_available = self._remember(
             {"action": "task.delete", "task_id": task_id, "task": snapshot}
         )
-        self._record("task_deleted", obj)
         if self.session is not None:
             forget = getattr(self.session, "forget", None)
             if callable(forget):
                 forget(obj)
+        self._record(
+            "task_deleted",
+            obj,
+            before=snapshot,
+            work_session_before=work_session_before,
+            work_session_after="none",
+        )
         return ActionResult(True, affected=obj, undo_available=undo_available)
