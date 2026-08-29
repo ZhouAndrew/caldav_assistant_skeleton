@@ -10,6 +10,7 @@ NOTIFICATIONS_ENABLED = "notifications.enabled"
 WORDPRESS_ENABLED = "wordpress.enabled"
 WORDPRESS_PATH = "wordpress.path"
 EXTENSIONS_ENABLED = "extensions.enabled"
+EXPERIMENTAL_FAST_QUERY_CACHE = "experimental.fast_query_cache"
 
 __all__ = [
     "CALDAV_BASE_URL",
@@ -23,4 +24,5 @@ __all__ = [
     "WORDPRESS_ENABLED",
     "WORDPRESS_PATH",
     "EXTENSIONS_ENABLED",
+    "EXPERIMENTAL_FAST_QUERY_CACHE",
 ]
