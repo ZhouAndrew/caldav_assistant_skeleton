@@ -13,9 +13,6 @@ class AgendaService:
         self.state = state
 
     def today(self):
-        # ``today`` is an Agenda projection, not a CalDAV object attribute/filter.
-        # Read authoritative objects normally and let AgendaEngine apply its
-        # timezone-aware one-day range plus current/overdue visibility rules.
         return self.engine.build(
             self.tasks.list(),
             self.events.list(),
@@ -47,9 +44,9 @@ class AgendaService:
         return getattr(state, key, default)
 
     def next(self, kind=None, **options):
-        # NextEngine consumes one Agenda plus explicit decision context.  The
-        # candidate projection is deliberately broad so undated Tasks remain
-        # eligible; date/event horizons are NextEngine policy, not CalDAV filters.
+        # NextEngine consumes one broad candidate Agenda plus explicit human work
+        # context. A paused task is intentionally excluded by default; otherwise
+        # `pause` would immediately recommend the same work again.
         agenda = self.engine.candidates(
             self.tasks.list(),
             self.events.list(),
@@ -59,6 +56,10 @@ class AgendaService:
         options.setdefault(
             "current_task_uid",
             self._state_value(self.state, "current_task_uid", None),
+        )
+        options.setdefault(
+            "skipped_uids",
+            tuple(self._state_value(self.state, "paused_task_uids", ()) or ()),
         )
         return self.next_engine.choose(agenda, kind=kind, **options)
 
