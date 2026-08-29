@@ -9,15 +9,16 @@ CalDAV Assistant 是一个 **local-first、CLI-first** 的任务与日程助手�
 主要能力：
 
 - CalDAV VTODO / VEVENT 查询与修改；
-- `today`、`next`、`edit`、`done`、`start`、`pause`、`resume` 等 CLI 操作；
+- `today`、`next`、`add`、`edit`、`done`、`start`、`pause`、`resume` 等 CLI 操作；
 - 轻量后台 Assistant Service、Local IPC 与自动拉起；
 - Reminder Engine 与 Linux/macOS/Windows 系统通知 Adapter；
 - Activity Journal；
 - 持久 Undo Journal 与 `undo` CLI 命令；
 - WordPress Outbox 与真实 WP-CLI transport；
 - Settings、Localization、Command Registry、PromptKit/Menu；
-- Extension 生命周期与失败隔离；
-- Scratch-like Easy API、Object API、Full Extension API v1。
+- 官方内置扩展与用户扩展的统一生命周期、来源展示和失败隔离；
+- Scratch-like Easy API、Object API、Full Extension API v1；
+- PEP 561 `py.typed`、Easy API 类型 stub 与 Object API Protocol，支持 VS Code/Pylance 自动补全和类型检查。
 
 ## 安装
 
@@ -98,6 +99,22 @@ edit_event("教研会议", location="会议室")  # Event：独立 Event API
 complete(next_event())   # 不允许：Event 不是可完成的 Task
 ```
 
+### 管理官方扩展与用户扩展
+
+`extensions` 会把扩展按来源分成 **Official bundled extensions** 和 **User extensions**。官方扩展的源码随 CalDAV Assistant 版本更新，用户管理启用状态，不直接修改内置源码。
+
+```text
+> extensions
+> extension official
+> extension user
+> extension info software_intro
+> extension disable software_intro
+> extension enable software_intro
+> extension reset software_intro
+```
+
+`extension reset NAME` 只用于官方扩展，把它恢复到软件发行时定义的默认启用状态。官方扩展和用户扩展仍然使用同一个 ExtensionManager，因此启用、禁用、重载、错误隔离不存在第二套实现。
+
 ### 在程序里学习、创建和调试扩展
 
 不需要先寻找扩展目录或阅读内部源码。进入 CLI 后：
@@ -106,7 +123,7 @@ complete(next_event())   # 不允许：Event 不是可完成的 Task
 > extension guide
 ```
 
-程序会直接讲解 Python Easy API、Task/Event 区别、最小扩展示例和常用积木。
+程序会直接讲解 Python Easy API、Task/Event 区别、官方扩展管理、最小扩展示例和常用积木。
 
 创建一个最小的一文件扩展：
 
@@ -114,13 +131,41 @@ complete(next_event())   # 不允许：Event 不是可完成的 Task
 > extension new school
 ```
 
-程序会在受管理的用户扩展目录中生成 `school.py`，默认保持禁用。即使过去删除过同名扩展并留下启用设置，新文件也会重新从禁用状态开始。编辑文件后：
+程序会在受管理的用户扩展目录中生成 `school.py`，默认保持禁用。生成文件自带明确类型注解。即使过去删除过同名扩展并留下启用设置，新文件也会重新从禁用状态开始。
+
+为扩展目录准备 VS Code/Pylance：
+
+```text
+> extension dev
+```
+
+该命令会在用户扩展目录中创建最小 `.vscode/settings.json`（已有文件时绝不覆盖）。然后用 VS Code 打开扩展目录，并选择**安装了 `caldav-assistant` 的同一个 Python 解释器/venv**。安装包提供：
+
+- `caldav_assistant/py.typed`：PEP 561 typed package 标记；
+- `caldav_assistant/easy.pyi`：Easy API 的参数、返回值、Task/Event 类型信息；
+- `caldav_assistant.api.v1` Protocol：`ctx.tasks`、`ctx.events`、`ctx.agenda`、`ctx.ui` 等 Object API namespace 的结构化类型。
+
+因此 Pylance 可以直接完成 `caldav_assistant.easy` 的导入补全、函数签名、hover 返回类型，并对明显的 Task/Event 类型错误给出提示。
+
+生成模板示例：
+
+```python
+from caldav_assistant.api import Agenda
+from caldav_assistant.easy import command, show, today
+
+@command("school")
+def run() -> None:
+    items: Agenda = today()
+    show(items)
+```
+
+编辑文件后：
 
 ```text
 > extension enable school
 ```
 
-修改已经启用的扩展后：
+修改已经启用的用户扩展后：
 
 ```text
 > extension reload school
@@ -149,16 +194,6 @@ complete(next_event())   # 不允许：Event 不是可完成的 Task
 ```text
 > extension add /path/to/my_extension.py
 > extension enable my_extension
-```
-
-生成的最小扩展仍然只是普通 Easy API Python：
-
-```python
-from caldav_assistant.easy import command, show, today
-
-@command("school")
-def run():
-    show(today())
 ```
 
 扩展的发现、启用、禁用、重载和错误隔离由 Extension Manager 负责；**功能本身仍由 Easy API 组合，并最终调用与 CLI/后台相同的 Core Services。**

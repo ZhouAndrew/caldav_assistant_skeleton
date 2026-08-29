@@ -15,3 +15,6 @@ dependencies = [
 [project.scripts]
 caldav-assistant = "caldav_assistant.internal.cli.app:main"
 caldav-assistant-service = "caldav_assistant.internal.runtime.service:main"
+
+[tool.setuptools.package-data]
+caldav_assistant = ["py.typed", "*.pyi"]
