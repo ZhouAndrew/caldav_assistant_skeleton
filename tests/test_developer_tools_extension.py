@@ -69,11 +69,14 @@ def test_shell_keeps_original_foreground_external_process_contract(tmp_path):
     assert result == 7
 
 
-def test_shell_reports_missing_program_without_using_shell_true(tmp_path):
+def test_shell_reports_missing_program_and_explains_shell_boundary(tmp_path):
     _, commands = make_manager(tmp_path)
 
-    with pytest.raises(ValueError, match="External command not found"):
+    with pytest.raises(ValueError, match="External command not found") as exc:
         commands.run("shell", "caldav-assistant-command-that-does-not-exist-12345")
+
+    assert "shell built-in" in str(exc.value)
+    assert "run bash -lc" in str(exc.value)
 
 
 def test_run_foreground_reports_exit_code_and_uses_subprocess_run(tmp_path, monkeypatch):
@@ -95,9 +98,14 @@ def test_run_foreground_reports_exit_code_and_uses_subprocess_run(tmp_path, monk
     assert calls == [(["tool", "arg"], {"check": False})]
 
 
-def test_run_human_background_suffix_detaches_stdio_and_returns_pid(tmp_path, monkeypatch):
+def test_run_human_background_suffix_detaches_input_preserves_output_log_and_returns_pid(
+    tmp_path,
+    monkeypatch,
+):
     _, commands = make_manager(tmp_path)
     calls = []
+    log_path = tmp_path / "background.log"
+    log_handle = log_path.open("w+b")
 
     class Process:
         pid = 43210
@@ -106,18 +114,24 @@ def test_run_human_background_suffix_detaches_stdio_and_returns_pid(tmp_path, mo
         calls.append((argv, kwargs))
         return Process()
 
+    monkeypatch.setattr(
+        "caldav_assistant.builtin_extensions.developer_tools._background_log",
+        lambda: (log_handle, log_path),
+    )
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
 
     result = commands.run("run", "python", "worker.py", "in", "background")
 
-    assert result == "Started in background (PID 43210): python worker.py"
+    assert "Started in background (PID 43210): python worker.py" in result
+    assert f"Output log: {log_path}" in result
     assert len(calls) == 1
     argv, kwargs = calls[0]
     assert argv == ["python", "worker.py"]
     assert kwargs["stdin"] is subprocess.DEVNULL
-    assert kwargs["stdout"] is subprocess.DEVNULL
-    assert kwargs["stderr"] is subprocess.DEVNULL
+    assert kwargs["stdout"] is log_handle
+    assert kwargs["stderr"] is subprocess.STDOUT
     assert kwargs["close_fds"] is True
+    assert log_handle.closed is True
     if os.name == "nt":
         expected = (
             getattr(subprocess, "DETACHED_PROCESS", 0)
@@ -137,6 +151,15 @@ def test_run_background_has_script_friendly_flag_forms(tmp_path, monkeypatch):
         pid = 123
 
     seen = []
+
+    def fake_log():
+        path = tmp_path / f"bg-{len(seen)}.log"
+        return path.open("w+b"), path
+
+    monkeypatch.setattr(
+        "caldav_assistant.builtin_extensions.developer_tools._background_log",
+        fake_log,
+    )
     monkeypatch.setattr(
         subprocess,
         "Popen",
