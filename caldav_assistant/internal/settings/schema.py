@@ -174,6 +174,14 @@ DEFAULT_SETTINGS_SCHEMA = SettingsSchema([
     SettingSpec(WORDPRESS_PATH, "WordPress path", "WordPress", "text", None, validator=_optional_path),
     SettingSpec(COMMAND_LANGUAGE, "Command language", "Commands", "choice", "en", choices=("en",), validator=_command_language),
     SettingSpec(EXTENSIONS_ENABLED, "Extensions", "Extensions", "mapping", {}, validator=_extension_map),
+    SettingSpec(
+        EXPERIMENTAL_FAST_QUERY_CACHE,
+        "Fast query cache (experimental)",
+        "Experimental",
+        "bool",
+        False,
+        validator=lambda v: _boolean(v, label="Fast query cache"),
+    ),
 ])
 
 __all__ = ["SettingSpec", "SettingsSchema", "DEFAULT_SETTINGS_SCHEMA"]
