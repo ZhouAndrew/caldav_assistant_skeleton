@@ -56,7 +56,7 @@ def test_extension_guide_is_available_in_simplified_chinese(tmp_path):
     assert "Event 不存在“完成”生命周期" in guide
 
 
-def test_extension_new_creates_disabled_one_file_easy_template(tmp_path):
+def test_extension_new_creates_disabled_detailed_runnable_easy_template(tmp_path):
     manager, commands = make(tmp_path)
 
     result = commands.run("extension", "new", "school")
@@ -66,9 +66,38 @@ def test_extension_new_creates_disabled_one_file_easy_template(tmp_path):
     assert record.status == "disabled"
     assert record.path == manager.root / "school.py"
     source = record.path.read_text(encoding="utf-8")
+
+    # The generated file is now a real working template rather than the old tiny demo.
+    assert len(source.splitlines()) >= 100
+    compile(source, str(record.path), "exec")
     assert "from caldav_assistant.easy import" in source
+    assert "from caldav_assistant.api import Agenda" in source
+    assert "caldav_assistant.internal" not in source
     assert "@command('school')" in source
+    assert "def run() -> None:" in source
+    assert "items: Agenda = today()" in source
+    assert "PEP 561" in source
     assert "Event = something scheduled to occur" in source
+    assert "Events do NOT have a completion lifecycle" in source
+
+    # It demonstrates the major Scratch-like bricks without bypassing Core services.
+    for brick in (
+        "choose(",
+        "choose_task",
+        "ask_date",
+        "today_tasks",
+        "overdue_tasks",
+        "today_events",
+        "start",
+        "complete",
+        "set_due",
+        "confirm",
+        "write_log",
+    ):
+        assert brick in source
+    assert "Log a selected task" in source
+    assert "extension reload school" in source
+    assert "extension errors school" in source
     assert "extension enable school" in result
 
     loaded = manager.enable("school")

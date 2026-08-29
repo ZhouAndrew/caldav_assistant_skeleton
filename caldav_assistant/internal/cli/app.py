@@ -22,6 +22,7 @@ from .api_help import register_api_cli_command
 from .completion import completion_session
 from .crud import register_crud_cli_commands
 from .presenter import emit_agenda, emit_lines, render_lines
+from ..extensions.availability import find_extension_command_support
 from ..extensions.cli import register_extension_cli_commands
 from ..settings.cli import register_settings_cli_command
 from ..runtime.cli import register_background_cli_command
@@ -73,6 +74,53 @@ def _error(app: Any, message: str) -> None:
         error(message)
         return
     _ui_show(app, message)
+
+
+def _unsupported_command_message(app: Any, command: str) -> str:
+    support = find_extension_command_support(getattr(app, "extensions", None), command)
+    if support is None:
+        return _t(
+            app,
+            "cli.unsupported_command",
+            "Unsupported command: {command}. Type 'help' for available commands.",
+            command=command,
+        )
+
+    if support.status == "missing":
+        return _t(
+            app,
+            "cli.command_supported_extension_missing",
+            "Command '{command}' is supported by official extension '{extension}', "
+            "but that extension is not installed in this build.",
+            command=support.command,
+            extension=support.extension,
+        )
+    if not support.enabled or support.status == "disabled":
+        return _t(
+            app,
+            "cli.command_supported_extension_disabled",
+            "Command '{command}' is supported, but extension '{extension}' is disabled. "
+            "Enable it with: extension enable {extension}",
+            command=support.command,
+            extension=support.extension,
+        )
+    if support.status == "error":
+        return _t(
+            app,
+            "cli.command_supported_extension_error",
+            "Command '{command}' is supported by extension '{extension}', but the extension "
+            "failed to load. Check: extension errors {extension}",
+            command=support.command,
+            extension=support.extension,
+        )
+    return _t(
+        app,
+        "cli.command_supported_extension_unavailable",
+        "Command '{command}' is supported by extension '{extension}', but is not available "
+        "right now. Try: extension reload {extension}",
+        command=support.command,
+        extension=support.extension,
+    )
 
 
 def _remember_result(app: Any, result: Any) -> None:
@@ -170,7 +218,7 @@ def _execute(app: Any, parsed: ParsedCommand, *, paginate: bool = False) -> tupl
     try:
         entry = app.commands.resolve(parsed.name)
     except NotFoundError:
-        _error(app, _t(app, "cli.unknown_command", "Unknown command: {command}. Type 'help' for commands.", command=parsed.name))
+        _error(app, _unsupported_command_message(app, parsed.name))
         return 2, False
     except CalDAVAssistantError as exc:
         _error(app, f"{type(exc).__name__}: {exc}")
@@ -187,6 +235,13 @@ def _execute(app: Any, parsed: ParsedCommand, *, paginate: bool = False) -> tupl
         return 130, False
     except EOFError:
         return 0, True
+    except NotFoundError as exc:
+        if entry.name.casefold() == "help" and parsed.args:
+            target = " ".join(parsed.args).strip()
+            _error(app, _unsupported_command_message(app, target))
+        else:
+            _error(app, f"{type(exc).__name__}: {exc}")
+        return 2, False
     except CalDAVAssistantError as exc:
         _error(app, f"{type(exc).__name__}: {exc}")
         return 2, False
