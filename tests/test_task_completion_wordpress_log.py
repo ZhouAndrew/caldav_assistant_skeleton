@@ -107,10 +107,19 @@ def test_queue_log_writes_only_outbox_until_background_flush():
     assert len(outbox.pending()) == 1
     assert adapter.calls == []
 
+    payload = outbox.pending()[0]["payload"]
+    captured = payload["args"]["metadata"]
+    assert captured["title"] == "Completed — Report"
+    assert captured["_logged_at"]
+    assert captured["_request_id"] == payload["request_id"]
+
     summary = wordpress.flush()
     assert summary["sent"] == 1
     assert outbox.pending() == []
-    assert adapter.calls == [("Completed work", {"title": "Completed — Report"})]
+    assert len(adapter.calls) == 1
+    text, metadata = adapter.calls[0]
+    assert text == "Completed work"
+    assert metadata == captured
 
 
 def test_completion_log_contains_caldav_work_segments_and_human_timeline():
