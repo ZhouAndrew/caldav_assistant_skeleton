@@ -133,13 +133,23 @@ def emit_lines(app: Any, lines: Iterable[str], *, paginate: bool = False, page_s
         if position >= total:
             break
         try:
-            answer = app.io.read(
+            raw = app.io.read(
                 f"-- {position}/{total} -- [Enter] more, q stop: "
-            ).strip().casefold()
+            )
         except (EOFError, KeyboardInterrupt):
             break
-        if answer in {"q", "quit", "stop", "0"}:
+        answer = str(raw).strip()
+        token = answer.casefold()
+        if token in {"q", "quit", "stop", "0"}:
             break
+        if not answer:
+            continue
+
+        # A pager is not a command prompt, but humans naturally type the next
+        # command there. Preserve that input and hand it back to the REPL instead
+        # of silently consuming it as "show more".
+        setattr(app, "_pending_repl_line", answer)
+        break
 
 
 __all__ = [
