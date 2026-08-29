@@ -18,7 +18,8 @@ CalDAV Assistant 是一个 **local-first、CLI-first** 的任务与日程助手�
 - Settings、Localization、Command Registry、PromptKit/Menu；
 - 官方内置扩展与用户扩展的统一生命周期、来源展示和失败隔离；
 - Scratch-like Easy API、Object API、Full Extension API v1；
-- PEP 561 `py.typed`、Easy API 类型 stub 与 Object API Protocol，支持 VS Code/Pylance 自动补全和类型检查。
+- PEP 561 `py.typed`、Easy API 类型 stub 与 Object API Protocol，支持 VS Code/Pylance 自动补全和类型检查；
+- 由真实 Public API 自动生成的接口目录，可查询接口是否存在、签名、来源和用法。
 
 ## 安装
 
@@ -146,6 +147,38 @@ complete(next_event())   # 不允许：Event 不是可完成的 Task
 - `caldav_assistant.api.v1` Protocol：`ctx.tasks`、`ctx.events`、`ctx.agenda`、`ctx.ui` 等 Object API namespace 的结构化类型。
 
 因此 Pylance 可以直接完成 `caldav_assistant.easy` 的导入补全、函数签名、hover 返回类型，并对明显的 Task/Event 类型错误给出提示。
+
+接口是否真的已经实现，不需要猜，也不需要翻源码。CLI 直接查询实时 Public API 目录：
+
+```text
+> api
+> api easy.complete
+> api ctx.tasks.complete
+> api exists Task.start_task
+> api exists ctx.events.complete
+> api search reminder
+> api list easy
+> api list object
+> api list full
+```
+
+`api <interface>` 会显示 layer、kind、真实函数签名、来源和最小用法；`api exists <interface>` 只回答该公开接口是否真实存在。目录从当前安装版本的 `caldav_assistant.easy.__all__`、Object API Protocol 和 `caldav_assistant.api.v1` 实际导出生成，**不会把规范中尚未实现的概念接口伪装成可调用接口**。
+
+Python 代码也可以查询同一目录：
+
+```python
+from caldav_assistant.api import api_catalog, api_describe, api_exists, api_find
+
+assert api_exists("ctx.tasks.complete")
+assert not api_exists("ctx.events.complete")
+
+info = api_describe("easy.write_log")
+print(info.signature)
+print(info.usage)
+
+for entry in api_find("reminder"):
+    print(entry.path)
+```
 
 生成模板示例：
 
