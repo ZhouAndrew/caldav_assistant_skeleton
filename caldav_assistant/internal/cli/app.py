@@ -15,8 +15,8 @@ import shlex
 import sys
 from typing import Any, Sequence
 
-from ...api.v1.errors import CalDAVAssistantError, NotFoundError
-from ...api.v1.models import Agenda
+from ...api.v1.errors import CalDAVAssistantError, NotFoundError, ValidationError
+from ...api.v1.models import Agenda, AgendaItem, Event, Task
 from .actions import EXIT_REPL, register_cli_builtin_commands
 from .presenter import emit_agenda, emit_lines, render_lines
 from ..extensions.cli import register_extension_cli_commands
@@ -72,9 +72,70 @@ def _error(app: Any, message: str) -> None:
     _ui_show(app, message)
 
 
+def _remember_result(app: Any, result: Any) -> None:
+    """Keep the visible CLI context promised by the frozen Session API."""
+    session = getattr(app.ctx, "session", None)
+    if session is None:
+        return
+
+    if isinstance(result, Agenda):
+        session.last_items = [item.value for item in result.items]
+        session.current_selection = None
+        return
+    if isinstance(result, AgendaItem):
+        session.last_items = [result.value]
+        session.current_selection = result.value
+        return
+    if isinstance(result, (Task, Event)):
+        session.current_selection = result
+
+
+def _resolve_numbered_reference(
+    app: Any,
+    command_name: str,
+    args: tuple[Any, ...],
+) -> tuple[Any, ...]:
+    """Resolve ``start 1``/``done 2`` against the most recently shown Agenda.
+
+    Numeric task names still work when there is no active numbered list. Once a list
+    has been shown, a bare positive integer is unambiguously a reference to that
+    visible list. Events are rejected for Task-only commands rather than being sent
+    to TaskService by accident.
+    """
+    if command_name not in {"start", "done", "edit", "edit-due"} or len(args) != 1:
+        return args
+    token = args[0]
+    if not isinstance(token, str):
+        return args
+    clean = token.strip()
+    if not clean.isascii() or not clean.isdigit():
+        return args
+
+    session = getattr(app.ctx, "session", None)
+    last_items = list(getattr(session, "last_items", ()) or ()) if session is not None else []
+    if not last_items:
+        return args
+
+    index = int(clean)
+    if index < 1 or index > len(last_items):
+        raise ValidationError(
+            f"List item {index} is out of range; choose 1-{len(last_items)} from the last displayed list."
+        )
+
+    selected = last_items[index - 1]
+    if not isinstance(selected, Task):
+        kind = "event" if isinstance(selected, Event) else "item"
+        raise ValidationError(
+            f"List item {index} is an {kind}, not a task; '{command_name}' requires a task."
+        )
+    session.current_selection = selected
+    return (selected,)
+
+
 def _render_result(app: Any, result: Any, *, paginate: bool = False) -> None:
     if result is None or result is EXIT_REPL:
         return
+    _remember_result(app, result)
     if hasattr(result, "success") and hasattr(result, "affected"):
         success = bool(getattr(result, "success"))
         message = str(getattr(result, "message", "") or "").strip()
@@ -116,7 +177,8 @@ def _execute(app: Any, parsed: ParsedCommand, *, paginate: bool = False) -> tupl
         _ui_show(app, _t(app, "cli.command_resolution", "Command → {command}", command=entry.name))
 
     try:
-        result = app.commands.run(entry.name, *parsed.args)
+        args = _resolve_numbered_reference(app, entry.name, parsed.args)
+        result = app.commands.run(entry.name, *args)
     except KeyboardInterrupt:
         _error(app, _t(app, "cli.cancelled", "Cancelled."))
         return 130, False
