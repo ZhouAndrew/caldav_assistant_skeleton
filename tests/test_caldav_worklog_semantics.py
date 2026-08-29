@@ -30,7 +30,11 @@ class Adapter:
         return items
 
     def update_task(self, task_id, changes, *, etag=None):
-        values = {key: value for key, value in self.task.__dict__.items() if key != "_service"}
+        values = {
+            key: value
+            for key, value in self.task.__dict__.items()
+            if not key.startswith("_")
+        }
         values.update({key: value for key, value in changes.items() if key in values})
         self.task = Task(**values)
         return self.task
@@ -62,7 +66,11 @@ class Adapter:
         for index, event in enumerate(self.events):
             if event.id != event_id:
                 continue
-            values = {key: value for key, value in event.__dict__.items() if key != "_service"}
+            values = {
+                key: value
+                for key, value in event.__dict__.items()
+                if not key.startswith("_")
+            }
             values.update({key: value for key, value in changes.items() if key in values})
             updated = Event(**values)
             url = getattr(event, "_caldav_collection_url", None)
