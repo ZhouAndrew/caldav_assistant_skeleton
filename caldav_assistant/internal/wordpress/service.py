@@ -1,26 +1,13 @@
 """Reliable WordPress application service backed by a local Outbox.
 
-MODULE CONTRACT
-- Imports/calls: public ActionResult/ValidationError, injected WordPress adapter,
-  Outbox repository, and optional ActivityService.
-- Provides: WordPressService.log/create_post/update_post/pending/flush/test_connection.
-- Must not: access SQLite directly, run WP-CLI/HTTP directly, mutate Task/Event state,
-  or make WordPress availability a prerequisite for CalDAV actions.
-
-Write reliability
------------------
-Every WordPress mutation is persisted to the local Outbox *before* transport is
-attempted.  A transport failure therefore leaves a durable pending item which can
-be retried later.  Public calls report the local save as successful while making it
-explicit whether the remote upload happened immediately or is still pending.
-
-Core workflows that must never wait for WordPress transport may use ``queue_log``.
-It performs only the durable Outbox write; the background service later calls
-``flush`` on its own maintenance lane.
+CalDAV actions never depend on WordPress availability.  Every mutation is written to
+the durable Outbox before transport is attempted; ``queue_log`` deliberately skips
+the immediate transport attempt for non-blocking Core side effects.
 """
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
@@ -39,9 +26,6 @@ class WordPressService:
         self.outbox = outbox
         self.activity = activity
 
-    # ------------------------------------------------------------------
-    # Validation / payload bricks
-    # ------------------------------------------------------------------
     @staticmethod
     def _text(value: Any, name: str, *, allow_empty: bool = False) -> str:
         if not isinstance(value, str):
@@ -74,14 +58,25 @@ class WordPressService:
             "args": deepcopy(args),
         }
 
+    @staticmethod
+    def _log_transport_metadata(
+        metadata: dict[str, Any],
+        *,
+        request_id: str,
+    ) -> dict[str, Any]:
+        result = deepcopy(metadata)
+        # Capture the human action time before the Outbox write.  If WordPress is
+        # offline until tomorrow, retry must still append to the day on which the
+        # user actually wrote the log.
+        result.setdefault("_logged_at", datetime.now().astimezone().isoformat())
+        result["_request_id"] = request_id
+        return result
+
     def _record(self, action: str, object_id: Any = None, **metadata: Any) -> None:
         if self.activity is not None:
             value = None if object_id is None else str(object_id)
             self.activity.record(action, value, **metadata)
 
-    # ------------------------------------------------------------------
-    # Adapter dispatch
-    # ------------------------------------------------------------------
     def _deliver_payload(self, payload: dict[str, Any]) -> Any:
         operation = payload.get("operation")
         args = payload.get("args")
@@ -128,23 +123,17 @@ class WordPressService:
 
     def _record_delivery(self, operation: str, result: Any, payload: dict[str, Any]) -> None:
         object_id = self._remote_object_id(operation, result, payload)
-        if operation == "create_log":
-            action = "wordpress_log_created"
-        elif operation == "create_post":
-            action = "wordpress_post_created"
-        else:
-            action = "wordpress_post_updated"
+        action = {
+            "create_log": "wordpress_log_created",
+            "create_post": "wordpress_post_created",
+            "update_post": "wordpress_post_updated",
+        }[operation]
         self._record(action, object_id, request_id=payload.get("request_id"))
 
-    # ------------------------------------------------------------------
-    # Durable send path
-    # ------------------------------------------------------------------
     def _mark_failed(self, item_id: int, exc: Exception) -> None:
         try:
             self.outbox.mark_failed(item_id, exc)
         except Exception:
-            # enqueue() already committed the durable copy.  Failure to update retry
-            # metadata must never erase that copy or turn a safe local save into loss.
             pass
 
     def _queue_and_try(self, payload: dict[str, Any]) -> ActionResult:
@@ -164,8 +153,6 @@ class WordPressService:
         try:
             self.outbox.mark_sent(item_id)
         except Exception as exc:
-            # Remote write succeeded but local acknowledgement did not.  Keep the row
-            # rather than risking silent loss; retry may be at-least-once.
             self._mark_failed(item_id, exc)
             self._record_delivery(payload["operation"], result, payload)
             return ActionResult(
@@ -178,14 +165,9 @@ class WordPressService:
             )
 
         self._record_delivery(payload["operation"], result, payload)
-        return ActionResult(
-            True,
-            message="Uploaded to WordPress.",
-            affected=result,
-        )
+        return ActionResult(True, message="Uploaded to WordPress.", affected=result)
 
     def _queue_only(self, payload: dict[str, Any]) -> ActionResult:
-        """Durably enqueue a WordPress mutation without attempting transport."""
         item = self.outbox.enqueue(payload)
         return ActionResult(
             True,
@@ -193,41 +175,29 @@ class WordPressService:
             affected=item,
         )
 
-    # ------------------------------------------------------------------
-    # Public Object API frozen by v1
-    # ------------------------------------------------------------------
+    def _log_payload(self, text: str, metadata: dict[str, Any]) -> dict[str, Any]:
+        payload = self._payload("create_log", {"text": text, "metadata": {}})
+        payload["args"]["metadata"] = self._log_transport_metadata(
+            metadata,
+            request_id=payload["request_id"],
+        )
+        return payload
+
+    # Frozen public Object API -------------------------------------------------
     def log(self, text: str, **metadata: Any) -> ActionResult:
         clean = self._text(text, "WordPress log")
-        payload = self._payload(
-            "create_log",
-            {"text": clean, "metadata": deepcopy(metadata)},
-        )
-        return self._queue_and_try(payload)
+        return self._queue_and_try(self._log_payload(clean, metadata))
 
     def queue_log(self, text: str, **metadata: Any) -> ActionResult:
-        """Durably queue a long-term log without waiting for WordPress transport.
-
-        This is intended for Core side-effects such as a completed Task work log.
-        User-facing explicit ``log`` calls keep their existing immediate-attempt
-        behavior; background maintenance later flushes deferred entries.
-        """
         clean = self._text(text, "WordPress log")
-        payload = self._payload(
-            "create_log",
-            {"text": clean, "metadata": deepcopy(metadata)},
-        )
-        return self._queue_only(payload)
+        return self._queue_only(self._log_payload(clean, metadata))
 
     def create_post(self, title: str, content: str = "", **fields: Any) -> ActionResult:
         clean_title = self._text(title, "WordPress post title")
         clean_content = self._text(content, "WordPress post content", allow_empty=True)
         payload = self._payload(
             "create_post",
-            {
-                "title": clean_title,
-                "content": clean_content,
-                "fields": deepcopy(fields),
-            },
+            {"title": clean_title, "content": clean_content, "fields": deepcopy(fields)},
         )
         return self._queue_and_try(payload)
 
@@ -245,11 +215,9 @@ class WordPressService:
         return list(self.outbox.pending(limit=limit))
 
     def flush(self, limit: int | None = None) -> dict[str, int]:
-        """Retry durable pending writes oldest-first; one failure does not block others."""
         items = list(self.outbox.pending(limit=limit))
         sent = 0
         failed = 0
-
         for item in items:
             item_id = int(item["id"])
             payload = item.get("payload")
@@ -262,7 +230,6 @@ class WordPressService:
                 failed += 1
                 self._mark_failed(item_id, exc)
                 continue
-
             sent += 1
             self._record_delivery(payload["operation"], result, payload)
 
