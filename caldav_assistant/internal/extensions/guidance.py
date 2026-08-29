@@ -1,11 +1,13 @@
-"""User-facing Easy API extension guidance and one-file scaffolding.
+"""User-facing Easy API extension guidance and development scaffolding.
 
-This module does not load extensions or execute commands.  It only creates a small
-Python source file inside the existing per-user extension directory.  ExtensionManager
-remains responsible for discovery/lifecycle/error isolation afterwards.
+This module does not load extensions or execute commands.  It creates a small Python
+source file inside the existing per-user extension directory and can prepare a minimal,
+non-destructive VS Code workspace configuration.  ExtensionManager remains responsible
+for discovery/lifecycle/error isolation afterwards.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
 from typing import Any
@@ -28,19 +30,24 @@ def normalize_extension_name(value: Any) -> str:
 
 
 def easy_extension_template(name: str) -> str:
-    """Return the smallest useful one-file extension based on the frozen Easy API."""
+    """Return a small typed one-file extension based on the frozen Easy API."""
     clean = normalize_extension_name(name)
     return f'''"""CalDAV Assistant Easy API extension: {clean}.
 
 Task = work that can be started, paused, resumed, and completed.
 Event = something scheduled to occur; Events do not have a completion lifecycle.
+
+The installed caldav-assistant package ships PEP 561 type information, so VS Code /
+Pylance can autocomplete these imports and type-check their return values.
 """
+from caldav_assistant.api import Agenda
 from caldav_assistant.easy import command, show, today
 
 
 @command({clean!r})
-def run():
-    show(today())
+def run() -> None:
+    items: Agenda = today()
+    show(items)
 '''
 
 
@@ -88,8 +95,41 @@ def create_easy_extension(manager: Any, name: str):
     return manager.get(clean)
 
 
+def ensure_vscode_workspace(manager: Any) -> tuple[Path, bool]:
+    """Create recommended VS Code/Pylance settings without overwriting user config.
+
+    The workspace deliberately does not hard-code an interpreter path.  VS Code should
+    use the same Python interpreter/venv in which ``caldav-assistant`` is installed.
+    ``py.typed`` plus ``easy.pyi`` then provide autocomplete and type information.
+    """
+    root = Path(manager.root)
+    settings_path = root / ".vscode" / "settings.json"
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise ExtensionError(str(exc)) from exc
+
+    if settings_path.exists():
+        return settings_path, False
+
+    settings = {
+        "python.analysis.typeCheckingMode": "basic",
+        "python.analysis.autoImportCompletions": True,
+    }
+    try:
+        settings_path.write_text(
+            json.dumps(settings, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        raise ExtensionError(str(exc)) from exc
+    return settings_path, True
+
+
 __all__ = [
     "normalize_extension_name",
     "easy_extension_template",
     "create_easy_extension",
+    "ensure_vscode_workspace",
 ]
