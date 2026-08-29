@@ -18,6 +18,7 @@ from .v1 import (
     HookEvent,
     HookFailure,
     HookHandle,
+    NotificationRequest,
     emit,
     get_event_bus,
     off,
@@ -31,6 +32,7 @@ from .v1 import (
     UnavailableError,
     ValidationError,
     on,
+    reminder_rule,
 )
 
 __all__ = [
@@ -42,6 +44,8 @@ __all__ = [
     "Reminder",
     "Activity",
     "ActionResult",
+    "NotificationRequest",
+    "reminder_rule",
     "CalDAVAssistantError",
     "NotFoundError",
     "AmbiguousError",
