@@ -64,6 +64,23 @@ class ReminderService:
 
     def _parse_when(self, value: Any) -> date | datetime:
         if isinstance(value, str):
+            # A date-only input is a date fact, not an implicit 00:00 datetime.
+            # Prefer the shared date parser and fall back to datetime only when the
+            # text genuinely includes time information. Older injected TemporalService
+            # fakes may expose parse_datetime only, so keep that internal compatibility.
+            parse_date = getattr(self.temporal, "parse_date", None)
+            if callable(parse_date):
+                try:
+                    parsed = parse_date(value, bias="future")
+                except (ValidationError, ValueError):
+                    pass
+                else:
+                    if isinstance(parsed, date):
+                        return parsed
+                    raise ValidationError(
+                        "Reminder time must be a date or datetime"
+                    )
+
             parsed = self.temporal.parse_datetime(value, bias="future")
             if not isinstance(parsed, date):
                 raise ValidationError("Reminder time must be a date or datetime")
