@@ -59,7 +59,9 @@ extensions should prefer Easy API."""
 class ExtensionActions:
     def __init__(self, manager: ExtensionManager) -> None:
         self.manager = manager
-        self.locale = LocaleService(manager.settings)
+        # Some contract tests and embedders intentionally provide only the lifecycle
+        # surface. LocaleService accepts ``None`` and falls back to built-in English.
+        self.locale = LocaleService(getattr(manager, "settings", None))
         self._verbs: dict[str, Callable[..., str]] = {
             "guide": self.guide,
             "new": self.new,
