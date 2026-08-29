@@ -7,9 +7,8 @@ MODULE CONTRACT
 - Must not: access CalDAV XML/HTTP directly, read/write SQLite directly, print CLI
   output, or contain Event/Agenda/Reminder/WordPress logic.
 
-CalDAV remains the source of truth. Mutations are successful only after the
-CalDAV adapter confirms them. Assistant work-session state is updated only after
-that authoritative write succeeds.
+CalDAV remains the Task source of truth.  The Assistant-owned work-session stores
+only which task the human is actively working on or has temporarily paused.
 """
 from __future__ import annotations
 
@@ -26,9 +25,9 @@ from ..caldav.adapter import CalDAVAdapter
 class TaskService:
     """Canonical Task business layer above :class:`CalDAVAdapter`.
 
-    ``start`` / ``pause`` / ``resume`` describe the user's *work session*, not a
-    Task's planned DTSTART. A planned Task cannot be paused because it is not being
-    worked on. The optional SessionService enforces that distinction in production.
+    ``start`` means begin working on a Task *now*.  It is deliberately unrelated
+    to the Task's planned ``DTSTART`` value.  ``pause`` and ``resume`` operate on
+    Assistant work-session state; a merely planned Task cannot be paused.
     """
 
     _MUTABLE_FIELDS = frozenset(
@@ -47,7 +46,6 @@ class TaskService:
     _STATUSES = frozenset(
         {"NEEDS-ACTION", "IN-PROCESS", "COMPLETED", "CANCELLED"}
     )
-    _PAUSED_PROPERTY = "X-CALDAV-ASSISTANT-PAUSED"
 
     def __init__(
         self,
@@ -61,9 +59,6 @@ class TaskService:
         self.undo = undo
         self.session = session
 
-    # ------------------------------------------------------------------
-    # Small reusable bricks
-    # ------------------------------------------------------------------
     def _bind(self, task: Task) -> Task:
         if not isinstance(task, Task):
             raise TypeError("CalDAVAdapter must return Task objects")
@@ -199,21 +194,14 @@ class TaskService:
         if self.session is None:
             return None
         getter = getattr(self.session, "current_task_id", None)
-        if not callable(getter):
-            return None
-        return getter()
+        return getter() if callable(getter) else None
 
     def _session_paused_ids(self) -> tuple[str, ...]:
         if self.session is None:
             return ()
         getter = getattr(self.session, "paused_task_ids", None)
-        if not callable(getter):
-            return ()
-        return tuple(getter())
+        return tuple(getter()) if callable(getter) else ()
 
-    # ------------------------------------------------------------------
-    # Queries
-    # ------------------------------------------------------------------
     def list(self, **filters: Any) -> list[Task]:
         return [self._bind(task) for task in self.adapter.list_tasks(**filters)]
 
@@ -243,9 +231,6 @@ class TaskService:
         except KeyError as exc:
             raise NotFoundError(task) from exc
 
-    # ------------------------------------------------------------------
-    # Mutations
-    # ------------------------------------------------------------------
     def create(self, summary: Task | str, **fields: Any) -> ActionResult:
         if isinstance(summary, Task):
             if fields:
@@ -286,7 +271,6 @@ class TaskService:
             for key in normalized
             if key in self._MUTABLE_FIELDS
         }
-
         updated = self._bind(self.adapter.update_task(task_id, normalized))
 
         undo_available = False
@@ -341,10 +325,8 @@ class TaskService:
                 "status": "IN-PROCESS",
                 "completed": False,
                 "completed_at": None,
-                self._PAUSED_PROPERTY: False,
             },
             activity_action="task_started",
-            validate=False,
         )
         if self.session is not None:
             setter = getattr(self.session, "set_current", None)
@@ -356,24 +338,17 @@ class TaskService:
         obj = self.get(task)
         task_id = self._require_id(obj)
         if obj.status != "IN-PROCESS":
-            raise ValidationError("Only the Task currently being worked on can be paused")
+            raise ValidationError("A planned Task is not running and cannot be paused")
 
-        current_id = self._session_current_id()
-        if self.session is not None and current_id != task_id:
-            raise ValidationError("Only the current working Task can be paused")
+        if self.session is not None and self._session_current_id() != task_id:
+            raise ValidationError("Only the Task you are working on now can be paused")
 
-        result = self._update(
-            obj,
-            {self._PAUSED_PROPERTY: True},
-            activity_action="task_paused",
-            validate=False,
-            undo=False,
-        )
         if self.session is not None:
             marker = getattr(self.session, "mark_paused", None)
             if callable(marker):
-                marker(result.affected)
-        return result
+                marker(obj)
+        self._record("task_paused", obj)
+        return ActionResult(True, affected=obj, undo_available=False)
 
     def resume(self, task: Task | str) -> ActionResult:
         obj = self.get(task)
@@ -387,18 +362,18 @@ class TaskService:
                 "Another Task is currently being worked on; pause or complete it before resuming this Task"
             )
         if self.session is not None and task_id not in self._session_paused_ids():
-            raise ValidationError("Only a previously paused Task can be resumed")
+            raise ValidationError("Only a Task you previously paused can be resumed")
 
+        # STATUS may already be IN-PROCESS; writing the standard fields again makes
+        # recovery deterministic if another CalDAV client altered the task meanwhile.
         result = self._update(
             obj,
             {
                 "status": "IN-PROCESS",
                 "completed": False,
                 "completed_at": None,
-                self._PAUSED_PROPERTY: False,
             },
             activity_action="task_resumed",
-            validate=False,
             undo=False,
         )
         if self.session is not None:
