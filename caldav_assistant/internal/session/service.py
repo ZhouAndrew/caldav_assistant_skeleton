@@ -64,7 +64,8 @@ class SessionService:
         Older builds could write ``STATUS:IN-PROCESS`` without persisting
         ``current_task_uid``. After upgrading, silently choosing among several such
         Tasks would be dangerous, so recovery occurs only when exactly one
-        non-paused IN-PROCESS Task exists.
+        non-paused IN-PROCESS Task exists. The status is revalidated locally even
+        if the injected Task API claims to have applied a filter.
         """
         if self.tasks is None:
             return None
@@ -79,8 +80,8 @@ class SessionService:
             for task in candidates
             if str(getattr(task, "id", "") or "").strip()
             and str(getattr(task, "id", "")) not in paused
+            and str(getattr(task, "status", "")) == "IN-PROCESS"
             and not bool(getattr(task, "completed", False))
-            and str(getattr(task, "status", "")) != "CANCELLED"
         ]
         if len(eligible) != 1:
             return None
