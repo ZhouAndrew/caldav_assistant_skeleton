@@ -235,6 +235,13 @@ def _execute(app: Any, parsed: ParsedCommand, *, paginate: bool = False) -> tupl
         return 130, False
     except EOFError:
         return 0, True
+    except NotFoundError as exc:
+        if entry.name.casefold() == "help" and parsed.args:
+            target = " ".join(parsed.args).strip()
+            _error(app, _unsupported_command_message(app, target))
+        else:
+            _error(app, f"{type(exc).__name__}: {exc}")
+        return 2, False
     except CalDAVAssistantError as exc:
         _error(app, f"{type(exc).__name__}: {exc}")
         return 2, False
