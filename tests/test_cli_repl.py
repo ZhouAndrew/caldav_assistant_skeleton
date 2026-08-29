@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime
 from types import SimpleNamespace
 
+from caldav_assistant.api.v1.models import Agenda, AgendaItem, Event, Task
 from caldav_assistant.internal.cli.app import (
     parse_command_line,
     run_cli,
@@ -126,3 +128,58 @@ def test_run_cli_uses_one_shot_when_argv_present_and_repl_when_empty(monkeypatch
     from caldav_assistant.internal.cli.actions import EXIT_REPL
     repl.commands.register_builtin("exit", lambda: EXIT_REPL)
     assert run_cli([], app=repl) == 0
+
+
+def test_agenda_is_rendered_for_humans_without_raw_ics():
+    app = make_app()
+    raw = "BEGIN:VCALENDAR\r\nBEGIN:VTODO\r\nUID:secret\r\nEND:VTODO\r\nEND:VCALENDAR"
+    agenda = Agenda(items=[
+        AgendaItem(
+            value=Task(
+                id="secret-uid",
+                summary="Physics homework",
+                due=datetime(2026, 8, 29, 17, 0),
+                overdue=True,
+                raw=raw,
+            ),
+            when=datetime(2026, 8, 29, 17, 0),
+            kind="task",
+        ),
+        AgendaItem(
+            value=Event(
+                id="event-secret",
+                summary="Cambly",
+                start=datetime(2026, 8, 29, 20, 30),
+                raw=raw,
+            ),
+            when=datetime(2026, 8, 29, 20, 30),
+            kind="event",
+        ),
+    ])
+    app.commands.register_builtin("today", lambda: agenda)
+
+    assert run_one_shot(app, ["today"]) == 0
+
+    output = "\n".join(str(item) for item in app.io.out)
+    assert "Physics homework" in output
+    assert "Cambly" in output
+    assert "Agenda(items=" not in output
+    assert "BEGIN:VCALENDAR" not in output
+    assert "secret-uid" not in output
+
+
+def test_repl_pages_long_human_output_and_can_stop():
+    tasks = [
+        AgendaItem(value=Task(summary=f"Task {number}"), kind="task")
+        for number in range(1, 15)
+    ]
+    app = make_app(["today", "q", "exit"])
+    app.commands.register_builtin("today", lambda: Agenda(items=tasks))
+    from caldav_assistant.internal.cli.actions import EXIT_REPL
+    app.commands.register_builtin("exit", lambda: EXIT_REPL)
+
+    assert run_repl(app) == 0
+
+    output = "\n".join(str(item) for item in app.io.out)
+    assert "Task 1" in output
+    assert "Task 14" not in output
