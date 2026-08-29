@@ -24,3 +24,42 @@ def test_failed_import_does_not_damage_core(tmp_path):
     manager,commands,_,_=make(tmp_path);commands.register_builtin("today",lambda:"core")
     write(manager.root/"bad.py","from caldav_assistant.easy import command\n@command('partial')\ndef partial(): return 1\nraise RuntimeError('boom')\n")
     record=manager.enable("bad");assert record.status=="error";assert commands.run("today")=="core";assert "partial" not in commands.registry
+
+
+def test_bundled_default_enabled_respects_explicit_user_disable(tmp_path):
+    commands=CommandService(CommandRegistry()); hooks=HookRegistry(); settings=FakeSettings()
+    bundled=tmp_path/"bundled"
+    write(
+        bundled/"software_intro.py",
+        "from caldav_assistant.api.v1.hooks import on\n"
+        "@on('cli.repl.started')\n"
+        "def intro(ctx): return 'hello'\n",
+    )
+    manager=ExtensionManager(
+        commands,
+        hooks,
+        settings,
+        root=tmp_path/"extensions",
+        bundled_root=bundled,
+        default_enabled=("software_intro",),
+    )
+
+    assert manager.get("software_intro").enabled is True
+    assert manager.load_enabled()[0].status=="loaded"
+    assert len(hooks.entries("cli.repl.started"))==1
+
+    assert manager.disable("software_intro").status=="disabled"
+    assert settings.get("extensions.enabled")=={"software_intro":False}
+    assert hooks.entries("cli.repl.started")==()
+
+    commands2=CommandService(CommandRegistry()); hooks2=HookRegistry()
+    restarted=ExtensionManager(
+        commands2,
+        hooks2,
+        settings,
+        root=tmp_path/"extensions",
+        bundled_root=bundled,
+        default_enabled=("software_intro",),
+    )
+    assert restarted.get("software_intro").enabled is False
+    assert restarted.load_enabled()==()
