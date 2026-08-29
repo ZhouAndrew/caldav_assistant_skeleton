@@ -30,6 +30,11 @@ class Tasks:
         return self.items[uid]
 
 
+class BrokenFilterTasks(Tasks):
+    def list(self, **filters):
+        return list(self.items.values())
+
+
 def test_recovers_exactly_one_legacy_in_process_task():
     task = Task(id="1", summary="Legacy work", status="IN-PROCESS")
     state = MemoryState()
@@ -58,3 +63,12 @@ def test_paused_in_process_task_is_not_recovered_as_current():
     session = SessionService(state, Tasks([task]))
 
     assert session.current_task_id() is None
+
+
+def test_recovery_revalidates_status_even_if_task_api_ignores_filter():
+    task = Task(id="1", summary="Planned", status="NEEDS-ACTION")
+    state = MemoryState()
+    session = SessionService(state, BrokenFilterTasks([task]))
+
+    assert session.current_task_id() is None
+    assert "current_task_uid" not in state.values
