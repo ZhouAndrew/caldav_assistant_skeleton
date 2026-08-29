@@ -44,6 +44,10 @@ class RuntimeDispatcher:
             "activity.today": ctx.activity.today,
             "activity.for_task": ctx.activity.for_task,
             "activity.record": ctx.activity.record,
+            "session.current_task_id": ctx.session.current_task_id,
+            "session.current_task": ctx.session.current_task,
+            "session.paused_task_ids": ctx.session.paused_task_ids,
+            "session.paused_tasks": ctx.session.paused_tasks,
             "settings.get": ctx.settings.get,
             "settings.set": ctx.settings.set,
             "settings.reset": ctx.settings.reset,
@@ -56,7 +60,6 @@ class RuntimeDispatcher:
             raise ValueError(f"IPC method is not allowed: {method}")
         return self._routes[method](**(payload or {}))
 
-    # CALDAV_ASSISTANT_PRODUCTION_INTEGRATION_V1
     def register_internal(self, method: str, handler: Any) -> None:
         """Register one explicit service-side integration route."""
         if not isinstance(method, str) or not method.strip():
