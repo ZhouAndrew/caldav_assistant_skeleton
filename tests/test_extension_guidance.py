@@ -71,14 +71,18 @@ def test_extension_new_creates_disabled_detailed_runnable_easy_template(tmp_path
     assert len(source.splitlines()) >= 100
     compile(source, str(record.path), "exec")
     assert "from caldav_assistant.easy import" in source
+    assert "from caldav_assistant.api import Agenda" in source
     assert "caldav_assistant.internal" not in source
-    assert "@command(" in source
-    assert "'school'" in source
+    assert "@command('school')" in source
+    assert "def run() -> None:" in source
+    assert "items: Agenda = today()" in source
+    assert "PEP 561" in source
     assert "Event = something scheduled to occur" in source
     assert "Events do NOT have a completion lifecycle" in source
 
     # It demonstrates the major Scratch-like bricks without bypassing Core services.
     for brick in (
+        "choose(",
         "choose_task",
         "ask_date",
         "today_tasks",
@@ -91,7 +95,7 @@ def test_extension_new_creates_disabled_detailed_runnable_easy_template(tmp_path
         "write_log",
     ):
         assert brick in source
-    assert "school log TEXT" in source
+    assert "Log a selected task" in source
     assert "extension reload school" in source
     assert "extension errors school" in source
     assert "extension enable school" in result
