@@ -75,6 +75,21 @@ def test_extension_new_creates_disabled_one_file_easy_template(tmp_path):
     assert "school" in commands.registry
 
 
+def test_extension_new_clears_stale_enabled_state_from_old_deleted_code(tmp_path):
+    manager, commands = make(
+        tmp_path,
+        **{"extensions.enabled": {"school": True}},
+    )
+
+    commands.run("extension", "new", "school")
+    record = manager.get("school")
+
+    assert record.enabled is False
+    assert record.status == "disabled"
+    assert manager.settings.get("extensions.enabled") == {"school": False}
+    assert "school" not in commands.registry
+
+
 def test_extension_new_does_not_silently_replace_an_existing_command(tmp_path):
     manager, commands = make(tmp_path)
     commands.register_builtin("school", lambda: "core")
