@@ -90,7 +90,7 @@ def test_one_shot_and_repl_both_end_at_command_service_run():
     assert repl_calls == [("x", "y")]
 
 
-def test_unknown_and_bad_syntax_do_not_kill_repl():
+def test_unsupported_command_and_bad_syntax_do_not_kill_repl():
     app = make_app(['log "unterminated', "missing", "ok", "exit"])
     app.commands.register_builtin("ok", lambda: "worked")
     from caldav_assistant.internal.cli.actions import EXIT_REPL
@@ -100,7 +100,7 @@ def test_unknown_and_bad_syntax_do_not_kill_repl():
 
     assert code == 0
     assert any("Invalid input" in str(item) for item in app.io.err)
-    assert any("Unknown command" in str(item) for item in app.io.err)
+    assert any("Unsupported command" in str(item) for item in app.io.err)
     assert "worked" in app.io.out
 
 
