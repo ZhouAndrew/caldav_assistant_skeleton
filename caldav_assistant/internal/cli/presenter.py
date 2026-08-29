@@ -1,8 +1,8 @@
 """Human-facing CLI presentation for public domain objects.
 
 The presenter deliberately hides implementation details such as raw iCalendar,
-CalDAV hrefs, Python reprs and service bindings.  Debug commands may expose
-those details explicitly; normal commands must not.
+CalDAV hrefs, Python reprs and service bindings. Debug commands may expose those
+details explicitly; normal commands must not.
 """
 from __future__ import annotations
 
@@ -44,7 +44,9 @@ def _event_line(event: Event, *, index: int | None = None) -> str:
 def render_task(task: Task) -> list[str]:
     lines = [task.summary or "(untitled task)"]
     if task.start is not None:
-        lines.append(f"Start: {_when(task.start)}")
+        # Avoid overloading the human command "start" (begin working now) with
+        # CalDAV DTSTART (the planned/scheduled start field).
+        lines.append(f"Planned start: {_when(task.start)}")
     if task.due is not None:
         lines.append(f"Due: {_when(task.due)}")
     lines.append(f"Status: {'completed' if task.completed else task.status.lower()}")
@@ -60,9 +62,9 @@ def render_task(task: Task) -> list[str]:
 def render_event(event: Event) -> list[str]:
     lines = [event.summary or "(untitled event)"]
     if event.start is not None:
-        lines.append(f"Start: {_when(event.start)}")
+        lines.append(f"Starts: {_when(event.start)}")
     if event.end is not None:
-        lines.append(f"End: {_when(event.end)}")
+        lines.append(f"Ends: {_when(event.end)}")
     if event.location:
         lines.append(f"Location: {event.location}")
     if event.categories:
@@ -70,6 +72,18 @@ def render_event(event: Event) -> list[str]:
     if event.description:
         lines.extend(["", event.description])
     return lines
+
+
+def render_agenda_item(item: AgendaItem) -> list[str]:
+    value = item.value
+    if isinstance(value, Task):
+        line = _task_line(value)
+    elif isinstance(value, Event):
+        line = _event_line(value)
+    else:
+        label = getattr(value, "summary", None) or getattr(value, "title", None) or "(item)"
+        line = str(label)
+    return ["Next", f"  {line}"]
 
 
 def render_agenda(agenda: Agenda) -> list[str]:
@@ -93,6 +107,8 @@ def render_lines(result: Any) -> list[str] | None:
     """Return safe human-readable lines, or ``None`` for unknown result types."""
     if isinstance(result, Agenda):
         return render_agenda(result)
+    if isinstance(result, AgendaItem):
+        return render_agenda_item(result)
     if isinstance(result, Task):
         return render_task(result)
     if isinstance(result, Event):
@@ -117,11 +133,20 @@ def emit_lines(app: Any, lines: Iterable[str], *, paginate: bool = False, page_s
         if position >= total:
             break
         try:
-            answer = app.io.read(f"-- {position}/{total} -- [Enter] more, q stop: ").strip().casefold()
+            answer = app.io.read(
+                f"-- {position}/{total} -- [Enter] more, q stop: "
+            ).strip().casefold()
         except (EOFError, KeyboardInterrupt):
             break
         if answer in {"q", "quit", "stop", "0"}:
             break
 
 
-__all__ = ["render_lines", "render_agenda", "render_task", "render_event", "emit_lines"]
+__all__ = [
+    "render_lines",
+    "render_agenda",
+    "render_agenda_item",
+    "render_task",
+    "render_event",
+    "emit_lines",
+]
