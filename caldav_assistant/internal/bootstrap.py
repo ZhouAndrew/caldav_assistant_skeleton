@@ -7,6 +7,7 @@ from typing import Any
 
 from ..api import AssistantContext
 from ..api.v1.hooks import _bind_hook_registrar
+from ..builtin_extensions.virtual_assistant import install as install_virtual_assistant
 from .activity import ActivityService
 from .agenda import AgendaEngine, AgendaService, NextEngine
 from .caldav import CollectionRoutingCalDAVAdapter, SyncEngine
@@ -28,7 +29,12 @@ from .notifications.platform_adapters import (
     WindowsNotificationAdapter,
 )
 from .prompts import Menu, PromptKit
-from .reminders import ReminderEngine, ReminderService
+from .reminders import (
+    ReminderEngine,
+    ReminderRuleRegistry,
+    ReminderService,
+    bind_reminder_rule_registry,
+)
 from .runtime.client import RuntimeClient
 from .runtime.current_context import bind_current_context
 from .runtime.dispatcher import RuntimeDispatcher
@@ -170,9 +176,6 @@ def build_service_application() -> ServiceApplication:
     assistant_state = SQLiteKeyValueRepository(store, "assistant_state")
     undo_repo = SQLiteUndoRepository(store)
 
-    # Old builds stored current/paused work UIDs locally. Production no longer
-    # reads or writes those keys: CalDAV Work VEVENTs are the only work-session
-    # facts. Remove stale copies so there is not even an inert duplicate left.
     for deprecated_key in ("current_task_uid", "paused_task_uids"):
         try:
             assistant_state.delete(deprecated_key)
@@ -233,6 +236,8 @@ def build_service_application() -> ServiceApplication:
         session=session,
     )
     notifications = NotificationService(_notification_adapter_for_platform())
+    reminder_rules = ReminderRuleRegistry()
+    bind_reminder_rule_registry(reminder_rules)
     reminders = ReminderService(
         ReminderEngine(),
         notifications,
@@ -240,6 +245,7 @@ def build_service_application() -> ServiceApplication:
         assistant_state,
         sync.cached_tasks,
         _ordinary_cached_events(sync.cached_events),
+        reminder_rules,
     )
 
     registry = CommandRegistry()
@@ -261,6 +267,7 @@ def build_service_application() -> ServiceApplication:
         session,
     )
     _register_builtin_commands(registry, ctx)
+    install_virtual_assistant(ctx, reminder_rules=reminder_rules)
 
     extensions = ExtensionManager(commands, hooks, settings_service)
     _bind_hook_registrar(hooks)
@@ -341,6 +348,8 @@ def build_cli_application() -> CLIApplication:
     bind_current_context(ctx)
     _bind_hook_registrar(hooks)
     _register_builtin_commands(registry, ctx)
+    local_rule_registry = ReminderRuleRegistry()
+    install_virtual_assistant(ctx, reminder_rules=local_rule_registry)
     extensions = ExtensionManager(commands, hooks, settings)
     return CLIApplication(ctx, runtime, commands, extensions, io)
 
