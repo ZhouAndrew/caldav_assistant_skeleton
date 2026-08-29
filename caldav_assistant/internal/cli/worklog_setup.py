@@ -1,4 +1,4 @@
-"""First-run setup brick for CalDAV-backed work history.
+"""First-run setup brick for optional CalDAV-backed work history.
 
 This module is deliberately CLI composition only. It reads and writes settings
 through the public settings namespace and asks the user through the public UI
@@ -14,7 +14,7 @@ from ..settings.keys import CALDAV_WORKLOG_COLLECTION_URL
 
 
 class WorkLogSetup:
-    """Ensure Start/Pause/Resume has an explicit VEVENT collection to use."""
+    """Offer a VEVENT work-history collection without making it mandatory."""
 
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx
@@ -63,8 +63,9 @@ class WorkLogSetup:
         collections = getattr(settings, "caldav_collections", None)
         choose = getattr(self.ctx.ui, "choose", None)
 
-        # Small/unit contexts may intentionally omit production setup APIs. In
-        # those compositions the Task service remains responsible for validation.
+        # Small/unit contexts may intentionally omit production setup APIs.  The
+        # Task service will use Activity Journal fallback when no Work VEVENT store
+        # is configured.
         if not callable(getter) or not callable(collections):
             return True
 
@@ -73,9 +74,11 @@ class WorkLogSetup:
             return True
 
         if not callable(setter) or not callable(choose):
-            raise ValidationError(
-                "Interactive work history setup requires settings.set() and ui.choose()."
+            self._show(
+                "Work history calendar is not configured. Continuing with the "
+                "Activity Journal fallback."
             )
+            return True
 
         items = list(collections() or ())
         compatible = [
@@ -84,14 +87,15 @@ class WorkLogSetup:
             if "VEVENT" in self._components(item) and self._collection_url(item)
         ]
         if not compatible:
-            raise ValidationError(
-                "Start/Pause/Resume needs a CalDAV calendar that supports VEVENT, "
-                "but no compatible collection was found."
+            self._show(
+                "No VEVENT calendar is available for detailed work intervals. "
+                "Starting the Task anyway; lifecycle history will use the Activity Journal."
             )
+            return True
 
         self._show(
-            "Work history setup — Start/Pause/Resume records work intervals as "
-            "CalDAV events. Choose the calendar to use."
+            "Work history setup (optional) — choose a VEVENT calendar to store precise "
+            "Start/Pause/Resume intervals. Cancel to continue with Activity Journal only."
         )
 
         names = [self._collection_name(item) for item in compatible]
@@ -110,8 +114,10 @@ class WorkLogSetup:
 
         selected = choose("Work log collection", labels)
         if selected is None:
-            self._show("Start cancelled; no work history calendar was chosen.")
-            return False
+            self._show(
+                "No work history calendar selected. Starting the Task with Activity Journal fallback."
+            )
+            return True
 
         chosen = mapping.get(str(selected))
         if chosen is None:
