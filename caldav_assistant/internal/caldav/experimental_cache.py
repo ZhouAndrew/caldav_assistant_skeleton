@@ -7,7 +7,7 @@ patched only after that authoritative write succeeds.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any, Callable, Mapping, Sequence
 
 from ...api import Event, Task
@@ -85,6 +85,56 @@ class ExperimentalCacheCalDAVAdapter:
     def _snapshot_available(self) -> bool:
         return self.sync.cached_snapshot() is not None
 
+    def _patch_snapshot(
+        self,
+        kind: str,
+        *,
+        obj: Task | Event | None = None,
+        remove_id: str | None = None,
+    ) -> None:
+        """Patch the last verified snapshot only after a successful server write.
+
+        ``synced_at`` intentionally remains the timestamp of the last full remote
+        verification.  ``cache_updated_at`` records the local write-through patch
+        separately so diagnostics never pretend a full sync occurred.
+        """
+        snapshot = self.sync.cached_snapshot()
+        if not isinstance(snapshot, Mapping):
+            return
+
+        key = "tasks" if kind == "task" else "events"
+        values = snapshot.get(key, [])
+        if not isinstance(values, list):
+            return
+
+        updated_values = [
+            dict(item)
+            for item in values
+            if isinstance(item, Mapping)
+            and (remove_id is None or str(item.get("id") or "") != str(remove_id))
+        ]
+
+        if obj is not None:
+            serializer = (
+                self.sync._task_to_dict
+                if kind == "task"
+                else self.sync._event_to_dict
+            )
+            serialized = serializer(obj)
+            obj_id = str(serialized.get("id") or "")
+            updated_values = [
+                item
+                for item in updated_values
+                if str(item.get("id") or "") != obj_id
+            ]
+            updated_values.append(serialized)
+
+        updated = dict(snapshot)
+        updated[key] = updated_values
+        updated["cache_updated_at"] = datetime.now(timezone.utc).isoformat()
+        updated["cache_update_reason"] = "authoritative-write"
+        self.sync.cache.set(self.sync.SNAPSHOT_KEY, updated)
+
     def list_tasks(self, **filters: Any) -> Sequence[Task]:
         if not self._active() or not self._snapshot_available():
             return self.adapter.list_tasks(**filters)
@@ -116,7 +166,7 @@ class ExperimentalCacheCalDAVAdapter:
     # to keep the experimental snapshot coherent without an extra blocking scan.
     def create_task(self, task: Task) -> Task:
         result = self.adapter.create_task(task)
-        self.sync.cache_task(result)
+        self._patch_snapshot("task", obj=result)
         return result
 
     def update_task(
@@ -127,16 +177,16 @@ class ExperimentalCacheCalDAVAdapter:
         etag: str | None = None,
     ) -> Task:
         result = self.adapter.update_task(task_id, changes, etag=etag)
-        self.sync.cache_task(result)
+        self._patch_snapshot("task", obj=result)
         return result
 
     def delete_task(self, task_id: str, *, etag: str | None = None) -> None:
         self.adapter.delete_task(task_id, etag=etag)
-        self.sync.remove_cached_task(task_id)
+        self._patch_snapshot("task", remove_id=task_id)
 
     def create_event(self, event: Event) -> Event:
         result = self.adapter.create_event(event)
-        self.sync.cache_event(result)
+        self._patch_snapshot("event", obj=result)
         return result
 
     def update_event(
@@ -147,12 +197,12 @@ class ExperimentalCacheCalDAVAdapter:
         etag: str | None = None,
     ) -> Event:
         result = self.adapter.update_event(event_id, changes, etag=etag)
-        self.sync.cache_event(result)
+        self._patch_snapshot("event", obj=result)
         return result
 
     def delete_event(self, event_id: str, *, etag: str | None = None) -> None:
         self.adapter.delete_event(event_id, etag=etag)
-        self.sync.remove_cached_event(event_id)
+        self._patch_snapshot("event", remove_id=event_id)
 
 
 __all__ = ["ExperimentalCacheCalDAVAdapter"]
