@@ -1,8 +1,8 @@
 """Human work-session state for CalDAV Assistant.
 
-A planned Task is not automatically something the user is working on.  This
+A planned Task is not automatically something the user is working on. This
 service keeps the tiny Assistant-owned state that answers the human questions
-"what am I doing now?" and "what did I pause?".  Task/Event facts remain in
+"what am I doing now?" and "what did I pause?". Task/Event facts remain in
 CalDAV; only UIDs and work-session state live here.
 """
 from __future__ import annotations
@@ -58,9 +58,44 @@ class SessionService:
         if isinstance(self.state, dict):
             self.state.pop(key, None)
 
+    def _recover_legacy_current_task_id(self) -> str | None:
+        """Recover pre-session IN-PROCESS state only when the answer is unique.
+
+        Older builds could write ``STATUS:IN-PROCESS`` without persisting
+        ``current_task_uid``. After upgrading, silently choosing among several such
+        Tasks would be dangerous, so recovery occurs only when exactly one
+        non-paused IN-PROCESS Task exists.
+        """
+        if self.tasks is None:
+            return None
+        try:
+            candidates = list(self.tasks.list(status="IN-PROCESS"))
+        except Exception:
+            return None
+
+        paused = set(self.paused_task_ids())
+        eligible = [
+            task
+            for task in candidates
+            if str(getattr(task, "id", "") or "").strip()
+            and str(getattr(task, "id", "")) not in paused
+            and not bool(getattr(task, "completed", False))
+            and str(getattr(task, "status", "")) != "CANCELLED"
+        ]
+        if len(eligible) != 1:
+            return None
+
+        uid = str(getattr(eligible[0], "id", "") or "").strip()
+        if not uid:
+            return None
+        self._set(self.CURRENT_TASK_KEY, uid)
+        return uid
+
     def current_task_id(self) -> str | None:
         value = self._get(self.CURRENT_TASK_KEY, None)
-        return str(value) if value else None
+        if value:
+            return str(value)
+        return self._recover_legacy_current_task_id()
 
     def current_task(self) -> Any:
         uid = self.current_task_id()
@@ -116,7 +151,8 @@ class SessionService:
     def clear_current(self, task: Any = None) -> None:
         if task is not None:
             uid = str(getattr(task, "id", task) or "").strip()
-            if uid and self.current_task_id() != uid:
+            stored = self._get(self.CURRENT_TASK_KEY, None)
+            if uid and stored and str(stored) != uid:
                 return
         self._delete(self.CURRENT_TASK_KEY)
 
