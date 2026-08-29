@@ -118,7 +118,9 @@ class ExtensionActions:
             "extension.origin.official" if self._is_official(record) else "extension.origin.user",
             "official" if self._is_official(record) else "user",
         )
-        return f"[{origin}] {record.name}: {state}{suffix}"
+        # Preserve the long-standing `name: state` prefix used by scripts/tests;
+        # source information is additive metadata rather than a breaking prefix.
+        return f"{record.name}: {state} [{origin}]{suffix}"
 
     def _group(self, title: str, records: list[ExtensionRecord], empty: str) -> list[str]:
         lines = [title]
