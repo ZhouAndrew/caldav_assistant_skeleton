@@ -5,6 +5,7 @@ Extensions that require an explicit long-term version boundary may import the
 same names from ``caldav_assistant.api.v1``.
 """
 from .v1 import (
+    APIEntry,
     ActionResult,
     Activity,
     ActivityAPI,
@@ -38,6 +39,10 @@ from .v1 import (
     UnavailableError,
     ValidationError,
     WordPressAPI,
+    api_catalog,
+    api_describe,
+    api_exists,
+    api_find,
     emit,
     get_event_bus,
     off,
@@ -84,4 +89,9 @@ __all__ = [
     "off",
     "on",
     "unregister_owner",
+    "APIEntry",
+    "api_catalog",
+    "api_find",
+    "api_exists",
+    "api_describe",
 ]
