@@ -38,7 +38,7 @@ OFFICIAL_EXTENSION_CATALOG = MappingProxyType(
                     "Adds clear plus a foreground shell command for temporarily "
                     "running external debugging tools and interactive shells."
                 ),
-                "default_enabled": True,
+                "default_enabled": False,
             }
         ),
     }
