@@ -48,7 +48,9 @@ def create_easy_extension(manager: Any, name: str):
     """Create a disabled one-file Easy API extension in ``manager.root``.
 
     The file is deliberately not auto-enabled.  New executable code must still pass
-    through the existing explicit ``extension enable NAME`` lifecycle step.
+    through the existing explicit ``extension enable NAME`` lifecycle step.  Any stale
+    enablement value from a previously deleted extension with the same name is cleared
+    before the new source becomes discoverable.
     """
     clean = normalize_extension_name(name)
     registry = getattr(getattr(manager, "commands", None), "registry", None)
@@ -69,6 +71,13 @@ def create_easy_extension(manager: Any, name: str):
         raise ExtensionError(
             f"Extension {clean!r} already exists at {destination}"
         )
+
+    # This is an internal package and deliberately reuses ExtensionManager's canonical
+    # persistence brick rather than duplicating the extensions.enabled settings format.
+    set_enabled = getattr(manager, "_set_enabled", None)
+    if not callable(set_enabled):
+        raise ExtensionError("Extension manager cannot persist disabled state")
+    set_enabled(clean, False)
 
     try:
         destination.write_text(easy_extension_template(clean), encoding="utf-8")
