@@ -249,7 +249,9 @@ def test_current_explains_active_and_inactive_states():
     assert "No task is active" in action.current()
 
     ctx.session.current = ctx.ui.task
-    assert action.current() is ctx.ui.task
+    # Object identity is not part of the CLI/Object API contract: production
+    # current() crosses Local IPC and therefore returns a detached Task value.
+    assert action.current() == ctx.ui.task
 
 
 def test_log_still_calls_public_wordpress_namespace():

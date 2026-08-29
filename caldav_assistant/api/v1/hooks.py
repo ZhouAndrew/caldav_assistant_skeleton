@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Iterator
+from typing import Any, Iterator, Mapping
 
 from .errors import ExtensionError, ValidationError
 from ...internal.hook_event import (
@@ -18,7 +18,7 @@ from ...internal.hook_event import (
     HookEvent,
     HookFailure,
     HookHandle,
-    emit,
+    emit as _event_bus_emit,
     get_event_bus,
     off,
     on as _event_bus_on,
@@ -119,6 +119,39 @@ def on(
         return _event_bus_on(clean_event)(handler)
 
     return decorate
+
+
+def emit(
+    event_name: str,
+    *,
+    payload: Mapping[str, Any] | None = None,
+    source: str | None = None,
+    **values: Any,
+) -> HookDispatchReport:
+    """Emit one public HookEvent to both Full API and managed extensions.
+
+    EventBus remains the stable Full API surface.  When an ExtensionManager has
+    bound its owner-aware registry, the exact same immutable HookEvent is mirrored
+    there so bundled/user extensions registered through ``@on`` receive runtime
+    events and can still be removed cleanly on disable/reload/unload.
+    """
+    report = _event_bus_emit(
+        event_name,
+        payload=payload,
+        source=source,
+        **values,
+    )
+
+    registrar = _bound_registrar
+    registrar_emit = getattr(registrar, "emit", None)
+    if callable(registrar_emit):
+        try:
+            registrar_emit(report.event.name, report.event)
+        except Exception:
+            # Managed HookRegistry already isolates individual extension failures.
+            # A broken alternate registrar must not make a core action fail either.
+            pass
+    return report
 
 
 __all__ = [

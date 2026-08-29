@@ -14,6 +14,7 @@ something previously paused. Planned DTSTART remains an edit/scheduling concern.
 """
 from __future__ import annotations
 
+from copy import copy
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -111,6 +112,42 @@ class BuiltinActions:
         getter = getattr(session, "paused_tasks", None)
         return list(getter() or ()) if callable(getter) else []
 
+    def _current_work_since(self, task: Any) -> Any:
+        """Return the latest actual work-start instant from Activity Journal.
+
+        DTSTART is the planned start and must never be reused as the answer to
+        "when did I start working?".  The journal is behaviour history only; the
+        Session service still decides whether the Task is actually current.
+        """
+        activity = getattr(self.ctx, "activity", None)
+        reader = getattr(activity, "for_task", None)
+        if not callable(reader):
+            return None
+
+        lifecycle = {
+            "task_started",
+            "task_resumed",
+            "task_paused",
+            "task_completed",
+            "task_deleted",
+        }
+        try:
+            items = [
+                item
+                for item in (reader(task) or ())
+                if getattr(item, "action", None) in lifecycle
+                and getattr(item, "timestamp", None) is not None
+            ]
+        except Exception:
+            return None
+        if not items:
+            return None
+
+        latest = max(items, key=lambda item: getattr(item, "timestamp"))
+        if getattr(latest, "action", None) not in {"task_started", "task_resumed"}:
+            return None
+        return getattr(latest, "timestamp", None)
+
     def _recommended_task(self) -> Any:
         try:
             result = self.ctx.agenda.next(kind="task")
@@ -171,7 +208,15 @@ class BuiltinActions:
             if paused:
                 return "No task is active right now. You have paused work; use 'resume' to continue it."
             return "No task is active right now. Use 'start' to begin working on the recommended task."
-        return task
+
+        # Keep Task as the return type so normal CLI/session behaviour remains
+        # unchanged.  Annotate only this detached presentation copy with transient
+        # work-session context; never mutate the authoritative Task object.
+        view = copy(task)
+        working_since = self._current_work_since(task)
+        if working_since is not None:
+            setattr(view, "_assistant_working_since", working_since)
+        return view
 
     # ------------------------------------------------------------------
     # Task lifecycle commands

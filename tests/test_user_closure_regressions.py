@@ -443,17 +443,23 @@ def test_default_bundled_extension_state_is_materialized_for_settings_display():
 
     ui = MessageUI()
     SettingsActions(SimpleNamespace(settings=settings, ui=ui))._extensions_panel()
-    output = "\n".join(ui.messages)
-    assert "software_intro" in output
-    assert "wordpress_work_session_log" in output
+    assert (
+        "Enabled: software_intro, wordpress_work_session_log"
+        in "\n".join(ui.messages)
+    )
 
-    # Explicit user disable remains authoritative; newly missing packaged defaults
-    # are filled without overwriting that explicit choice.
-    settings.set(EXTENSIONS_ENABLED, {"software_intro": False})
+    # Explicit user disable remains authoritative across service rebuilds.
+    settings.set(
+        EXTENSIONS_ENABLED,
+        {
+            "software_intro": False,
+            "wordpress_work_session_log": False,
+        },
+    )
     _ensure_default_extension_settings(settings)
     assert settings.get(EXTENSIONS_ENABLED) == {
         "software_intro": False,
-        "wordpress_work_session_log": True,
+        "wordpress_work_session_log": False,
     }
 
 
