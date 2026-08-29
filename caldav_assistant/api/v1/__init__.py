@@ -4,6 +4,7 @@ Everything exported here is part of the versioned public API surface.
 Implementations live behind AssistantContext namespaces; this module contains no
 adapter selection, IPC wiring, storage access, or Core business logic.
 """
+from .catalog import APIEntry, api_catalog, api_describe, api_exists, api_find
 from .context import AssistantContext
 from .errors import (
     AmbiguousError,
@@ -90,4 +91,9 @@ __all__ = [
     "off",
     "on",
     "unregister_owner",
+    "APIEntry",
+    "api_catalog",
+    "api_find",
+    "api_exists",
+    "api_describe",
 ]
