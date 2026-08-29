@@ -13,6 +13,7 @@ SQLite contains only the last verified cache snapshot and sync metadata.
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+from threading import RLock
 from typing import Any, Mapping
 
 from ...api import Event, Task
@@ -29,6 +30,10 @@ class SyncEngine:
     def __init__(self, adapter: Any, cache: Any):
         self.adapter = adapter
         self.cache = cache
+        # Manual diagnostics may request an immediate refresh while the background
+        # service is already running its periodic synchronization.  Serialize those
+        # authoritative scans so they cannot race while replacing the same snapshot.
+        self._sync_lock = RLock()
 
     @staticmethod
     def _now() -> datetime:
@@ -268,67 +273,68 @@ class SyncEngine:
     ) -> dict[str, Any]:
         """Perform synchronization without destroying good cache on failure."""
 
-        previous = self.cache.get(
-            self.SNAPSHOT_KEY,
-            None,
-        )
+        with self._sync_lock:
+            previous = self.cache.get(
+                self.SNAPSHOT_KEY,
+                None,
+            )
 
-        try:
-            current = self._read_remote()
+            try:
+                current = self._read_remote()
 
-            task_changes = self._delta(
-                previous,
+                task_changes = self._delta(
+                    previous,
+                    current,
+                    "tasks",
+                )
+
+                event_changes = self._delta(
+                    previous,
+                    current,
+                    "events",
+                )
+
+            except Exception as exc:
+                # Network/auth/parser/conflict failure must not destroy the
+                # last known-good local snapshot.
+                self._record_error(
+                    mode=requested_mode,
+                    error=exc,
+                )
+
+                raise
+
+            # One snapshot object prevents half-updated Task/Event caches.
+            self.cache.set(
+                self.SNAPSHOT_KEY,
                 current,
-                "tasks",
             )
 
-            event_changes = self._delta(
-                previous,
-                current,
-                "events",
+            effective_mode = (
+                "full"
+                if requested_mode == "full"
+                else "full-scan"
             )
 
-        except Exception as exc:
-            # Network/auth/parser/conflict failure must not destroy the
-            # last known-good local snapshot.
-            self._record_error(
-                mode=requested_mode,
-                error=exc,
+            report = {
+                "state": "ok",
+                "synced_at": current["synced_at"],
+                "requested_mode": requested_mode,
+                "effective_mode": effective_mode,
+                "task_count": len(current["tasks"]),
+                "event_count": len(current["events"]),
+                "changes": {
+                    "tasks": task_changes,
+                    "events": event_changes,
+                },
+            }
+
+            self.cache.set(
+                self.STATUS_KEY,
+                report,
             )
 
-            raise
-
-        # One snapshot object prevents half-updated Task/Event caches.
-        self.cache.set(
-            self.SNAPSHOT_KEY,
-            current,
-        )
-
-        effective_mode = (
-            "full"
-            if requested_mode == "full"
-            else "full-scan"
-        )
-
-        report = {
-            "state": "ok",
-            "synced_at": current["synced_at"],
-            "requested_mode": requested_mode,
-            "effective_mode": effective_mode,
-            "task_count": len(current["tasks"]),
-            "event_count": len(current["events"]),
-            "changes": {
-                "tasks": task_changes,
-                "events": event_changes,
-            },
-        }
-
-        self.cache.set(
-            self.STATUS_KEY,
-            report,
-        )
-
-        return report
+            return report
 
     def refresh(self) -> dict[str, Any]:
         """Perform a complete CalDAV -> cache refresh."""

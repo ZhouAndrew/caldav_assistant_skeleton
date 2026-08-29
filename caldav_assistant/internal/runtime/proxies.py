@@ -95,6 +95,14 @@ class RemoteSettingsAPI(_RemoteAPI):
     def test_caldav_connection(self): return self._caldav_call("test")
     def caldav_collections(self): return self._caldav_call("collections")
 
+    # CLI-internal observability.  Leading underscores keep these out of the
+    # documented/frozen Settings API while still avoiding direct Runtime/SQLite
+    # access from presentation code.
+    def _experimental_cache_call(self, name: str):
+        return self.runtime.call(f"experimental.cache.{name}")
+    def _experimental_cache_status(self): return self._experimental_cache_call("status")
+    def _experimental_cache_refresh(self): return self._experimental_cache_call("refresh")
+
 __all__ = [
     "RemoteTasksAPI","RemoteEventsAPI","RemoteAgendaAPI","RemoteRemindersAPI",
     "RemoteNotificationsAPI","RemoteWordPressAPI","RemoteActivityAPI",

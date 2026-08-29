@@ -8,7 +8,9 @@ is enabled.
 """
 from __future__ import annotations
 
+from collections import deque
 from datetime import date, datetime, timezone
+from threading import RLock
 from typing import Any, Callable, Mapping, Sequence
 
 from ...api import Event, Task
@@ -72,6 +74,9 @@ class ExperimentalCacheCalDAVAdapter:
         self.adapter = adapter
         self.sync = sync
         self.enabled = enabled
+        self._diagnostic_lock = RLock()
+        self._read_counts = {"cache": 0, "caldav": 0}
+        self._recent_reads: deque[dict[str, Any]] = deque(maxlen=12)
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.adapter, name)
@@ -86,6 +91,54 @@ class ExperimentalCacheCalDAVAdapter:
     def _snapshot_available(self) -> bool:
         return self.sync.cached_snapshot() is not None
 
+    def _record_read(self, operation: str, source: str, reason: str) -> None:
+        item = {
+            "at": datetime.now(timezone.utc).isoformat(),
+            "operation": operation,
+            "source": source,
+            "reason": reason,
+        }
+        with self._diagnostic_lock:
+            self._read_counts[source] = self._read_counts.get(source, 0) + 1
+            self._recent_reads.append(item)
+
+    @staticmethod
+    def _count_snapshot_items(snapshot: Mapping[str, Any], key: str) -> int:
+        values = snapshot.get(key, [])
+        return len(values) if isinstance(values, list) else 0
+
+    def diagnostics(self) -> dict[str, Any]:
+        """Return internal observability without exposing cache as a public API."""
+        snapshot = self.sync.cached_snapshot()
+        sync_status = self.sync.status()
+        with self._diagnostic_lock:
+            counts = dict(self._read_counts)
+            recent = [dict(item) for item in self._recent_reads]
+
+        result: dict[str, Any] = {
+            "enabled": self._active(),
+            "snapshot_available": isinstance(snapshot, Mapping),
+            "task_count": 0,
+            "event_count": 0,
+            "synced_at": None,
+            "cache_updated_at": None,
+            "cache_update_reason": None,
+            "read_counts": counts,
+            "recent_reads": recent,
+            "sync_status": dict(sync_status) if isinstance(sync_status, Mapping) else None,
+        }
+        if isinstance(snapshot, Mapping):
+            result.update(
+                {
+                    "task_count": self._count_snapshot_items(snapshot, "tasks"),
+                    "event_count": self._count_snapshot_items(snapshot, "events"),
+                    "synced_at": snapshot.get("synced_at"),
+                    "cache_updated_at": snapshot.get("cache_updated_at"),
+                    "cache_update_reason": snapshot.get("cache_update_reason"),
+                }
+            )
+        return result
+
     def _patch_snapshot(
         self,
         kind: str,
@@ -97,72 +150,99 @@ class ExperimentalCacheCalDAVAdapter:
 
         ``synced_at`` intentionally remains the timestamp of the last full remote
         verification.  ``cache_updated_at`` records the local write-through patch
-        separately so diagnostics never pretend a full sync occurred.
+        separately so diagnostics never pretend a full sync occurred.  The same
+        lock used by SyncEngine refreshes also protects write-through updates, so a
+        periodic/manual scan cannot replace a concurrently patched snapshot.
         """
         if not self._active():
             return
-        snapshot = self.sync.cached_snapshot()
-        if not isinstance(snapshot, Mapping):
-            return
 
-        key = "tasks" if kind == "task" else "events"
-        values = snapshot.get(key, [])
-        if not isinstance(values, list):
-            return
+        with self.sync._sync_lock:
+            snapshot = self.sync.cached_snapshot()
+            if not isinstance(snapshot, Mapping):
+                return
 
-        updated_values = [
-            dict(item)
-            for item in values
-            if isinstance(item, Mapping)
-            and (remove_id is None or str(item.get("id") or "") != str(remove_id))
-        ]
+            key = "tasks" if kind == "task" else "events"
+            values = snapshot.get(key, [])
+            if not isinstance(values, list):
+                return
 
-        if obj is not None:
-            serializer = (
-                self.sync._task_to_dict
-                if kind == "task"
-                else self.sync._event_to_dict
-            )
-            serialized = serializer(obj)
-            obj_id = str(serialized.get("id") or "")
             updated_values = [
-                item
-                for item in updated_values
-                if str(item.get("id") or "") != obj_id
+                dict(item)
+                for item in values
+                if isinstance(item, Mapping)
+                and (remove_id is None or str(item.get("id") or "") != str(remove_id))
             ]
-            updated_values.append(serialized)
 
-        updated = dict(snapshot)
-        updated[key] = updated_values
-        updated["cache_updated_at"] = datetime.now(timezone.utc).isoformat()
-        updated["cache_update_reason"] = "authoritative-write"
-        self.sync.cache.set(self.sync.SNAPSHOT_KEY, updated)
+            if obj is not None:
+                serializer = (
+                    self.sync._task_to_dict
+                    if kind == "task"
+                    else self.sync._event_to_dict
+                )
+                serialized = serializer(obj)
+                obj_id = str(serialized.get("id") or "")
+                updated_values = [
+                    item
+                    for item in updated_values
+                    if str(item.get("id") or "") != obj_id
+                ]
+                updated_values.append(serialized)
+
+            updated = dict(snapshot)
+            updated[key] = updated_values
+            updated["cache_updated_at"] = datetime.now(timezone.utc).isoformat()
+            updated["cache_update_reason"] = "authoritative-write"
+            self.sync.cache.set(self.sync.SNAPSHOT_KEY, updated)
 
     def list_tasks(self, **filters: Any) -> Sequence[Task]:
-        if not self._active() or not self._snapshot_available():
+        if not self._active():
+            self._record_read("tasks.list", "caldav", "experiment-disabled")
             return self.adapter.list_tasks(**filters)
+        if not self._snapshot_available():
+            self._record_read("tasks.list", "caldav", "no-snapshot")
+            return self.adapter.list_tasks(**filters)
+        self._record_read("tasks.list", "cache", "snapshot-hit")
         return [task for task in self.sync.cached_tasks() if _matches(task, filters)]
 
     def get_task(self, task_id: str) -> Task:
-        if self._active() and self._snapshot_available():
+        if not self._active():
+            self._record_read("tasks.get", "caldav", "experiment-disabled")
+            return self.adapter.get_task(task_id)
+        if self._snapshot_available():
             wanted = str(task_id)
             for task in self.sync.cached_tasks():
                 if str(task.id) == wanted:
+                    self._record_read("tasks.get", "cache", "cache-hit")
                     return task
-        # A cache miss is not authoritative; fall back to CalDAV.
+            self._record_read("tasks.get", "caldav", "cache-miss")
+            return self.adapter.get_task(task_id)
+        self._record_read("tasks.get", "caldav", "no-snapshot")
         return self.adapter.get_task(task_id)
 
     def list_events(self, **filters: Any) -> Sequence[Event]:
-        if not self._active() or not self._snapshot_available():
+        if not self._active():
+            self._record_read("events.list", "caldav", "experiment-disabled")
             return self.adapter.list_events(**filters)
+        if not self._snapshot_available():
+            self._record_read("events.list", "caldav", "no-snapshot")
+            return self.adapter.list_events(**filters)
+        self._record_read("events.list", "cache", "snapshot-hit")
         return [event for event in self.sync.cached_events() if _matches(event, filters)]
 
     def get_event(self, event_id: str) -> Event:
-        if self._active() and self._snapshot_available():
+        if not self._active():
+            self._record_read("events.get", "caldav", "experiment-disabled")
+            return self.adapter.get_event(event_id)
+        if self._snapshot_available():
             wanted = str(event_id)
             for event in self.sync.cached_events():
                 if str(event.id) == wanted:
+                    self._record_read("events.get", "cache", "cache-hit")
                     return event
+            self._record_read("events.get", "caldav", "cache-miss")
+            return self.adapter.get_event(event_id)
+        self._record_read("events.get", "caldav", "no-snapshot")
         return self.adapter.get_event(event_id)
 
     # Mutations remain authoritative.  A successful server result is used to keep
