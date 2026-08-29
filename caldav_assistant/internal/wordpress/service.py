@@ -13,6 +13,10 @@ Every WordPress mutation is persisted to the local Outbox *before* transport is
 attempted.  A transport failure therefore leaves a durable pending item which can
 be retried later.  Public calls report the local save as successful while making it
 explicit whether the remote upload happened immediately or is still pending.
+
+Core workflows that must never wait for WordPress transport may use ``queue_log``.
+It performs only the durable Outbox write; the background service later calls
+``flush`` on its own maintenance lane.
 """
 from __future__ import annotations
 
@@ -180,6 +184,15 @@ class WordPressService:
             affected=result,
         )
 
+    def _queue_only(self, payload: dict[str, Any]) -> ActionResult:
+        """Durably enqueue a WordPress mutation without attempting transport."""
+        item = self.outbox.enqueue(payload)
+        return ActionResult(
+            True,
+            message="Saved to WordPress Outbox; background upload pending.",
+            affected=item,
+        )
+
     # ------------------------------------------------------------------
     # Public Object API frozen by v1
     # ------------------------------------------------------------------
@@ -190,6 +203,20 @@ class WordPressService:
             {"text": clean, "metadata": deepcopy(metadata)},
         )
         return self._queue_and_try(payload)
+
+    def queue_log(self, text: str, **metadata: Any) -> ActionResult:
+        """Durably queue a long-term log without waiting for WordPress transport.
+
+        This is intended for Core side-effects such as a completed Task work log.
+        User-facing explicit ``log`` calls keep their existing immediate-attempt
+        behavior; background maintenance later flushes deferred entries.
+        """
+        clean = self._text(text, "WordPress log")
+        payload = self._payload(
+            "create_log",
+            {"text": clean, "metadata": deepcopy(metadata)},
+        )
+        return self._queue_only(payload)
 
     def create_post(self, title: str, content: str = "", **fields: Any) -> ActionResult:
         clean_title = self._text(title, "WordPress post title")
