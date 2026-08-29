@@ -31,7 +31,7 @@ class WorkLogService:
         self.collection_url_provider = collection_url_provider
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
-    def _now(self) -> datetime:
+    def now(self) -> datetime:
         value = self._clock()
         if not isinstance(value, datetime):
             raise TypeError("WorkLogService clock must return datetime")
@@ -79,9 +79,6 @@ class WorkLogService:
         )
 
     def _all_work_events(self) -> list[Event]:
-        # Work markers are only authoritative inside the explicitly selected
-        # Work Log collection. An identically tagged event in another calendar
-        # must never become the user's current work by accident.
         target = self._collection_url()
         items = self.adapter.list_events(category=self.CATEGORY)
         return [
@@ -135,7 +132,7 @@ class WorkLogService:
 
         event = Event(
             summary=f"Work — {task.summary}",
-            start=self._now(),
+            start=self.now(),
             end=None,
             description=self._description(task_id),
             categories=[self.CATEGORY, self.OPEN_CATEGORY],
@@ -155,7 +152,7 @@ class WorkLogService:
         updated = self.adapter.update_event(
             event.id,
             {
-                "end": self._now(),
+                "end": self.now(),
                 "categories": [self.CATEGORY],
             },
         )
