@@ -4,7 +4,10 @@ Frozen responsibilities implemented here:
 discover -> load -> enable/disable -> reload -> unload -> error isolation.
 
 The manager imports extension Python modules but does not duplicate command execution,
-Task/Event business logic, IPC, CalDAV, or UI behavior.
+Task/Event business logic, IPC, CalDAV, or UI behavior.  It may also discover an
+optional read-only directory of extensions bundled with the application.  Bundled
+extensions use exactly the same lifecycle and explicit user enable/disable state as
+ordinary user extensions.
 """
 from __future__ import annotations
 
@@ -44,7 +47,7 @@ class ExtensionRecord:
 
 
 class ExtensionManager:
-    """Manage user extensions from a per-user directory."""
+    """Manage user extensions plus optional application-bundled extensions."""
 
     def __init__(
         self,
@@ -53,6 +56,8 @@ class ExtensionManager:
         settings: Any,
         *,
         root: str | Path | None = None,
+        bundled_root: str | Path | None = None,
+        default_enabled: Iterable[str] = (),
     ) -> None:
         if not isinstance(commands, CommandService):
             raise TypeError("commands must be CommandService")
@@ -64,6 +69,10 @@ class ExtensionManager:
         self.settings = settings
         self.root = Path(root) if root is not None else (
             Path.home() / ".caldav-assistant" / "extensions"
+        )
+        self.bundled_root = Path(bundled_root) if bundled_root is not None else None
+        self.default_enabled = frozenset(
+            self._name(name) for name in default_enabled
         )
         self._records: dict[str, ExtensionRecord] = {}
         self._modules: dict[str, ModuleType] = {}
@@ -124,34 +133,42 @@ class ExtensionManager:
     # ------------------------------------------------------------------
     def _sources(self) -> dict[str, list[Path]]:
         sources: dict[str, list[Path]] = {}
-        try:
-            self.root.mkdir(parents=True, exist_ok=True)
-            children = sorted(self.root.iterdir(), key=lambda item: item.name.casefold())
-        except OSError as exc:
-            self._manager_error = f"{type(exc).__name__}: {exc}"
-            return {}
+        roots: list[tuple[Path, bool]] = [(self.root, True)]
+        if self.bundled_root is not None:
+            roots.append((self.bundled_root, False))
 
         self._manager_error = None
-        for child in children:
-            if child.name.startswith("_") or child.name.startswith("."):
+        for root, create in roots:
+            try:
+                if create:
+                    root.mkdir(parents=True, exist_ok=True)
+                elif not root.exists():
+                    continue
+                children = sorted(root.iterdir(), key=lambda item: item.name.casefold())
+            except OSError as exc:
+                self._manager_error = f"{type(exc).__name__}: {exc}"
                 continue
 
-            candidate: Path | None = None
-            name: str | None = None
+            for child in children:
+                if child.name.startswith("_") or child.name.startswith("."):
+                    continue
 
-            if child.is_file() and child.suffix == ".py":
-                name = child.stem
-                candidate = child
-            elif child.is_dir() and (child / "__init__.py").is_file():
-                name = child.name
-                candidate = child
+                candidate: Path | None = None
+                name: str | None = None
 
-            if candidate is None or name is None:
-                continue
-            if not _NAME_PATTERN.fullmatch(name):
-                continue
+                if child.is_file() and child.suffix == ".py":
+                    name = child.stem
+                    candidate = child
+                elif child.is_dir() and (child / "__init__.py").is_file():
+                    name = child.name
+                    candidate = child
 
-            sources.setdefault(name, []).append(candidate)
+                if candidate is None or name is None:
+                    continue
+                if not _NAME_PATTERN.fullmatch(name):
+                    continue
+
+                sources.setdefault(name, []).append(candidate)
 
         return sources
 
@@ -163,7 +180,7 @@ class ExtensionManager:
         for name, paths in sources.items():
             seen.add(name)
             previous = self._records.get(name)
-            is_enabled = bool(enabled.get(name, False))
+            is_enabled = bool(enabled.get(name, name in self.default_enabled))
 
             if len(paths) > 1:
                 record = previous or ExtensionRecord(name=name, path=paths[0])
@@ -456,7 +473,8 @@ class ExtensionManager:
         except OSError as exc:
             raise ExtensionError(str(exc)) from exc
 
-        # New code is deliberately disabled until the user explicitly enables it.
+        # New user code is deliberately disabled until explicitly enabled. Bundled
+        # extensions are the only place where product-defined defaults may apply.
         self._set_enabled(name, False)
         self.discover()
         return self.get(name)
