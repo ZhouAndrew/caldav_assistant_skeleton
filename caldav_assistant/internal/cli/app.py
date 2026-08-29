@@ -19,6 +19,7 @@ from ...api.v1.errors import CalDAVAssistantError, NotFoundError, ValidationErro
 from ...api.v1.models import Agenda, AgendaItem, Event, Task
 from .actions import EXIT_REPL, register_cli_builtin_commands
 from .api_help import register_api_cli_command
+from .completion import completion_session
 from .crud import register_crud_cli_commands
 from .presenter import emit_agenda, emit_lines, render_lines
 from ..extensions.cli import register_extension_cli_commands
@@ -291,7 +292,8 @@ def run_cli(argv: Sequence[str] | None = None, *, app: Any = None) -> int:
 
     if argv:
         return run_one_shot(app, argv)
-    return run_repl(app)
+    with completion_session(app):
+        return run_repl(app)
 
 
 def main() -> int:
