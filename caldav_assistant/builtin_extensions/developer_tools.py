@@ -82,34 +82,46 @@ def _background_log() -> tuple[BinaryIO, Path]:
     raise ValueError(f"Cannot create background command log: {last_error}") from last_error
 
 
-def _start_background(command_argv: Sequence[str]) -> tuple[int, Path]:
-    """Start one detached child and return its PID plus persistent output-log path."""
-    log_handle, log_path = _background_log()
+def _background_process_kwargs(log_handle: BinaryIO, *, platform_name: str | None = None) -> dict[str, object]:
+    """Build detached-process kwargs in one testable cross-platform brick."""
+    platform = os.name if platform_name is None else platform_name
     kwargs: dict[str, object] = {
         "stdin": subprocess.DEVNULL,
         "stdout": log_handle,
         "stderr": subprocess.STDOUT,
         "close_fds": True,
     }
-    if os.name == "nt":
+    if platform == "nt":
         kwargs["creationflags"] = (
             getattr(subprocess, "DETACHED_PROCESS", 0)
             | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         )
     else:
         kwargs["start_new_session"] = True
+    return kwargs
 
+
+def _start_background(command_argv: Sequence[str]) -> tuple[int, Path]:
+    """Start one detached child and return its PID plus persistent output-log path."""
+    log_handle, log_path = _background_log()
     try:
-        process = subprocess.Popen(list(command_argv), **kwargs)
+        process = subprocess.Popen(
+            list(command_argv),
+            **_background_process_kwargs(log_handle),
+        )
     except FileNotFoundError as exc:
+        log_handle.close()
         try:
             log_path.unlink(missing_ok=True)
         except OSError:
             pass
         raise _missing_program(command_argv, exc) from exc
-    finally:
+    except Exception:
         log_handle.close()
-    return int(process.pid), log_path
+        raise
+    else:
+        log_handle.close()
+        return int(process.pid), log_path
 
 
 def _run_foreground(command_argv: Sequence[str]) -> int:
