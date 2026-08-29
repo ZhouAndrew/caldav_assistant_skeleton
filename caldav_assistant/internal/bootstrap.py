@@ -64,7 +64,7 @@ from .storage.sqlite import (
     SQLiteStore,
     SQLiteUndoRepository,
 )
-from .tasks import TaskService
+from .tasks import CompletionLoggingTaskService, TaskCompletionLogService
 from .temporal import TemporalParser, TemporalService
 from .undo import UndoManager
 from .wordpress import WordPressService
@@ -162,11 +162,27 @@ def build_service_application() -> ServiceApplication:
     _caldav_setup = CalDAVSetupService(settings_service, base_url_provider, caldav)
     sync = SyncEngine(caldav, cache)
 
+    # Long-term work logs use only the durable WordPress Outbox on the Task
+    # completion path. Remote WordPress transport is flushed independently by the
+    # background service and can never gate authoritative CalDAV completion.
+    wordpress = WordPressService(
+        WPCLIAdapter(settings_service.get(WORDPRESS_PATH, None)),
+        outbox_repo,
+        activity,
+    )
+    completion_log = TaskCompletionLogService(activity, wordpress)
+
     # Human work-session state is Assistant-owned auxiliary state.  The Task facts
     # themselves remain in CalDAV.  SessionService and TaskService share only the
     # small persisted current/paused UID state.
     session = SessionService(assistant_state)
-    tasks = TaskService(caldav, activity, undo, session)
+    tasks = CompletionLoggingTaskService(
+        caldav,
+        activity,
+        undo,
+        session,
+        completion_log=completion_log,
+    )
     session.bind_tasks(tasks)
 
     events = EventService(caldav, activity, undo)
@@ -186,11 +202,6 @@ def build_service_application() -> ServiceApplication:
         assistant_state,
         sync.cached_tasks,
         sync.cached_events,
-    )
-    wordpress = WordPressService(
-        WPCLIAdapter(settings_service.get(WORDPRESS_PATH, None)),
-        outbox_repo,
-        activity,
     )
 
     registry = CommandRegistry()
