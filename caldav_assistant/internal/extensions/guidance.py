@@ -34,8 +34,8 @@ def easy_extension_template(name: str) -> str:
     clean = normalize_extension_name(name)
     return f'''"""CalDAV Assistant Easy API extension: {clean}.
 
-This file is intentionally a real working template rather than a tiny placeholder.
-Delete the examples you do not need and keep the pieces that match your extension.
+This is a working template, not a tiny placeholder. Keep the examples you need and
+delete the rest.
 
 Core model:
 - Task = work that can be started, paused, resumed, and completed.
@@ -43,22 +43,24 @@ Core model:
 - CalDAV remains the Task/Event source of truth. Do not edit XML or SQLite directly.
 - Prefer caldav_assistant.easy. Use api/api.v1 only when Easy API is insufficient.
 
-Useful lifecycle commands after editing this file:
+Extension lifecycle:
   extension enable {clean}
   extension reload {clean}
   extension errors {clean}
 
-VS Code/Pylance setup:
+Editor support:
   extension dev
 
-The package ships py.typed + Easy API stubs, so the normal Python interpreter where
-caldav-assistant is installed can provide autocomplete and type checking.
+The installed caldav-assistant package ships PEP 561 type information (py.typed plus
+Easy API stubs), so VS Code/Pylance can autocomplete imports, show signatures, and catch
+Task/Event type mistakes when the correct Python interpreter is selected.
 """
 from __future__ import annotations
 
 from caldav_assistant.api import Agenda
 from caldav_assistant.easy import (
     ask_date,
+    choose,
     choose_task,
     command,
     complete,
@@ -74,91 +76,82 @@ from caldav_assistant.easy import (
 )
 
 
-USAGE = """{clean} commands:
-  {clean}                 Show today's combined agenda
-  {clean} tasks           Show today's Tasks only
-  {clean} overdue         Show overdue Tasks
-  {clean} events          Show today's Events only
-  {clean} start           Choose a Task and start working on it
-  {clean} complete        Choose a Task and mark it complete after confirmation
-  {clean} due             Choose a Task and change its due date
-  {clean} log TEXT...     Write long-term text through the WordPress/Outbox service
-  {clean} help            Show this help
-"""
+_MENU = (
+    "Today's agenda",
+    "Today's tasks",
+    "Overdue tasks",
+    "Today's events",
+    "Start a task",
+    "Complete a task",
+    "Change a task due date",
+    "Log a selected task",
+)
 
 
-def _choose_required_task():
-    """Reusable prompt brick: return a chosen Task, or None if the user cancels."""
+def _selected_task():
+    """Reusable PromptKit/Easy-API brick; None means the user cancelled."""
     return choose_task()
 
 
-@command(
-    {clean!r},
-    description="Example Easy API extension with Task, Event, prompt, date, and log bricks.",
-)
-def run(*parts: str) -> None:
-    """One command demonstrating safe composition of Easy API bricks.
+def _show_today() -> None:
+    items: Agenda = today()
+    show(items)
 
-    Extension commands receive CLI words as normal Python arguments. This example uses
-    a small local action table style without creating another application-wide command
-    dispatcher. Every data-changing operation still goes through the public Easy API.
-    """
-    action = parts[0].casefold() if parts else "today"
 
-    if action == "today":
-        items: Agenda = today()
-        show(items)
+def _start_task() -> None:
+    task = _selected_task()
+    if task is not None:
+        show(start(task))
+
+
+def _complete_task() -> None:
+    task = _selected_task()
+    if task is not None and confirm(f"Complete {{task.summary}}?"):
+        show(complete(task))
+
+
+def _change_due() -> None:
+    task = _selected_task()
+    if task is None:
+        return
+    due = ask_date("New due date")
+    if due is not None:
+        show(set_due(task, due))
+
+
+def _log_selected_task() -> None:
+    task = _selected_task()
+    if task is None:
+        return
+    if confirm(f"Write a long-term log entry for {{task.summary}}?", default=False):
+        # WordPress/Outbox is a long-term record path; it does not decide Task state.
+        show(write_log(f"Work note: {{task.summary}}"))
+
+
+@command({clean!r})
+def run() -> None:
+    """Open a small Scratch-like menu assembled entirely from public Easy API bricks."""
+    action = choose(_MENU, title="{clean}")
+    if action is None:
         return
 
-    if action == "tasks":
+    if action == "Today's agenda":
+        _show_today()
+    elif action == "Today's tasks":
         show(today_tasks())
-        return
-
-    if action == "overdue":
+    elif action == "Overdue tasks":
         show(overdue_tasks())
-        return
-
-    if action == "events":
-        # Events are displayed/edited as calendar occurrences. Do not call complete().
+    elif action == "Today's events":
+        # Events are calendar occurrences. Do not call complete()/start() on an Event.
         show(today_events())
-        return
-
-    if action == "start":
-        task = _choose_required_task()
-        if task is not None:
-            show(start(task))
-        return
-
-    if action == "complete":
-        task = _choose_required_task()
-        if task is not None and confirm(f"Complete {{task.summary}}?"):
-            show(complete(task))
-        return
-
-    if action == "due":
-        task = _choose_required_task()
-        if task is None:
-            return
-        due = ask_date("New due date")
-        if due is not None:
-            show(set_due(task, due))
-        return
-
-    if action == "log":
-        text = " ".join(parts[1:]).strip()
-        if not text:
-            show("Usage: {clean} log TEXT...")
-            return
-        # write_log() uses the normal WordPress/Outbox path; it does not change Task state.
-        show(write_log(text))
-        return
-
-    if action in {{"help", "?"}}:
-        show(USAGE)
-        return
-
-    show("Unsupported extension action: " + parts[0])
-    show(USAGE)
+    elif action == "Start a task":
+        _start_task()
+    elif action == "Complete a task":
+        _complete_task()
+    elif action == "Change a task due date":
+        _change_due()
+    elif action == "Log a selected task":
+        _log_selected_task()
 '''
 
 
