@@ -17,6 +17,7 @@ from typing import Any, Sequence
 
 from ...api.v1.errors import CalDAVAssistantError, NotFoundError
 from .actions import EXIT_REPL, register_cli_builtin_commands
+from .presenter import emit_lines, render_lines
 from ..extensions.cli import register_extension_cli_commands
 from ..settings.cli import register_settings_cli_command
 from ..runtime.cli import register_background_cli_command
@@ -70,7 +71,7 @@ def _error(app: Any, message: str) -> None:
     _ui_show(app, message)
 
 
-def _render_result(app: Any, result: Any) -> None:
+def _render_result(app: Any, result: Any, *, paginate: bool = False) -> None:
     if result is None or result is EXIT_REPL:
         return
     if hasattr(result, "success") and hasattr(result, "affected"):
@@ -87,10 +88,16 @@ def _render_result(app: Any, result: Any) -> None:
                 return
         _ui_show(app, "✓ Done." if success else "✗ Operation failed.")
         return
+
+    safe_lines = render_lines(result)
+    if safe_lines is not None:
+        emit_lines(app, safe_lines, paginate=paginate)
+        return
+
     _ui_show(app, result)
 
 
-def _execute(app: Any, parsed: ParsedCommand) -> tuple[int, bool]:
+def _execute(app: Any, parsed: ParsedCommand, *, paginate: bool = False) -> tuple[int, bool]:
     try:
         entry = app.commands.resolve(parsed.name)
     except NotFoundError:
@@ -122,7 +129,7 @@ def _execute(app: Any, parsed: ParsedCommand) -> tuple[int, bool]:
 
     if result is EXIT_REPL:
         return 0, True
-    _render_result(app, result)
+    _render_result(app, result, paginate=paginate)
     return 0, False
 
 
@@ -138,7 +145,7 @@ def run_one_shot(app: Any, argv: Sequence[str]) -> int:
         name=name,
         args=tuple(str(item) for item in argv[1:]),
     )
-    code, _ = _execute(app, parsed)
+    code, _ = _execute(app, parsed, paginate=False)
     return code
 
 
@@ -163,7 +170,7 @@ def run_repl(app: Any) -> int:
             continue
         if parsed is None:
             continue
-        code, should_exit = _execute(app, parsed)
+        code, should_exit = _execute(app, parsed, paginate=True)
         last_code = code
         if should_exit:
             return code
