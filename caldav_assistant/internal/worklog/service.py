@@ -39,12 +39,19 @@ class WorkLogService:
             value = value.astimezone()
         return value.astimezone(timezone.utc)
 
-    def _collection_url(self) -> str:
+    def configured(self) -> bool:
+        value = self.collection_url_provider()
+        return isinstance(value, str) and bool(value.strip())
+
+    def _collection_url(self, *, required: bool = True) -> str | None:
         value = self.collection_url_provider()
         if not isinstance(value, str) or not value.strip():
+            if not required:
+                return None
             raise ValidationError(
-                "Work log collection is not configured. "
-                "Choose one in Settings > CalDAV > Collection roles."
+                "Work history calendar is not configured. To record Start/Pause/Resume "
+                "as CalDAV events, choose one in Settings > CalDAV > Collection roles > "
+                "Work log collection. WordPress is not required for this."
             )
         return value.strip()
 
@@ -79,7 +86,13 @@ class WorkLogService:
         )
 
     def _all_work_events(self) -> list[Event]:
-        target = self._collection_url()
+        target = self._collection_url(required=False)
+        if target is None:
+            # Work tracking is an optional enhancement for read/query paths.
+            # Commands such as next/current/done must remain usable before the
+            # user chooses where VEVENT work history should live. Mutating work
+            # operations still call _collection_url(required=True).
+            return []
         items = self.adapter.list_events(category=self.CATEGORY)
         return [
             item
@@ -122,6 +135,7 @@ class WorkLogService:
         task_id = str(task.id or "").strip()
         if not task_id:
             raise ValidationError("Task id must not be empty")
+        target = self._collection_url(required=True)
         current = self.current_task_id()
         if current:
             if current == task_id:
@@ -137,7 +151,7 @@ class WorkLogService:
             description=self._description(task_id),
             categories=[self.CATEGORY, self.OPEN_CATEGORY],
         )
-        setattr(event, "_caldav_collection_url", self._collection_url())
+        setattr(event, "_caldav_collection_url", target)
         created = self.adapter.create_event(event)
         if not isinstance(created, Event):
             raise TypeError("CalDAVAdapter must return Event for work-log creation")
