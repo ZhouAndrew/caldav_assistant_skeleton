@@ -145,12 +145,16 @@ def test_work_intervals_live_in_selected_caldav_collection_and_drive_session_sta
     assert session.current_task_id() is None
     assert adapter.events[1].end == datetime(2026, 8, 29, 12, 0, tzinfo=timezone.utc)
 
-    # Human work lifecycle is not duplicated into the local Activity repository.
+    # Work VEVENTs retain detailed cross-device intervals, while the Activity
+    # Journal also keeps the lightweight lifecycle history required by the public
+    # Activity API and recovery/context features.
     actions = [row[0] for row in activity.records]
-    assert "task_started" not in actions
-    assert "task_paused" not in actions
-    assert "task_resumed" not in actions
-    assert "task_completed" not in actions
+    assert actions == [
+        "task_started",
+        "task_paused",
+        "task_resumed",
+        "task_completed",
+    ]
 
 
 def test_worklog_refuses_to_guess_collection():
