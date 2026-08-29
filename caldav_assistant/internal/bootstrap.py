@@ -79,6 +79,7 @@ from .worklog import WorkLogService
 
 
 _WORK_EVENT_CATEGORY = "caldav-assistant-work"
+_DEFAULT_ENABLED_EXTENSIONS = ("software_intro",)
 
 
 @dataclass
@@ -102,6 +103,24 @@ class CLIApplication:
 
 def _state_dir() -> Path:
     return Path.home() / ".caldav-assistant"
+
+
+def _builtin_extension_dir() -> Path:
+    return Path(__file__).resolve().parent.parent / "builtin_extensions"
+
+
+def _build_extension_manager(
+    commands: CommandService,
+    hooks: HookRegistry,
+    settings: Any,
+) -> ExtensionManager:
+    return ExtensionManager(
+        commands,
+        hooks,
+        settings,
+        bundled_root=_builtin_extension_dir(),
+        default_enabled=_DEFAULT_ENABLED_EXTENSIONS,
+    )
 
 
 def _notification_adapter_for_platform():
@@ -262,7 +281,7 @@ def build_service_application() -> ServiceApplication:
     )
     _register_builtin_commands(registry, ctx)
 
-    extensions = ExtensionManager(commands, hooks, settings_service)
+    extensions = _build_extension_manager(commands, hooks, settings_service)
     _bind_hook_registrar(hooks)
     bind_current_context(ctx)
     extensions.load_enabled()
@@ -341,7 +360,7 @@ def build_cli_application() -> CLIApplication:
     bind_current_context(ctx)
     _bind_hook_registrar(hooks)
     _register_builtin_commands(registry, ctx)
-    extensions = ExtensionManager(commands, hooks, settings)
+    extensions = _build_extension_manager(commands, hooks, settings)
     return CLIApplication(ctx, runtime, commands, extensions, io)
 
 
