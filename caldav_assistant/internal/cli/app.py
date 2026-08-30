@@ -387,7 +387,7 @@ def _emit_wait_state_if_changed(app: Any, previous_key: Any) -> Any:
     return state
 
 
-def run_repl(app: Any) -> int:
+def _run_repl(app: Any) -> int:
     _ui_show(app, _t(app, "cli.banner", "CalDAV Assistant"))
     _ui_show(
         app,
@@ -405,11 +405,6 @@ def run_repl(app: Any) -> int:
 
     last_code = 0
     while True:
-        # Re-read Session before each prompt.  A Task may have been completed or
-        # changed by another client while this desktop process remained open.
-        state = _emit_wait_state_if_changed(app, state_key)
-        state_key = state.key
-
         pending = getattr(app, "_pending_repl_line", None)
         if pending is not None:
             line = str(pending)
@@ -441,11 +436,24 @@ def run_repl(app: Any) -> int:
         if should_exit:
             return code
 
-        # A lifecycle decision (start/resume/pause/done) is already persisted by
-        # Core before CommandService returns.  Announce the resulting wait state
-        # immediately so the user sees what the program is waiting for next.
+        # Refresh only after the human completed an interaction. The previous code
+        # also performed a synchronous Session IPC read immediately before every
+        # prompt, doubling the wait-state traffic and exposing the prompt itself to
+        # avoidable transport latency. Lifecycle actions are already persisted before
+        # CommandService returns, so this one refresh is enough for the next prompt.
         state = _emit_wait_state_if_changed(app, state_key)
         state_key = state.key
+
+
+def run_repl(app: Any) -> int:
+    """Run the legacy guided REPL with a terminal-wide interrupt boundary."""
+    try:
+        return _run_repl(app)
+    except KeyboardInterrupt:
+        # Ctrl-C is normal terminal input, including while a Session/IPC status read
+        # is in flight. Never leak queue/thread/runtime internals to the human.
+        _ui_show(app, "")
+        return 130
 
 
 def run_cli(argv: Sequence[str] | None = None, *, app: Any = None) -> int:
@@ -486,7 +494,21 @@ def run_cli(argv: Sequence[str] | None = None, *, app: Any = None) -> int:
 
 
 def main() -> int:
-    return run_cli()
+    """Stable console-script front door, including compatibility with old installs.
+
+    Older editable installs already have a generated executable importing
+    ``caldav_assistant.internal.cli.app:main``. Keep that path permanent and delegate
+    internally to the current foreground client so a source update cannot leave a
+    stale launcher on the old UI implementation.
+    """
+    try:
+        from .monitor_app import run_cli as run_foreground_cli
+
+        return run_foreground_cli()
+    except KeyboardInterrupt:
+        # Final safety net: Ctrl-C must never produce a Python traceback for a user,
+        # even if it lands between higher-level monitor/console interrupt handlers.
+        return 130
 
 
 __all__ = [
