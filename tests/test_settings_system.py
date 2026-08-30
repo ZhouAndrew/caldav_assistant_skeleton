@@ -14,4 +14,7 @@ def test_credentials_are_write_only():
     with pytest.raises(ValidationError):public.get(CALDAV_CREDENTIALS)
 def test_extension_state_registered():
     public=make();assert public.get(EXTENSIONS_ENABLED)=={};assert public.set(EXTENSIONS_ENABLED,{"school":True})=={"school":True}
-def test_categories_shape():assert DEFAULT_SETTINGS_SCHEMA.categories()==("Language","CalDAV","Notifications","WordPress","Commands","Extensions","Experimental")
+def test_categories_shape():assert DEFAULT_SETTINGS_SCHEMA.categories()==("Language","CalDAV","Notifications","WordPress","Commands","Extensions","Agenda","Experimental")
+def test_upcoming_window_is_public_and_validated():
+    public=make();assert public.get(AGENDA_UPCOMING_HOURS)==24;assert public.set(AGENDA_UPCOMING_HOURS,"36")==36
+    with pytest.raises(ValidationError):public.set(AGENDA_UPCOMING_HOURS,0)
