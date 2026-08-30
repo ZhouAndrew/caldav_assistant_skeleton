@@ -22,7 +22,7 @@ class AutostartManager:
 
     @property
     def command(self) -> list[str]:
-        return [self.python, "-m", "caldav_assistant.internal.runtime.service"]
+        return [self.python, "-m", "caldav_assistant.internal.runtime.observable_service"]
 
     @staticmethod
     def _systemd_path() -> Path:
@@ -143,9 +143,7 @@ class AutostartManager:
         if sys.platform.startswith("win"):
             if stop:
                 self._run(["schtasks", "/End", "/TN", "CalDAV Assistant"])
-            self._run(
-                ["schtasks", "/Delete", "/F", "/TN", "CalDAV Assistant"]
-            )
+            self._run(["schtasks", "/Delete", "/F", "/TN", "CalDAV Assistant"])
             return
 
         raise RuntimeError(f"Autostart is unsupported on platform: {sys.platform}")
