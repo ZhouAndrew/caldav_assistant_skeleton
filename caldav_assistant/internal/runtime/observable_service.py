@@ -1,9 +1,9 @@
 """Observable background Assistant Service for foreground monitor clients.
 
 The ordinary AssistantService remains the scheduler/orchestrator. This subclass adds
-one internal, read-only delivery feed over Local IPC. A feed event is published only
-after ReminderService.process_due() has successfully returned that notification as
-sent, so the foreground never invents a reminder event of its own.
+one internal, read-only runtime event feed over Local IPC. Reminder events are
+published only after confirmed delivery. Operation-progress events are published only
+when the executing Core service reaches the corresponding milestone.
 
 This is an internal client/runtime contract, not part of the frozen public Python API.
 """
@@ -14,12 +14,13 @@ from datetime import datetime, timezone
 from typing import Any
 import signal
 
+from ..progress import bind_progress_sink
 from .ipc import IPCAlreadyRunningError
 from .service import AssistantService
 
 
 class ObservableAssistantService(AssistantService):
-    """AssistantService plus a bounded notification-delivery event feed."""
+    """AssistantService plus a bounded factual runtime event feed."""
 
     def __init__(self, *args: Any, event_limit: int = 200, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -27,7 +28,10 @@ class ObservableAssistantService(AssistantService):
         if self.event_limit <= 0:
             raise ValueError("event_limit must be positive")
         self._event_seq = 0
+        # Historical attribute name retained for compatibility with existing tests.
+        # The deque now carries both delivery and operation-progress events.
         self._delivery_events: deque[dict[str, Any]] = deque(maxlen=self.event_limit)
+        bind_progress_sink(self._publish_operation_progress)
 
     @staticmethod
     def _request_value(request: Any, name: str, default: Any = None) -> Any:
@@ -38,6 +42,29 @@ class ObservableAssistantService(AssistantService):
             except Exception:
                 return default
         return value
+
+    def _append_runtime_event(self, payload: dict[str, Any]) -> None:
+        with self._lock:
+            self._event_seq += 1
+            item = dict(payload)
+            item["seq"] = self._event_seq
+            self._delivery_events.append(item)
+
+    def _publish_operation_progress(self, payload: dict[str, Any]) -> None:
+        operation_id = str(payload.get("operation_id") or "").strip()
+        if not operation_id:
+            return
+        self._append_runtime_event(
+            {
+                "kind": "operation_progress",
+                "occurred_at": datetime.now(timezone.utc).isoformat(),
+                "operation_id": operation_id,
+                "stage": str(payload.get("stage") or "operation"),
+                "message": str(payload.get("message") or "Operation progress"),
+                "state": str(payload.get("state") or "info"),
+                "details": dict(payload.get("details") or {}),
+            }
+        )
 
     def _publish_delivery(self, request: Any) -> None:
         when = self._request_value(request, "when", None)
@@ -51,33 +78,37 @@ class ObservableAssistantService(AssistantService):
             metadata = {"value": str(metadata)}
 
         # Explicit Assistant reminders normally have source="reminder" and their
-        # object id is the reminder id.  Work-period deadlines deliberately carry a
+        # object id is the reminder id. Work-period deadlines deliberately carry a
         # semantic source/task id in metadata so the foreground can report the human
         # event without changing the frozen ReminderEngine request contract.
-        source = str(metadata.get("source") or self._request_value(request, "source", "reminder") or "reminder")
-        object_id = metadata.get("task_id") or self._request_value(request, "object_id", None)
+        source = str(
+            metadata.get("source")
+            or self._request_value(request, "source", "reminder")
+            or "reminder"
+        )
+        object_id = metadata.get("task_id") or self._request_value(
+            request, "object_id", None
+        )
 
         adapter = getattr(getattr(self.reminders, "notifications", None), "adapter", None)
         adapter_name = type(adapter).__name__ if adapter is not None else None
 
-        with self._lock:
-            self._event_seq += 1
-            self._delivery_events.append(
-                {
-                    "seq": self._event_seq,
-                    "occurred_at": datetime.now(timezone.utc).isoformat(),
-                    "scheduled_for": when_text,
-                    "source": source,
-                    "object_id": object_id,
-                    "title": str(self._request_value(request, "title", "") or ""),
-                    "body": str(self._request_value(request, "body", "") or ""),
-                    "delivery_key": str(self._request_value(request, "key", "") or ""),
-                    "metadata": dict(metadata),
-                    "delivery": "system_notification",
-                    "adapter": adapter_name,
-                    "result": "delivered",
-                }
-            )
+        self._append_runtime_event(
+            {
+                "kind": "delivery",
+                "occurred_at": datetime.now(timezone.utc).isoformat(),
+                "scheduled_for": when_text,
+                "source": source,
+                "object_id": object_id,
+                "title": str(self._request_value(request, "title", "") or ""),
+                "body": str(self._request_value(request, "body", "") or ""),
+                "delivery_key": str(self._request_value(request, "key", "") or ""),
+                "metadata": dict(metadata),
+                "delivery": "system_notification",
+                "adapter": adapter_name,
+                "result": "delivered",
+            }
+        )
 
     def _process_due_observable(self) -> list[Any]:
         process = getattr(self.reminders, "process_due", None)
@@ -120,7 +151,11 @@ class ObservableAssistantService(AssistantService):
         after = max(0, int(after))
         limit = max(1, min(int(limit), self.event_limit))
         with self._lock:
-            items = [item.copy() for item in self._delivery_events if int(item["seq"]) > after]
+            items = [
+                item.copy()
+                for item in self._delivery_events
+                if int(item["seq"]) > after
+            ]
         return items[:limit]
 
     def _handle_request(self, method: str, payload: dict[str, Any] | None = None) -> Any:
