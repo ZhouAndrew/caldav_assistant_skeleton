@@ -24,9 +24,9 @@ OFFICIAL_EXTENSION_CATALOG = MappingProxyType(
             {
                 "title": "WordPress work-session log",
                 "description": (
-                    "Writes Task start/resume work-session transitions through the "
-                    "WordPress/Outbox service without making WordPress part of Task "
-                    "business logic."
+                    "Writes Task start/pause/resume work-session transitions through "
+                    "the WordPress/Outbox service without making WordPress part of "
+                    "Task business logic."
                 ),
                 "default_enabled": True,
             }
