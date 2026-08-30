@@ -21,6 +21,15 @@ CalDAV Assistant 是一个 **local-first、CLI-first** 的任务与日程助手�
 - PEP 561 `py.typed`、Easy API 类型 stub 与 Object API Protocol，支持 VS Code/Pylance 自动补全和类型检查；
 - 由真实 Public API 自动生成的接口目录，可查询接口是否存在、签名、来源和用法。
 
+## 文档
+
+- [`GUIDE.md`](GUIDE.md)：完整 CLI、日志、Task/Event 工作方式与排障指南；
+- [`EXTENSIONS_GUIDE.md`](EXTENSIONS_GUIDE.md)：**用户扩展与维护指南**。把扩展当作 Siri Shortcuts 一样的“小自动化”，从 `extension new`、Easy API 积木、修改/reload 到出错恢复和升级维护；
+- `extension guide`：在程序内查看最短的扩展入门说明；
+- `api` / `api list easy` / `api <interface>`：在程序内查看当前安装版本真实存在的 Public API。
+
+普通用户如果只是想“加一个自己的功能”，建议先读 `EXTENSIONS_GUIDE.md`，不要从 Full API 或 `internal` 源码开始。
+
 ## 安装
 
 需要 Python 3.10 或更高版本。
@@ -125,6 +134,18 @@ complete(next_event())   # 不允许：Event 不是可完成的 Task
 ```
 
 程序会直接讲解 Python Easy API、Task/Event 区别、官方扩展管理、最小扩展示例和常用积木。
+
+更完整、面向普通用户独立维护的教程见：
+
+```text
+EXTENSIONS_GUIDE.md
+```
+
+它采用 Shortcut 风格的讲法：
+
+```text
+触发 -> 取数据 -> 选择/输入 -> 动作 -> 显示结果
+```
 
 创建一个最小的一文件扩展：
 
