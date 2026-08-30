@@ -20,6 +20,7 @@ class FakeReminders:
     def __init__(self):
         self.items = []
         self.cancelled = []
+        self.sequence = 0
 
     def list(self, **filters):
         result = list(self.items)
@@ -28,8 +29,9 @@ class FakeReminders:
         return result
 
     def create(self, title, when, **metadata):
+        self.sequence += 1
         item = Reminder(
-            id=f"rem-{len(self.items) + 1}",
+            id=f"rem-{self.sequence}",
             title=title,
             when=when,
             metadata=dict(metadata),
@@ -146,6 +148,19 @@ def test_work_period_rejects_non_current_task():
 
     with pytest.raises(ValidationError, match="only be assigned"):
         service.allocate("t2", 1800)
+
+
+def test_work_period_rejects_allocation_without_current_work():
+    task = Task(id="t1", summary="Anki", status="IN-PROCESS")
+    service = WorkPeriodService(
+        FakeReminders(),
+        session=FakeSession(None),
+        tasks=FakeTasks(task),
+        clock=lambda: datetime(2026, 8, 30, 7, 0, tzinfo=timezone.utc),
+    )
+
+    with pytest.raises(ValidationError, match="currently being worked on"):
+        service.allocate("t1", 1800)
 
 
 def test_lifecycle_start_duration_is_removed_before_core_start_command():
