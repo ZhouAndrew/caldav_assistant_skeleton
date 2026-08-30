@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 from types import SimpleNamespace
 
 from caldav_assistant.internal.wordpress.transports import WPCLIAdapter
@@ -23,9 +24,10 @@ def _response(stdout=""):
 def test_read_daily_log_returns_exact_remote_title_not_a_normalized_reconstruction():
     actual_title = "Aug 30  Sunday  2026"
     actual_content = "<!-- wp:paragraph -->\n<p>08:40 Real WordPress content</p>\n<!-- /wp:paragraph -->"
+    post_list = json.dumps([{"ID": 91, "post_title": actual_title}])
     runner = Runner(
         [
-            _response(f'[{"{"}"ID":91,"post_title":"{actual_title}"{"}"}]'),
+            _response(post_list),
             _response(actual_content),
         ]
     )
