@@ -142,46 +142,80 @@ def _remember_result(app: Any, result: Any) -> None:
         session.current_selection = result
 
 
-def _resolve_numbered_reference(
-    app: Any,
-    command_name: str,
-    args: tuple[Any, ...],
-) -> tuple[Any, ...]:
-    """Resolve ``start 1``/``done 2`` against the most recently shown Agenda.
-
-    Numeric task names still work when there is no active numbered list. Once a list
-    has been shown, a bare positive integer is unambiguously a reference to that
-    visible list. Events are rejected for Task-only commands rather than being sent
-    to TaskService by accident.
-    """
-    if command_name not in {"start", "done", "edit", "edit-due"} or len(args) != 1:
-        return args
-    token = args[0]
-    if not isinstance(token, str):
-        return args
+def _last_numbered_item(app: Any, token: str) -> Any:
     clean = token.strip()
     if not clean.isascii() or not clean.isdigit():
-        return args
+        return None
 
     session = getattr(app.ctx, "session", None)
     last_items = list(getattr(session, "last_items", ()) or ()) if session is not None else []
     if not last_items:
-        return args
+        return None
 
     index = int(clean)
     if index < 1 or index > len(last_items):
         raise ValidationError(
             f"List item {index} is out of range; choose 1-{len(last_items)} from the last displayed list."
         )
-
     selected = last_items[index - 1]
-    if not isinstance(selected, Task):
-        kind = "event" if isinstance(selected, Event) else "item"
-        raise ValidationError(
-            f"List item {index} is an {kind}, not a task; '{command_name}' requires a task."
-        )
     session.current_selection = selected
-    return (selected,)
+    return selected
+
+
+def _require_numbered_kind(selected: Any, expected: type, *, index: str, command: str) -> Any:
+    if isinstance(selected, expected):
+        return selected
+    actual = "event" if isinstance(selected, Event) else "task" if isinstance(selected, Task) else "item"
+    wanted = "task" if expected is Task else "event"
+    raise ValidationError(
+        f"List item {index} is an {actual}, not a {wanted}; '{command}' requires a {wanted}."
+    )
+
+
+def _resolve_numbered_reference(
+    app: Any,
+    command_name: str,
+    args: tuple[Any, ...],
+) -> tuple[Any, ...]:
+    """Resolve visible list numbers to their exact Task/Event objects.
+
+    The rule is deliberately narrow: only command positions that are object targets
+    are resolved. Numeric titles still work when there is no active numbered list.
+    Lists shown by ``today``/``tasks``/``events`` all populate the same Session
+    ``last_items`` context, so every visible number means the same thing everywhere.
+    """
+    if command_name in {"start", "done", "edit", "edit-due"} and len(args) == 1:
+        token = args[0]
+        if not isinstance(token, str):
+            return args
+        selected = _last_numbered_item(app, token)
+        if selected is None:
+            return args
+        return (_require_numbered_kind(selected, Task, index=token, command=command_name),)
+
+    if command_name == "edit-event" and len(args) == 1:
+        token = args[0]
+        if not isinstance(token, str):
+            return args
+        selected = _last_numbered_item(app, token)
+        if selected is None:
+            return args
+        return (_require_numbered_kind(selected, Event, index=token, command=command_name),)
+
+    if command_name == "remove" and len(args) == 2:
+        kind, token = args
+        if not isinstance(kind, str) or not isinstance(token, str):
+            return args
+        kind_token = kind.strip().casefold()
+        expected = Task if kind_token in {"task", "todo", "t"} else Event if kind_token in {"event", "calendar", "e"} else None
+        if expected is None:
+            return args
+        selected = _last_numbered_item(app, token)
+        if selected is None:
+            return args
+        return (kind, _require_numbered_kind(selected, expected, index=token, command=command_name))
+
+    return args
 
 
 def _render_result(app: Any, result: Any, *, paginate: bool = False) -> None:
