@@ -12,7 +12,7 @@ from typing import Any
 from uuid import uuid4
 
 from ...api import ActionResult
-from ...api.v1.errors import ValidationError
+from ...api.v1.errors import UnavailableError, ValidationError
 
 
 class WordPressService:
@@ -186,10 +186,17 @@ class WordPressService:
     # Frozen public Object API -------------------------------------------------
     def log(self, text: str, **metadata: Any) -> ActionResult:
         clean = self._text(text, "WordPress log")
+        # The user's real daily-log workflow publishes the daily post.  Keep the
+        # transport's generic default conservative, but make the semantic log API
+        # match that workflow.  Callers may still override this explicitly.
+        metadata = dict(metadata)
+        metadata.setdefault("post_status", "publish")
         return self._queue_and_try(self._log_payload(clean, metadata))
 
     def queue_log(self, text: str, **metadata: Any) -> ActionResult:
         clean = self._text(text, "WordPress log")
+        metadata = dict(metadata)
+        metadata.setdefault("post_status", "publish")
         return self._queue_only(self._log_payload(clean, metadata))
 
     def create_post(self, title: str, content: str = "", **fields: Any) -> ActionResult:
@@ -245,3 +252,11 @@ class WordPressService:
             return bool(self.adapter.test_connection())
         except Exception:
             return False
+
+    # CLI-only observability ---------------------------------------------------
+    def _daily_log(self) -> dict[str, Any] | None:
+        """Read today's actual WordPress daily-log post without changing public v1 API."""
+        reader = getattr(self.adapter, "read_daily_log", None)
+        if not callable(reader):
+            raise UnavailableError("The configured WordPress adapter cannot read daily logs")
+        return reader()
