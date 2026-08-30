@@ -11,6 +11,11 @@ An empty interactive line is a discoverability affordance: when the guided ``men
 command exists, Enter opens it. This means a new user can operate the program using
 numbers without first learning command vocabulary; experienced users retain the
 same direct-command path.
+
+The desktop REPL exposes only two long-lived human states: waiting for a command, or
+waiting for the human to finish the current Task.  That state is derived from the
+existing Session service; reminders remain transient events rather than becoming a
+third competing state machine.
 """
 from __future__ import annotations
 
@@ -27,6 +32,7 @@ from .completion import completion_session
 from .crud import register_crud_cli_commands
 from .navigation import register_navigation_cli_commands
 from .presenter import emit_agenda, emit_lines, render_lines
+from .wait_state import current_wait_state, message_for, prompt_for
 from ..extensions.availability import find_extension_command_support
 from ..extensions.cli import register_extension_cli_commands
 from ..settings.cli import register_settings_cli_command
@@ -373,6 +379,14 @@ def _guided_menu_command(app: Any) -> ParsedCommand | None:
     return ParsedCommand(raw="menu", name="menu", args=())
 
 
+def _emit_wait_state_if_changed(app: Any, previous_key: Any) -> Any:
+    """Show persistent human state only when it actually changes."""
+    state = current_wait_state(app.ctx)
+    if state.key != previous_key:
+        _ui_show(app, message_for(state))
+    return state
+
+
 def run_repl(app: Any) -> int:
     _ui_show(app, _t(app, "cli.banner", "CalDAV Assistant"))
     _ui_show(
@@ -384,15 +398,25 @@ def run_repl(app: Any) -> int:
         ),
     )
     _emit_repl_started(app)
+
+    state = current_wait_state(app.ctx)
+    _ui_show(app, message_for(state))
+    state_key = state.key
+
     last_code = 0
     while True:
+        # Re-read Session before each prompt.  A Task may have been completed or
+        # changed by another client while this desktop process remained open.
+        state = _emit_wait_state_if_changed(app, state_key)
+        state_key = state.key
+
         pending = getattr(app, "_pending_repl_line", None)
         if pending is not None:
             line = str(pending)
             delattr(app, "_pending_repl_line")
         else:
             try:
-                line = app.io.read("> ")
+                line = app.io.read(prompt_for(state))
             except EOFError:
                 _ui_show(app, "")
                 return last_code
@@ -416,6 +440,12 @@ def run_repl(app: Any) -> int:
         last_code = code
         if should_exit:
             return code
+
+        # A lifecycle decision (start/resume/pause/done) is already persisted by
+        # Core before CommandService returns.  Announce the resulting wait state
+        # immediately so the user sees what the program is waiting for next.
+        state = _emit_wait_state_if_changed(app, state_key)
+        state_key = state.key
 
 
 def run_cli(argv: Sequence[str] | None = None, *, app: Any = None) -> int:
