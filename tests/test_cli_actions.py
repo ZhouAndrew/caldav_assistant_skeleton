@@ -281,8 +281,16 @@ def test_registration_uses_clear_human_lifecycle_commands_and_hides_legacy_edit_
     assert all(ctx.commands.resolve(name).protected for name in names)
 
     help_text = ctx.commands.run("help")
-    assert "start — Begin working on a task now." in help_text
-    assert "pause — Pause the task you are working on now." in help_text
-    assert "resume — Continue a task you previously paused." in help_text
-    assert "current — Show the task you are working on now." in help_text
+    assert "Help · Action Library" in help_text
+    assert "work" in help_text
+    assert "agenda" in help_text
+    assert "start —" not in help_text
     assert "edit-due" not in help_text
+
+    work_help = ctx.commands.run("help", "work")
+    assert "start — Begin working on a task now." in work_help
+    assert "pause — Pause the task you are working on now." in work_help
+    assert "resume — Continue a task you previously paused." in work_help
+
+    agenda_help = ctx.commands.run("help", "agenda")
+    assert "current — Show the task you are working on now." in agenda_help

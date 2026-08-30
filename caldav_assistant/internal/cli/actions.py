@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from ...api.v1.errors import AmbiguousError, ValidationError
+from .help_library import is_category, render_help_all, render_help_category, render_help_root
 from .semantics import (
     attach_result_explanation,
     format_command_help,
@@ -434,19 +435,18 @@ class BuiltinActions:
         return attach_result_explanation(result, log_explanation(text, result))
 
     def help(self, *name_parts: Any) -> str:
+        entries = self.ctx.commands.list()
         if name_parts:
             name = self._join_text(name_parts, label="Command")
+            key = name.strip().casefold()
+            if key == "all":
+                return render_help_all(entries)
+            if is_category(key):
+                return render_help_category(entries, key)
             entry = self.ctx.commands.resolve(name)
             return format_command_help(entry)
 
-        lines = ["Commands:"]
-        for entry in self.ctx.commands.list():
-            if entry.name == "edit-due":
-                continue
-            description = f" — {entry.description}" if entry.description else ""
-            lines.append(f"  {entry.name}{description}")
-        lines.extend(help_list_footer())
-        return "\n".join(lines)
+        return render_help_root(entries)
 
     def exit(self, *parts: Any) -> _ExitSignal:
         self._no_args("exit", parts)
@@ -463,7 +463,7 @@ _BUILTINS: tuple[BuiltinCommand, ...] = (
     BuiltinCommand("pause", "pause", "Pause the task you are working on now."),
     BuiltinCommand("resume", "resume", "Continue a task you previously paused."),
     BuiltinCommand("log", "log", "Save a long-term activity note through WordPressService."),
-    BuiltinCommand("help", "help", "List commands or explain one command.", aliases=("?",)),
+    BuiltinCommand("help", "help", "Browse categorized actions or explain one command.", aliases=("?",)),
     BuiltinCommand("exit", "exit", "Leave the interactive CLI.", aliases=("quit", "q")),
     BuiltinCommand("edit-due", "edit_due", "Compatibility command: change one Task due date."),
 )
