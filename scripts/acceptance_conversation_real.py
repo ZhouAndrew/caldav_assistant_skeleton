@@ -195,6 +195,7 @@ def main() -> int:
         )
 
         child: pexpect.spawn | None = None
+        transcript = None
         env = os.environ.copy()
         env["HOME"] = str(home)
         env["PYTHONUNBUFFERED"] = "1"
@@ -210,7 +211,11 @@ def main() -> int:
             print(f"PASS: real Radicale ready at {base_url}")
             print(f"PASS: real CalDAV collection seeded at {calendar_url}")
 
-            transcript_path = tmp / "conversation.txt"
+            transcript_raw = os.environ.get("CALDAV_ASSISTANT_ACCEPTANCE_TRANSCRIPT")
+            transcript_path = Path(transcript_raw) if transcript_raw else tmp / "conversation.txt"
+            if not transcript_path.is_absolute():
+                transcript_path = root / transcript_path
+            transcript_path.parent.mkdir(parents=True, exist_ok=True)
             transcript = transcript_path.open("w", encoding="utf-8")
             child = pexpect.spawn(
                 executable,
@@ -267,7 +272,6 @@ def main() -> int:
             if child.exitstatus not in (None, 0):
                 raise AssertionError(f"caldav-assistant exited with {child.exitstatus}")
             transcript.flush()
-            transcript.close()
 
             text = transcript_path.read_text(encoding="utf-8", errors="replace")
             forbidden = (
@@ -297,11 +301,15 @@ def main() -> int:
             if stopped.returncode != 0:
                 raise AssertionError(f"background stop failed:\n{stopped.stdout}")
             print("PASS: real background Assistant stopped cleanly")
+            print(f"PASS: full PTY transcript saved to {transcript_path}")
             print("REAL CONVERSATION ACCEPTANCE: PASS")
             return 0
         finally:
             if child is not None and child.isalive():
                 child.close(force=True)
+            if transcript is not None and not transcript.closed:
+                transcript.flush()
+                transcript.close()
             try:
                 subprocess.run(
                     [executable, "background", "stop"],
