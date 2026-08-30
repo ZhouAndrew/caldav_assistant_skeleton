@@ -2,20 +2,69 @@
 from __future__ import annotations
 from typing import Any
 
+from ...api.v1.errors import UnavailableError
+from .build_identity import RUNTIME_BUILD_IDENTITY
+
+
+def _ensure_runtime_generation(runtime: Any) -> None:
+    """Verify a running daemon once before sending Object/Core API operations.
+
+    This guard deliberately lives below the CLI entrypoint as well: editable installs
+    may keep an older generated console-script target after a source-only update.  A
+    Task/WordPress operation must still refuse to use the old in-memory daemon.
+    """
+    if bool(getattr(runtime, "_caldav_assistant_generation_verified", False)):
+        return
+
+    status = runtime.status()
+    if not isinstance(status, dict) or status.get("status") != "running":
+        # RuntimeClient.call() will start the current ServiceLauncher when needed.
+        # Leave the flag unset so the next call verifies that newly started daemon.
+        return
+
+    if status.get("runtime_identity") == RUNTIME_BUILD_IDENTITY:
+        setattr(runtime, "_caldav_assistant_generation_verified", True)
+        return
+
+    try:
+        restarted = runtime.restart(timeout=5.0)
+    except Exception as exc:
+        raise UnavailableError(
+            "Background service is running older code and could not be restarted safely: "
+            f"{exc}"
+        ) from exc
+
+    if not isinstance(restarted, dict):
+        restarted = runtime.status()
+    if not isinstance(restarted, dict) or restarted.get("runtime_identity") != RUNTIME_BUILD_IDENTITY:
+        check = runtime.status()
+        if not isinstance(check, dict) or check.get("runtime_identity") != RUNTIME_BUILD_IDENTITY:
+            raise UnavailableError(
+                "Background service restart completed, but the daemon still does not "
+                "match this client build. Refusing to send operations to stale code."
+            )
+    setattr(runtime, "_caldav_assistant_generation_verified", True)
+
+
 class _RemoteAPI:
     prefix = ""
     def __init__(self, runtime: Any) -> None: self.runtime = runtime
+    def _runtime_call(self, method: str, **payload: Any):
+        _ensure_runtime_generation(self.runtime)
+        result = self.runtime.call(method, **payload)
+        if not bool(getattr(self.runtime, "_caldav_assistant_generation_verified", False)):
+            # The daemon may have been stopped at the preflight and auto-started by
+            # this call. Verify it before allowing a second operation to proceed.
+            _ensure_runtime_generation(self.runtime)
+        return result
     def _call(self, name: str, **payload: Any):
         method = f"{self.prefix}.{name}"
         try:
-            return self.runtime.call(method, **payload)
+            return self._runtime_call(method, **payload)
         except RuntimeError as exc:
-            # After an in-place source update the already-running background process
-            # can still hold an older RuntimeDispatcher allow-list in memory.  That
-            # should not make a newly-updated CLI fail until the user remembers a
-            # manual `background restart`.  Restart exactly once, then retry through
-            # the normal RuntimeClient path.  A genuine current-code route defect is
-            # still surfaced by the second call rather than being hidden.
+            # Compatibility with pre-handshake builds where a route itself was new.
+            # The generation guard normally restarts first; keep this exact-route
+            # recovery for deliberately partial/legacy runtime test doubles.
             marker = f"IPC method is not allowed: {method}"
             if marker not in str(exc):
                 raise
@@ -23,6 +72,8 @@ class _RemoteAPI:
             if not callable(restart):
                 raise
             restart()
+            setattr(self.runtime, "_caldav_assistant_generation_verified", False)
+            _ensure_runtime_generation(self.runtime)
             return self.runtime.call(method, **payload)
 
 class RemoteTasksAPI(_RemoteAPI):
@@ -105,7 +156,7 @@ class RemoteSettingsAPI(_RemoteAPI):
     def list(self, category=None): return self._call("list", category=category)
 
     def _caldav_call(self, name: str, **payload: Any):
-        return self.runtime.call(f"caldav.{name}", **payload)
+        return self._runtime_call(f"caldav.{name}", **payload)
 
     def caldav_status(self): return self._caldav_call("status")
     def set_caldav_base_url(self, value: str): return self._caldav_call("set_base_url", value=value)
@@ -119,7 +170,7 @@ class RemoteSettingsAPI(_RemoteAPI):
     # documented/frozen Settings API while still avoiding direct Runtime/SQLite
     # access from presentation code.
     def _experimental_cache_call(self, name: str):
-        return self.runtime.call(f"experimental.cache.{name}")
+        return self._runtime_call(f"experimental.cache.{name}")
     def _experimental_cache_status(self): return self._experimental_cache_call("status")
     def _experimental_cache_refresh(self): return self._experimental_cache_call("refresh")
 
