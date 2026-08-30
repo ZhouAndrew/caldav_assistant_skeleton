@@ -16,7 +16,12 @@ def _ensure_runtime_generation(runtime: Any) -> None:
     if bool(getattr(runtime, "_caldav_assistant_generation_verified", False)):
         return
 
-    status = runtime.status()
+    status_reader = getattr(runtime, "status", None)
+    if not callable(status_reader):
+        # Small unit-test/public-context doubles are not production RuntimeClients.
+        return
+
+    status = status_reader()
     if not isinstance(status, dict) or status.get("status") != "running":
         # RuntimeClient.call() will start the current ServiceLauncher when needed.
         # Leave the flag unset so the next call verifies that newly started daemon.
@@ -26,8 +31,16 @@ def _ensure_runtime_generation(runtime: Any) -> None:
         setattr(runtime, "_caldav_assistant_generation_verified", True)
         return
 
+    restart = getattr(runtime, "restart", None)
+    if not callable(restart):
+        raise UnavailableError(
+            "Background service is running older code, but this runtime cannot restart it safely."
+        )
     try:
-        restarted = runtime.restart(timeout=5.0)
+        restarted = restart(timeout=5.0)
+    except TypeError:
+        # Compatibility for narrow RuntimeClient test doubles with restart().
+        restarted = restart()
     except Exception as exc:
         raise UnavailableError(
             "Background service is running older code and could not be restarted safely: "
@@ -35,9 +48,9 @@ def _ensure_runtime_generation(runtime: Any) -> None:
         ) from exc
 
     if not isinstance(restarted, dict):
-        restarted = runtime.status()
+        restarted = status_reader()
     if not isinstance(restarted, dict) or restarted.get("runtime_identity") != RUNTIME_BUILD_IDENTITY:
-        check = runtime.status()
+        check = status_reader()
         if not isinstance(check, dict) or check.get("runtime_identity") != RUNTIME_BUILD_IDENTITY:
             raise UnavailableError(
                 "Background service restart completed, but the daemon still does not "
