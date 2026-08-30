@@ -34,7 +34,7 @@ def test_real_background_process_autostart_status_shutdown_restart(tmp_path):
         log = log_path.open("ab", buffering=0)
         try:
             process = subprocess.Popen(
-                [sys.executable, "-m", "caldav_assistant.internal.runtime.service"],
+                [sys.executable, "-m", "caldav_assistant.internal.runtime.observable_service"],
                 cwd=root,
                 env=env,
                 stdin=subprocess.DEVNULL,
@@ -60,10 +60,16 @@ def test_real_background_process_autostart_status_shutdown_restart(tmp_path):
         first = client.ensure_running()
         assert first["status"] == "running"
         assert first["maintenance_alive"] is True
-        first_pid = first["pid"]
+        assert "delivery_event_cursor" in first
+        assert first_pid := first["pid"]
         assert processes[-1].pid == first_pid
         assert (runtime_dir / f"{endpoint}.sock").exists()
         assert (runtime_dir / "ipc.auth").exists()
+
+        # The live monitor feed must exist on the actual production daemon, not only
+        # on an in-process test subclass.
+        assert client.call("runtime.events.cursor") == {"cursor": 0}
+        assert client.call("runtime.events.list", after=0, limit=10) == []
 
         # The production background loop must be wired to the durable Outbox, not
         # the scaffold stub that rejected pending(limit=...).
@@ -139,6 +145,7 @@ def test_production_cli_background_command_does_not_autostart_on_status_and_can_
         running = app.runtime.status()
         assert running["status"] == "running"
         assert running["maintenance_alive"] is True
+        assert "delivery_event_cursor" in running
         assert (runtime_dir / f"{endpoint}.sock").exists()
 
         assert run_cli(["background", "stop"], app=app) == 0
