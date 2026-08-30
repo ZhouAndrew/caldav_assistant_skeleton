@@ -1,8 +1,8 @@
-"""Reusable line-oriented Menu / Choice bricks.
+"""Reusable Menu / Choice bricks with client-neutral presentation output.
 
 MODULE CONTRACT
-- Imports/calls: console-like IO only.
-- Provides: Choice, Menu.choose(), Menu.choose_many().
+- Imports/calls: console-like IO and presentation models/renderers only.
+- Provides: Choice, Menu.choose(), Menu.choose_many(), Menu.presentation().
 - Must not: know Task/Event business rules, CalDAV, SQLite, commands, or mutate data.
 
 Frozen interaction behavior:
@@ -12,12 +12,15 @@ Frozen interaction behavior:
 - ? / help
 - optional paging, default, multiple selection and search
 
-Bad input is recoverable: it is explained and the menu is shown again.
+A menu is described once as ``MenuView``. The terminal client renders that view as
+text; browser clients can render the same view as JSON or HTML.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Mapping, Sequence
+
+from ..presentation import MenuChoiceView, MenuView, TextRenderer, render_view
 
 
 @dataclass(frozen=True)
@@ -141,7 +144,6 @@ class Menu:
             return None
         if not values or any(index < 1 or index > max_index for index in values):
             return None
-        # preserve the user's order while removing duplicates
         return list(dict.fromkeys(values))
 
     def _show_help(self, *, multiple: bool, searchable: bool, paged: bool, extra: str | None) -> None:
@@ -176,6 +178,82 @@ class Menu:
                     return index
         return None
 
+    def _presentation_from_filtered(
+        self,
+        title: str,
+        filtered: Sequence[Choice],
+        *,
+        page: int,
+        size: int,
+        query: str,
+        multiple: bool,
+        searchable: bool,
+        default: Any,
+    ) -> MenuView:
+        page_count = max(1, (len(filtered) + size - 1) // size)
+        page = min(max(0, int(page)), page_count - 1)
+        start = page * size
+        current = filtered[start : start + size]
+        items = tuple(
+            MenuChoiceView(
+                key=str(offset),
+                label=choice.label,
+                value=choice.value,
+                keywords=choice.keywords,
+            )
+            for offset, choice in enumerate(current, start + 1)
+        )
+        default_index = self._resolve_default(default, filtered)
+        return MenuView(
+            title=str(title),
+            items=items,
+            back_label=self._t("menu.back", "Back"),
+            page=page + 1,
+            page_count=page_count,
+            query=query,
+            match_count=len(filtered),
+            multiple=multiple,
+            searchable=searchable,
+            default_key=str(default_index) if default_index is not None else None,
+        )
+
+    def presentation(
+        self,
+        title: str,
+        items: Iterable[Any] | Mapping[Any, Any],
+        *,
+        page: int = 1,
+        page_size: int | None = None,
+        query: str = "",
+        multiple: bool = False,
+        searchable: bool = True,
+        default: Any = None,
+        item_label: Callable[[Any], str] | None = None,
+    ) -> MenuView:
+        """Build the same menu page for terminal, JSON, HTML, or future clients."""
+        choices = self._choices(items, item_label=item_label)
+        filtered = self._search(choices, query) if query else list(choices)
+        size = max(1, int(page_size or self.page_size))
+        return self._presentation_from_filtered(
+            title,
+            filtered,
+            page=max(0, int(page) - 1),
+            size=size,
+            query=query,
+            multiple=multiple,
+            searchable=searchable,
+            default=default,
+        )
+
+    @staticmethod
+    def render_presentation(view: MenuView, format: str = "text") -> Any:
+        """Render an already-built view without rebuilding menu/business logic."""
+        return render_view(view, format)
+
+    def _show_presentation(self, view: MenuView) -> None:
+        for line in TextRenderer().render_lines(view):
+            self._write(line)
+
     def choose(
         self,
         title: str,
@@ -202,17 +280,17 @@ class Menu:
         while True:
             page_count = max(1, (len(filtered) + size - 1) // size)
             page = min(page, page_count - 1)
-            start = page * size
-            current = filtered[start : start + size]
-
-            self._write(str(title))
-            if query:
-                self._write(f"Search: {query} ({len(filtered)} match(es))")
-            for offset, choice in enumerate(current, start + 1):
-                self._write(f"{offset}. {choice.label}")
-            if page_count > 1:
-                self._write(f"Page {page + 1}/{page_count}")
-            self._write(f"0. {self._t('menu.back', 'Back')}")
+            view = self._presentation_from_filtered(
+                title,
+                filtered,
+                page=page,
+                size=size,
+                query=query,
+                multiple=multiple,
+                searchable=searchable,
+                default=default,
+            )
+            self._show_presentation(view)
 
             default_index = self._resolve_default(default, filtered)
             prompt = f"> [{default_index}] " if default_index else "> "
