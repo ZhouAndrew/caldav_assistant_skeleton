@@ -26,7 +26,7 @@ def test_linux_user_autostart_uses_current_python_and_systemd_user(tmp_path, mon
     manager.enable()
 
     text = unit.read_text()
-    assert "ExecStart=/example/python -m caldav_assistant.internal.runtime.service" in text
+    assert "ExecStart=/example/python -m caldav_assistant.internal.runtime.observable_service" in text
     assert "Restart=on-failure" in text
     assert ["systemctl", "--user", "daemon-reload"] in calls
     assert [
