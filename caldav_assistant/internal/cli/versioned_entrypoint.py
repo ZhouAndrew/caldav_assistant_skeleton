@@ -6,7 +6,9 @@ from typing import Any, Sequence
 
 from ...api.v1.errors import UnavailableError
 from ..runtime.build_identity import RUNTIME_BUILD_IDENTITY
-from . import monitor_app
+# Keep this binding name for compatibility with existing entrypoint tests/tools while
+# routing the installed interactive client through the zero-learning conversation UI.
+from . import conversation_app as monitor_app
 
 
 def _show(app: Any, text: str) -> None:
