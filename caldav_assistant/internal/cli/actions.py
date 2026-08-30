@@ -19,6 +19,13 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from ...api.v1.errors import AmbiguousError, ValidationError
+from .semantics import (
+    attach_result_explanation,
+    format_command_help,
+    help_list_footer,
+    lifecycle_explanation,
+    log_explanation,
+)
 from .worklog_setup import WorkLogSetup
 
 
@@ -60,6 +67,14 @@ class BuiltinActions:
         if value_id:
             return str(value_id)
         return str(value)
+
+    @staticmethod
+    def _same_task(left: Any, right: Any) -> bool:
+        if left is None or right is None:
+            return False
+        left_id = str(getattr(left, "id", "") or "").strip()
+        right_id = str(getattr(right, "id", "") or "").strip()
+        return bool(left_id and right_id and left_id == right_id)
 
     @staticmethod
     def _join_text(parts: tuple[Any, ...], *, label: str) -> str:
@@ -116,7 +131,7 @@ class BuiltinActions:
         """Return the latest actual work-start instant from Activity Journal.
 
         DTSTART is the planned start and must never be reused as the answer to
-        "when did I start working?".  The journal is behaviour history only; the
+        "when did I start working?". The journal is behaviour history only; the
         Session service still decides whether the Task is actually current.
         """
         activity = getattr(self.ctx, "activity", None)
@@ -156,7 +171,6 @@ class BuiltinActions:
         value = getattr(result, "value", result)
         if value is None:
             return None
-        # Task-shaped public objects have a status field; Event does not.
         if not hasattr(value, "status"):
             return None
         if bool(getattr(value, "completed", False)):
@@ -167,13 +181,12 @@ class BuiltinActions:
 
     def _ensure_worklog_ready(self) -> bool:
         settings = getattr(self.ctx, "settings", None)
-        # Unit/small contexts may intentionally omit the production CalDAV setup
-        # bridge. In the real CLI RemoteSettingsAPI exposes caldav_collections().
         if settings is None or not callable(getattr(settings, "caldav_collections", None)):
             return True
         return WorkLogSetup(self.ctx).ensure()
 
     def _explain_task_action(self, verb: str, task: Any, **details: Any) -> None:
+        """Immediate acknowledgement before a mutation; final result explains effects."""
         text = f"{verb} → {self._summary(task)}"
         visible = [
             f"{key}: {value}"
@@ -183,6 +196,25 @@ class BuiltinActions:
         if visible:
             text += "; " + "; ".join(visible)
         self._show(text)
+
+    def _lifecycle_result(
+        self,
+        action: str,
+        task: Any,
+        result: Any,
+        *,
+        was_current: bool | None = None,
+    ) -> Any:
+        return attach_result_explanation(
+            result,
+            lifecycle_explanation(
+                self.ctx,
+                action,
+                task,
+                result,
+                was_current=was_current,
+            ),
+        )
 
     @staticmethod
     def _no_args(name: str, parts: tuple[Any, ...]) -> None:
@@ -209,9 +241,6 @@ class BuiltinActions:
                 return "No task is active right now. You have paused work; use 'resume' to continue it."
             return "No task is active right now. Use 'start' to begin working on the recommended task."
 
-        # Keep Task as the return type so normal CLI/session behaviour remains
-        # unchanged.  Annotate only this detached presentation copy with transient
-        # work-session context; never mutate the authoritative Task object.
         view = copy(task)
         working_since = self._current_work_since(task)
         if working_since is not None:
@@ -222,16 +251,19 @@ class BuiltinActions:
     # Task lifecycle commands
     # ------------------------------------------------------------------
     def done(self, *target_parts: Any) -> Any:
+        current_before = self._session_current_task()
         if target_parts:
             task = self._task_from_parts(target_parts)
         else:
-            task = self._session_current_task()
+            task = current_before
             if task is None:
                 task = self.ctx.ui.choose_task()
         if task is None:
             return None
+        was_current = self._same_task(current_before, task)
         self._explain_task_action("Complete", task)
-        return self.ctx.tasks.complete(task)
+        result = self.ctx.tasks.complete(task)
+        return self._lifecycle_result("done", task, result, was_current=was_current)
 
     def start(self, *target_parts: Any) -> Any:
         current = self._session_current_task()
@@ -266,7 +298,8 @@ class BuiltinActions:
         if not self._ensure_worklog_ready():
             return None
         self._explain_task_action("Start working", task)
-        return self.ctx.tasks.start(task)
+        result = self.ctx.tasks.start(task)
+        return self._lifecycle_result("start", task, result)
 
     def pause(self, *parts: Any) -> Any:
         if parts:
@@ -277,7 +310,8 @@ class BuiltinActions:
         if task is None:
             raise ValidationError("No task is currently being worked on, so there is nothing to pause")
         self._explain_task_action("Pause current work", task)
-        return self.ctx.tasks.pause(task)
+        result = self.ctx.tasks.pause(task)
+        return self._lifecycle_result("pause", task, result, was_current=True)
 
     def resume(self, *parts: Any) -> Any:
         if parts:
@@ -304,7 +338,8 @@ class BuiltinActions:
         if task is None:
             return None
         self._explain_task_action("Resume work", task)
-        return self.ctx.tasks.resume(task)
+        result = self.ctx.tasks.resume(task)
+        return self._lifecycle_result("resume", task, result)
 
     # ------------------------------------------------------------------
     # Edit command: scheduling/data editing, not work-session lifecycle
@@ -395,20 +430,14 @@ class BuiltinActions:
             text = text.strip()
 
         self._show(f"Log → {text}")
-        return self.ctx.wordpress.log(text)
+        result = self.ctx.wordpress.log(text)
+        return attach_result_explanation(result, log_explanation(text, result))
 
     def help(self, *name_parts: Any) -> str:
         if name_parts:
             name = self._join_text(name_parts, label="Command")
             entry = self.ctx.commands.resolve(name)
-            aliases = ", ".join(entry.aliases) if entry.aliases else "-"
-            description = entry.description or "No description."
-            return (
-                f"{entry.name}\n"
-                f"  {description}\n"
-                f"  aliases: {aliases}\n"
-                f"  source: {entry.source}"
-            )
+            return format_command_help(entry)
 
         lines = ["Commands:"]
         for entry in self.ctx.commands.list():
@@ -416,6 +445,7 @@ class BuiltinActions:
                 continue
             description = f" — {entry.description}" if entry.description else ""
             lines.append(f"  {entry.name}{description}")
+        lines.extend(help_list_footer())
         return "\n".join(lines)
 
     def exit(self, *parts: Any) -> _ExitSignal:
