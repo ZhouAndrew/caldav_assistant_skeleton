@@ -1,15 +1,19 @@
 """Log-history queries and optional multi-level CLI navigation.
 
-This module is presentation/composition only.  Direct commands remain the canonical
+This module is presentation/composition only. Direct commands remain the canonical
 entry points; ``menu`` simply dispatches to those same CommandService handlers.
-Activity queries use the public Activity namespace.  Reading the real WordPress daily
+Activity queries use the public Activity namespace. Reading the real WordPress daily
 post uses a deliberately private CLI observability method so the frozen public v1
 WordPress API does not need to grow transport-specific query semantics.
 
-Navigation is intentionally *not* a second CLI mode.  At every navigation level a
-user may type any ordinary command.  Production StdConsoleIO pushes that raw line
+Navigation is intentionally *not* a second CLI mode. At every navigation level a
+user may type any ordinary command. Production StdConsoleIO pushes that raw line
 back to the normal REPL, so aliases, numbered references, parsing, rendering and
 error handling stay exactly the same as at the top-level ``>`` prompt.
+
+A submenu ``0/back`` means *one level up*. It must not silently terminate the whole
+navigation command. Ordinary command handoff is kept distinct from Back so a command
+typed inside a submenu exits navigation and is executed by the normal REPL.
 """
 from __future__ import annotations
 
@@ -18,6 +22,20 @@ import json
 from typing import Any, Callable
 
 from ...api.v1.errors import ValidationError
+
+
+class _NavigationSignal:
+    __slots__ = ("name",)
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def __repr__(self) -> str:
+        return f"<{self.name}>"
+
+
+_BACK_ONE_LEVEL = _NavigationSignal("BACK_ONE_LEVEL")
+_HANDOFF_TO_REPL = _NavigationSignal("HANDOFF_TO_REPL")
 
 
 class NavigationActions:
@@ -52,15 +70,12 @@ class NavigationActions:
         matches = [item for item in items if item.strip().casefold() == needle]
         return matches[0] if len(matches) == 1 else None
 
-    def _choose(self, title: str, items: tuple[str, ...]) -> str | None:
+    def _choose(self, title: str, items: tuple[str, ...]) -> str | _NavigationSignal:
         """Choose one navigation item without trapping ordinary CLI commands.
 
-        PromptKit/Menu remains the generic frozen chooser for Task/Event selections.
-        Navigation needs one extra CLI-specific property: unmatched text is not an
-        "invalid choice"; it may be a perfectly valid direct command.  When the
-        production IO supports ``push_line``, release that text back to the REPL and
-        exit the menu.  Small test/extension UIs without pushback retain the previous
-        PromptKit ``choose`` behavior.
+        ``_BACK_ONE_LEVEL`` and ``_HANDOFF_TO_REPL`` are deliberately distinct.
+        Without that distinction a submenu cannot know whether ``0`` should return to
+        its parent or whether a normal CLI command was handed back to the REPL.
         """
         ui = getattr(self.ctx, "ui", None)
         io = getattr(ui, "io", None)
@@ -72,7 +87,8 @@ class NavigationActions:
             choose = getattr(ui, "choose", None)
             if not callable(choose):
                 raise ValidationError(f"{title} requires interactive UI")
-            return choose(title, items)
+            selected = choose(title, items)
+            return _BACK_ONE_LEVEL if selected is None else str(selected)
 
         values = tuple(str(item) for item in items)
         while True:
@@ -85,10 +101,10 @@ class NavigationActions:
             token = raw.casefold()
 
             if token in self._BACK:
-                return None
+                return _BACK_ONE_LEVEL
             if token in self._HELP:
                 writer(
-                    "Choose by number or exact label. 0/back returns. "
+                    "Choose by number or exact label. 0/back returns one level. "
                     "Any other command line is handed to the normal CLI."
                 )
                 continue
@@ -112,7 +128,11 @@ class NavigationActions:
             if not raw:
                 continue
             push_line(raw)
-            return None
+            return _HANDOFF_TO_REPL
+
+    @staticmethod
+    def _is_signal(value: Any) -> bool:
+        return value is _BACK_ONE_LEVEL or value is _HANDOFF_TO_REPL
 
     def _run(self, name: str, *args: Any) -> Any:
         """Dispatch through the same registry used by direct CLI commands."""
@@ -237,7 +257,7 @@ class NavigationActions:
                 "Pending WordPress uploads",
             ),
         )
-        if selected is None:
+        if self._is_signal(selected):
             return None
         actions: dict[str, Callable[[], Any]] = {
             "Activity today": lambda: self.history("today"),
@@ -245,7 +265,7 @@ class NavigationActions:
             "WordPress today (real post)": lambda: self.history("wordpress"),
             "Pending WordPress uploads": lambda: self.history("pending"),
         }
-        return actions[selected]()
+        return actions[str(selected)]()
 
     def history(self, *parts: Any) -> Any:
         """Query local Activity, Task history, real WordPress content, or Outbox."""
@@ -279,23 +299,27 @@ class NavigationActions:
     # ------------------------------------------------------------------
     def _agenda_menu(self) -> Any:
         selected = self._choose("Agenda", ("Today", "Next", "Current work"))
+        if self._is_signal(selected):
+            return selected
         return {
             "Today": lambda: self._run("today"),
             "Next": lambda: self._run("next"),
             "Current work": lambda: self._run("current"),
-        }.get(selected, lambda: None)()
+        }[str(selected)]()
 
     def _work_menu(self) -> Any:
         selected = self._choose(
             "Work",
             ("Start recommended task", "Pause current task", "Resume paused task", "Complete task"),
         )
+        if self._is_signal(selected):
+            return selected
         return {
             "Start recommended task": lambda: self._run("start"),
             "Pause current task": lambda: self._run("pause"),
             "Resume paused task": lambda: self._run("resume"),
             "Complete task": lambda: self._run("done"),
-        }.get(selected, lambda: None)()
+        }[str(selected)]()
 
     def _logs_menu(self) -> Any:
         selected = self._choose(
@@ -308,19 +332,23 @@ class NavigationActions:
                 "Pending WordPress uploads",
             ),
         )
+        if self._is_signal(selected):
+            return selected
         return {
             "Write log": lambda: self._run("log"),
             "Activity today": lambda: self._run("history", "today"),
             "Task history": lambda: self._run("history", "task"),
             "WordPress today (real post)": lambda: self._run("history", "wordpress"),
             "Pending WordPress uploads": lambda: self._run("history", "pending"),
-        }.get(selected, lambda: None)()
+        }[str(selected)]()
 
     def _manage_menu(self) -> Any:
         selected = self._choose(
             "Manage",
             ("Add Task/Event", "List Tasks", "List Events", "Edit Task", "Edit Event", "Remove Task/Event"),
         )
+        if self._is_signal(selected):
+            return selected
         return {
             "Add Task/Event": lambda: self._run("add"),
             "List Tasks": lambda: self._run("tasks"),
@@ -328,22 +356,35 @@ class NavigationActions:
             "Edit Task": lambda: self._run("edit"),
             "Edit Event": lambda: self._run("edit-event"),
             "Remove Task/Event": lambda: self._run("remove"),
-        }.get(selected, lambda: None)()
+        }[str(selected)]()
 
     def menu(self, *parts: Any) -> Any:
         if parts:
             raise ValidationError("menu does not take arguments; use direct commands for scripting")
-        selected = self._choose(
-            "CalDAV Assistant",
-            ("Agenda", "Work", "Logs", "Manage", "Help"),
-        )
-        return {
+
+        root_actions: dict[str, Callable[[], Any]] = {
             "Agenda": self._agenda_menu,
             "Work": self._work_menu,
             "Logs": self._logs_menu,
             "Manage": self._manage_menu,
             "Help": lambda: self._run("help"),
-        }.get(selected, lambda: None)()
+        }
+        while True:
+            selected = self._choose(
+                "CalDAV Assistant",
+                ("Agenda", "Work", "Logs", "Manage", "Help"),
+            )
+            if selected is _BACK_ONE_LEVEL or selected is _HANDOFF_TO_REPL:
+                return None
+
+            outcome = root_actions[str(selected)]()
+            if outcome is _BACK_ONE_LEVEL:
+                # Child 0/back returns to the root menu, not the top-level REPL.
+                continue
+            if outcome is _HANDOFF_TO_REPL:
+                # A normal command typed in a child menu was pushed back to REPL.
+                return None
+            return outcome
 
 
 def register_navigation_cli_commands(commands: Any, ctx: Any) -> NavigationActions:
