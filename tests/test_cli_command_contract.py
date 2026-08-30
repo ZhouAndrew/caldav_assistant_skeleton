@@ -271,12 +271,17 @@ def test_every_user_visible_top_level_command_is_registered_protected_and_docume
     assert all(commands.resolve(name).protected for name in canonical)
 
     help_text = commands.run("help")
+    assert "Help · Action Library" in help_text
+    assert "start —" not in help_text
+
+    all_help = commands.run("help", "all")
     for name in visible:
-        assert f"  {name}" in help_text
+        assert f"  {name}" in all_help
         detail = commands.run("help", name)
         assert commands.resolve(name).description in detail
         assert "source:" in detail
     assert "edit-due" not in help_text
+    assert "edit-due" not in all_help
 
     assert commands.resolve("now").name == "current"
     assert commands.resolve("complete").name == "done"
