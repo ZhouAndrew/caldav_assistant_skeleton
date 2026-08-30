@@ -1,135 +1,66 @@
 """Default-on first-run/setup introduction for the interactive CLI.
 
-This remains an extension rather than hard-coded REPL text.  It uses only the public
-context/settings/UI surface and can be disabled through the normal extension
-lifecycle with ``extension disable software_intro``.
+The introduction is intentionally task-oriented rather than command-oriented. A new
+user should be able to operate the program by pressing Enter and choosing numbers;
+direct commands are optional shortcuts for experienced users.
 """
 from __future__ import annotations
 
 from caldav_assistant.api.v1.hooks import on
 
 
-_EN_READY = """Welcome to CalDAV Assistant.
+_EN_READY = """You do not need to learn CalDAV Assistant before using it.
 
-This is a local-first CalDAV command-line assistant.
-  Task  = work you can start, pause, resume, and complete.
-  Event = something scheduled to occur; Events are not completed.
+At the `>` prompt:
+  • press Enter to open the guided menu;
+  • choose with numbers;
+  • use 0 to go back one level.
 
-Useful commands:
-  today / next                 agenda and recommendation
-  add                          create a Task or Event
-  tasks / events               list CalDAV objects
-  start / pause / resume / done
-  edit / edit-event            modify Task or Event
-  remove                       delete Task or Event with confirmation
-  settings                     configuration
-  help                         show all commands
+Start from what you want to do: Agenda, Work, Logs, Manage, or Settings & setup.
+Commands are optional shortcuts, not required knowledge."""
 
-Task and Event facts stay in CalDAV. Work-history VEVENTs are optional; without one,
-Task lifecycle tracking falls back to the local Activity Journal.
+_ZH_CN_READY = """使用 CalDAV Assistant 不需要先学习一套命令。
 
-This introduction comes from the default-enabled extension: software_intro
-To stop showing it when the interactive CLI starts:
-  extension disable software_intro
+在 `>` 提示符处：
+  • 直接按 Enter 打开引导菜单；
+  • 用数字选择；
+  • 输入 0 只返回上一层。
 
-To turn it back on later:
-  extension enable software_intro"""
+从你要做的事情开始选：日程、工作、日志、管理，或设置。
+命令只是熟练后的快捷方式，不是使用前提。"""
 
-_ZH_CN_READY = """欢迎使用 CalDAV Assistant。
+_EN_SETUP_SERVER = """CalDAV is not configured yet. You can finish setup without learning commands.
 
-这是一个本地优先的 CalDAV 命令行助手。
-  Task（任务）= 要完成的工作，可以 start / pause / resume / done。
-  Event（事件）= 按时间发生的事项，不存在“完成”生命周期。
+At the `>` prompt press Enter, choose `Settings & setup`, then open CalDAV.
+The setup flow will guide you through server address/discovery, credentials when
+needed, connection testing, and Task/Event collection roles.
 
-常用命令：
-  today / next                 查看今天与下一项
-  add                          新建 Task 或 Event
-  tasks / events               列出 Task / Event
-  start / pause / resume / done
-  edit / edit-event            修改 Task / Event
-  remove                       确认后删除 Task / Event
-  settings                     设置
-  help                         查看全部命令
+Use numbers and 0/back. After setup, press Enter again and choose what you want to do."""
 
-Task / Event 的事实保存在 CalDAV。Work history Calendar 是可选增强；如果没有设置，
-Task 生命周期仍可使用，并会退回本地 Activity Journal 记录。
+_ZH_CN_SETUP_SERVER = """CalDAV 还没有配置完成，但不需要先学命令。
 
-这段介绍来自默认启用的扩展：software_intro
-不想每次进入交互式 CLI 都看到它：
-  extension disable software_intro
+在 `>` 提示符直接按 Enter，选择“Settings & setup / 设置”，再进入 CalDAV。
+设置流程会依次引导：服务器地址或自动发现、需要时的账号凭据、连接测试，以及
+Task / Event collection 的用途选择。
 
-以后想重新开启：
-  extension enable software_intro"""
+全程可以只用数字和 0 返回。设置完成后，再按 Enter 按目标选择功能即可。"""
 
-_EN_SETUP_SERVER = """Welcome to CalDAV Assistant.
+_EN_SETUP_ROLES = """The CalDAV server is configured, but Task/Event collection roles are not selected yet.
 
-First-run setup is not complete yet: no CalDAV server is configured.
-
-Start here:
-  settings
-
-Then open CalDAV and do these in order:
-  1. Set CalDAV server (or use a discovered server)
-  2. Configure credentials if your server requires them
-  3. Test connection
-  4. Open Collection roles and choose the Task/Event collections you want to use
-
-After that, try:
-  add
-  today
-  next
-
-You can disable this startup guide later with:
-  extension disable software_intro"""
-
-_ZH_CN_SETUP_SERVER = """欢迎使用 CalDAV Assistant。
-
-首次设置还没有完成：目前没有配置 CalDAV 服务器。
-
-先输入：
-  settings
-
-进入 CalDAV 后按顺序完成：
-  1. 设置 CalDAV server（或使用自动发现的服务器）
-  2. 如果服务器需要认证，设置 credentials
-  3. Test connection
-  4. 打开 Collection roles，选择要使用的 Task / Event collection
-
-完成后可以先试：
-  add
-  today
-  next
-
-以后不想每次启动都看到这段引导，可以输入：
-  extension disable software_intro"""
-
-_EN_SETUP_ROLES = """CalDAV server configuration exists, but Task/Event collection roles are still empty.
-
-Finish setup with:
-  settings
-  → CalDAV
-  → Test connection
-  → Collection roles
-
+Press Enter → Settings & setup → CalDAV → Collection roles.
 Choose a VTODO collection for Tasks and/or a VEVENT collection for Events.
-The Work log collection is optional: start/pause/resume still work without it and
-fall back to the Activity Journal.
+The Work-log collection is optional.
 
-Then try `add`, `today`, or `next`."""
+You do not need to memorize these names for normal use; this is only the one-time
+storage setup. The menu will guide normal use afterwards."""
 
-_ZH_CN_SETUP_ROLES = """已经有 CalDAV server 配置，但 Task / Event 的 collection roles 还没有设置。
+_ZH_CN_SETUP_ROLES = """CalDAV 服务器已经配置，但还没有选好 Task / Event 使用哪些 collection。
 
-请继续：
-  settings
-  → CalDAV
-  → Test connection
-  → Collection roles
-
+按 Enter → Settings & setup / 设置 → CalDAV → Collection roles。
 为 Task 选择支持 VTODO 的 collection，并/或为 Event 选择支持 VEVENT 的 collection。
-Work log collection 是可选项：即使不设置，start / pause / resume 仍然可以使用，
-只是会退回 Activity Journal 记录。
+Work log collection 是可选项。
 
-完成后可以试 `add`、`today` 或 `next`。"""
+这些术语只用于一次性的存储配置，日常使用不需要记住；之后直接通过菜单按目标操作。"""
 
 
 def _locale(ctx) -> str:
@@ -154,8 +85,8 @@ def _setup_stage(ctx) -> str:
         event_role = getter("caldav.event_collection_url", None)
     except Exception:
         # Startup guidance must never make the CLI unusable when the background
-        # service is temporarily unavailable.  Ordinary commands will surface the
-        # real runtime error when the user invokes them.
+        # service is temporarily unavailable. Ordinary commands surface the actual
+        # runtime failure when invoked.
         return "ready"
     if not base_url:
         return "server"
@@ -176,7 +107,5 @@ def _fallback_for(ctx) -> str:
 
 @on("cli.repl.started")
 def introduce(ctx) -> None:
-    """Show setup guidance on first run, otherwise the concise usage introduction."""
-    # The content is dynamic, so it deliberately uses the public UI directly rather
-    # than one static catalog key whose text could not reflect setup stage.
+    """Show a short next action, never a command vocabulary lesson."""
     ctx.ui.show(_fallback_for(ctx))
