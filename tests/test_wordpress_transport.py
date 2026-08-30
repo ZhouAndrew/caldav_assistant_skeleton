@@ -165,7 +165,7 @@ def test_read_daily_log_returns_actual_remote_post_content_and_accepts_abbreviat
 
     assert result == {
         "id": 88,
-        "title": "August 29 Saturday 2026",
+        "title": "Aug 29 Saturday 2026",
         "content": content,
     }
     assert runner.calls[1][0] == ["wp", "post", "get", "88", "--field=post_content"]
