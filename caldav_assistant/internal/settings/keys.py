@@ -11,6 +11,7 @@ WORDPRESS_ENABLED = "wordpress.enabled"
 WORDPRESS_PATH = "wordpress.path"
 EXTENSIONS_ENABLED = "extensions.enabled"
 EXPERIMENTAL_FAST_QUERY_CACHE = "experimental.fast_query_cache"
+AGENDA_UPCOMING_HOURS = "agenda.upcoming_hours"
 
 __all__ = [
     "CALDAV_BASE_URL",
@@ -25,4 +26,5 @@ __all__ = [
     "WORDPRESS_PATH",
     "EXTENSIONS_ENABLED",
     "EXPERIMENTAL_FAST_QUERY_CACHE",
+    "AGENDA_UPCOMING_HOURS",
 ]
