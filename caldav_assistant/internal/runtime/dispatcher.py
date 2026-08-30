@@ -1,12 +1,19 @@
 from __future__ import annotations
 from typing import Any
 
+from ..progress import operation_scope
+
+
+_OPERATION_ID_KEY = "__operation_id"
+
 
 class RuntimeDispatcher:
     """Allow-listed service-side IPC dispatcher.
 
     Runtime transport remains internal; every route terminates at an already
-    composed Object/Core API namespace.
+    composed Object/Core API namespace. A reserved internal operation id may be
+    attached by the foreground client so factual Core milestones can be streamed
+    back while the request is still executing.
     """
 
     def __init__(self, ctx):
@@ -74,7 +81,10 @@ class RuntimeDispatcher:
     def handle(self, method, payload=None):
         if method not in self._routes:
             raise ValueError(f"IPC method is not allowed: {method}")
-        return self._routes[method](**(payload or {}))
+        values = dict(payload or {})
+        operation_id = values.pop(_OPERATION_ID_KEY, None)
+        with operation_scope(operation_id):
+            return self._routes[method](**values)
 
     def register_internal(self, method: str, handler: Any) -> None:
         """Register one explicit service-side integration route."""

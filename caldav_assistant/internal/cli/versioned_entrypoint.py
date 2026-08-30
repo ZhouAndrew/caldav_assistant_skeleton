@@ -7,8 +7,9 @@ from typing import Any, Sequence
 from ...api.v1.errors import UnavailableError
 from ..runtime.build_identity import RUNTIME_BUILD_IDENTITY
 # Keep this binding name for compatibility with existing entrypoint tests/tools while
-# routing the installed interactive client through the zero-learning conversation UI.
-from . import conversation_app as monitor_app
+# routing the installed interactive client through the zero-learning conversation UI
+# with factual live Core progress.
+from . import conversation_live as monitor_app
 
 
 def _show(app: Any, text: str) -> None:
@@ -31,7 +32,7 @@ def ensure_current_background(app: Any) -> bool:
     """Restart a running daemon when it loaded a different source generation.
 
     A stopped daemon is left stopped; ordinary RuntimeClient behavior may start it
-    later when a command actually needs IPC.  A running pre-handshake daemon has no
+    later when a command actually needs IPC. A running pre-handshake daemon has no
     ``runtime_identity`` field and is intentionally treated as stale.
     """
     runtime = getattr(app, "runtime", None)

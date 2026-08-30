@@ -22,6 +22,7 @@ from typing import Any, Callable
 from ...api import Activity, Task
 from ...api.v1.errors import ValidationError
 from ...api.v1.hooks import emit
+from ..progress import emit_progress
 
 
 _TASK_LIFECYCLE_HOOKS = {
@@ -43,16 +44,10 @@ class ActivityService:
         self.repo = repo
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
-    # ------------------------------------------------------------------
-    # Small reusable bricks
-    # ------------------------------------------------------------------
     def _now(self) -> datetime:
         value = self._clock()
         if not isinstance(value, datetime):
             raise TypeError("ActivityService clock must return datetime")
-
-        # Older callers/tests may provide a naive local datetime.  Make the
-        # assumption explicit at this boundary, then store new records in UTC.
         if value.tzinfo is None:
             value = value.astimezone()
         return value.astimezone(timezone.utc)
@@ -69,9 +64,6 @@ class ActivityService:
             if required:
                 raise ValidationError("Activity object id must not be empty")
             return None
-
-        # Public callers commonly pass Task objects to for_task(); internal
-        # services normally pass the already-authoritative UID string to record().
         candidate = getattr(value, "id", value)
         if not isinstance(candidate, str) or not candidate.strip():
             raise ValidationError("Activity object id must not be empty")
@@ -89,20 +81,36 @@ class ActivityService:
         event_name = _TASK_LIFECYCLE_HOOKS.get(item.action)
         if event_name is None:
             return
+        emit_progress(
+            "activity.hook",
+            f"Running {event_name} extensions...",
+            state="started",
+            event=event_name,
+        )
         try:
-            emit(
+            report = emit(
                 event_name,
                 payload={"activity": item},
                 source="activity-journal",
             )
-        except Exception:
-            # The journal row is already durable and the authoritative Task action
-            # already happened.  Extension infrastructure must never reverse it.
+        except Exception as exc:
+            emit_progress(
+                "activity.hook",
+                f"{event_name} extension dispatch failed but cannot roll back the Task action.",
+                state="failed",
+                event=event_name,
+                error=f"{type(exc).__name__}: {exc}",
+            )
             return
+        emit_progress(
+            "activity.hook",
+            f"{event_name} extensions finished.",
+            state="done",
+            event=event_name,
+            called=getattr(report, "called", 0),
+            failures=len(getattr(report, "failures", ()) or ()),
+        )
 
-    # ------------------------------------------------------------------
-    # Public Object API
-    # ------------------------------------------------------------------
     def record(
         self,
         action: str,
@@ -111,7 +119,7 @@ class ActivityService:
     ) -> Activity:
         """Persist one minimal Assistant behaviour event and return it.
 
-        This method never changes Task/Event state.  Upstream business services
+        This method never changes Task/Event state. Upstream business services
         must first complete their authoritative operation, then call record().
         """
         normalized_action = self._normalize_action(action)
@@ -126,24 +134,32 @@ class ActivityService:
             metadata=safe_metadata,
         )
 
-        # Repository failure is visible to the caller.  Returning a fabricated
-        # success would make the journal claim history that was never persisted.
+        emit_progress(
+            "activity.persist",
+            f"Recording Activity Journal: {normalized_action}...",
+            state="started",
+            action=normalized_action,
+            object_id=normalized_object_id,
+        )
         self.repo.record(
             item.timestamp,
             item.action,
             item.object_id,
             deepcopy(item.metadata),
         )
+        emit_progress(
+            "activity.persist",
+            f"Activity Journal recorded: {normalized_action}.",
+            state="done",
+            action=normalized_action,
+            object_id=normalized_object_id,
+            timestamp=item.timestamp.isoformat(),
+        )
         self._emit_lifecycle_hook(item)
         return item
 
     def today(self) -> list[Activity]:
-        """Return activities for the current *local* calendar day.
-
-        Storage timestamps are normalized to UTC, while the meaning of "today"
-        follows the machine's local timezone.  The repository only receives an
-        explicit half-open UTC range and therefore owns no UI/timezone policy.
-        """
+        """Return activities for the current *local* calendar day."""
         now_utc = self._now()
         local_now = now_utc.astimezone()
         local_tz = local_now.tzinfo
@@ -151,17 +167,12 @@ class ActivityService:
 
         start_local = datetime.combine(local_now.date(), time.min, tzinfo=local_tz)
         end_local = start_local + timedelta(days=1)
-
         start_utc = start_local.astimezone(timezone.utc)
         end_utc = end_local.astimezone(timezone.utc)
         return self._as_activity_list(self.repo.between(start_utc, end_utc))
 
     def for_task(self, task: Task | str) -> list[Activity]:
-        """Return journal history associated with a Task UID.
-
-        The method deliberately does not fetch the Task from CalDAV and does not
-        interpret activity actions as current Task state.
-        """
+        """Return journal history associated with a Task UID."""
         task_id = self._object_id(task, required=True)
         assert task_id is not None
         return self._as_activity_list(self.repo.for_object(task_id))

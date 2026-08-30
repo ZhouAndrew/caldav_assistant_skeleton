@@ -1,14 +1,15 @@
 """Production Task lifecycle with Assistant work-period cleanup.
 
-The work-period timer is auxiliary Assistant state.  Successful pause/complete/delete
+The work-period timer is auxiliary Assistant state. Successful pause/complete/delete
 must remove any still-pending timer so a later notification cannot refer to work that
-has already stopped.  Authoritative CalDAV mutations always happen first; cleanup
+has already stopped. Authoritative CalDAV mutations always happen first; cleanup
 failure is recorded in Activity Journal and never rolls back a successful Task write.
 """
 from __future__ import annotations
 
 from typing import Any
 
+from ..progress import emit_progress
 from .completion_log import CompletionLoggingTaskService
 
 
@@ -26,11 +27,24 @@ class WorkPeriodAwareTaskService(CompletionLoggingTaskService):
         if not callable(cancel):
             return
         task_id = str(getattr(task, "id", task) or "").strip()
+        emit_progress(
+            "work_period.cleanup",
+            "Cleaning up the current work-period reminder...",
+            state="started",
+            task_id=task_id,
+            reason=reason,
+        )
         try:
-            cancel(task_id, reason=reason)
+            result = cancel(task_id, reason=reason)
         except Exception as exc:
-            # The Task transition is already authoritative.  Record the cleanup
-            # defect instead of lying to callers that the Task action itself failed.
+            emit_progress(
+                "work_period.cleanup",
+                "Work-period cleanup failed; the Task action remains successful.",
+                state="failed",
+                task_id=task_id,
+                reason=reason,
+                error=f"{type(exc).__name__}: {exc}",
+            )
             try:
                 self._record(
                     "work_period_cleanup_failed",
@@ -40,6 +54,16 @@ class WorkPeriodAwareTaskService(CompletionLoggingTaskService):
                 )
             except Exception:
                 pass
+            return
+        cancelled = result.get("cancelled") if isinstance(result, dict) else None
+        emit_progress(
+            "work_period.cleanup",
+            "Work-period cleanup finished.",
+            state="done",
+            task_id=task_id,
+            reason=reason,
+            cancelled=cancelled,
+        )
 
     def pause(self, task: Any):
         result = super().pause(task)
@@ -52,7 +76,6 @@ class WorkPeriodAwareTaskService(CompletionLoggingTaskService):
         return result
 
     def delete(self, task: Any):
-        # Capture the id before the authoritative object disappears.
         obj = self.get(task)
         result = super().delete(obj)
         self._cancel_work_period(obj, reason="task_deleted")
