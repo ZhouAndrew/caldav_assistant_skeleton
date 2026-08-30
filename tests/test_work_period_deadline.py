@@ -7,6 +7,7 @@ import pytest
 
 from caldav_assistant.api import Reminder, Task
 from caldav_assistant.api.v1.errors import ValidationError
+from caldav_assistant.internal.bootstrap import build_service_application
 from caldav_assistant.internal.cli import monitor_app
 from caldav_assistant.internal.runtime.observable_service import ObservableAssistantService
 from caldav_assistant.internal.work_period import (
@@ -210,3 +211,18 @@ def test_observable_delivery_uses_work_period_semantic_source_and_task_id():
     assert event["source"] == "work_period_end"
     assert event["object_id"] == "t1"
     assert event["metadata"]["duration_seconds"] == 1800
+
+
+def test_production_bootstrap_exposes_work_period_runtime_routes(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+
+    app = build_service_application()
+    dispatcher = app.background.dispatcher
+
+    status = dispatcher.handle("work_period.status", {})
+    assert status["state"] == "none"
+    assert status["storage"] == "assistant_state/reminders.items.v1"
+    with pytest.raises(ValidationError, match="currently being worked on"):
+        dispatcher.handle("work_period.allocate", {"seconds": 1800})
