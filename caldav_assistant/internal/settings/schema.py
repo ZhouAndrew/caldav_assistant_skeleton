@@ -38,6 +38,18 @@ def _boolean(value: Any, *, label: str) -> bool:
     raise ValidationError(f"{label} must be on/off or true/false")
 
 
+def _integer_range(value: Any, *, label: str, minimum: int, maximum: int) -> int:
+    if isinstance(value, bool):
+        raise ValidationError(f"{label} must be a whole number")
+    try:
+        number = int(str(value).strip())
+    except (TypeError, ValueError) as exc:
+        raise ValidationError(f"{label} must be a whole number") from exc
+    if number < minimum or number > maximum:
+        raise ValidationError(f"{label} must be between {minimum} and {maximum}")
+    return number
+
+
 def _locale(value: Any) -> str:
     clean = _text(value, label="UI locale").replace("_", "-").casefold()
     if clean in {"en", "en-us", "en-gb"}:
@@ -175,13 +187,25 @@ DEFAULT_SETTINGS_SCHEMA = SettingsSchema([
     SettingSpec(COMMAND_LANGUAGE, "Command language", "Commands", "choice", "en", choices=("en",), validator=_command_language),
     SettingSpec(EXTENSIONS_ENABLED, "Extensions", "Extensions", "mapping", {}, validator=_extension_map),
     SettingSpec(
+        AGENDA_UPCOMING_HOURS,
+        "Upcoming window (hours)",
+        "Agenda",
+        "text",
+        24,
+        validator=lambda v: _integer_range(
+            v,
+            label="Upcoming window",
+            minimum=1,
+            maximum=744,
+        ),
+    ),
+    SettingSpec(
         EXPERIMENTAL_FAST_QUERY_CACHE,
         "Fast query cache (experimental)",
         "Experimental",
         "bool",
         False,
-        validator=lambda v: _boolean(v, label="Fast query cache"),
-    ),
+        validator=lambda v: _boolean(v, label="Fast query cache")),
 ])
 
 __all__ = ["SettingSpec", "SettingsSchema", "DEFAULT_SETTINGS_SCHEMA"]
