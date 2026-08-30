@@ -51,6 +51,12 @@ class RuntimeDispatcher:
             "settings.list": ctx.settings.list,
         }
 
+        # CLI-only observability intentionally stays outside the frozen public
+        # WordPressAPI. Small test contexts can omit it without becoming invalid.
+        daily_log = getattr(ctx.wordpress, "_daily_log", None)
+        if callable(daily_log):
+            self._routes["wordpress.daily_log"] = daily_log
+
         # Session is part of the full v1 AssistantContext, but keeping these routes
         # conditional lets small unit/integration test contexts remain deliberately
         # partial instead of forcing unrelated fake namespaces everywhere.

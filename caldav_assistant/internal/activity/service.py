@@ -26,6 +26,7 @@ from ...api.v1.hooks import emit
 
 _TASK_LIFECYCLE_HOOKS = {
     "task_started": "task.started",
+    "task_paused": "task.paused",
     "task_resumed": "task.resumed",
 }
 

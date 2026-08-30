@@ -107,7 +107,7 @@ def _cleanup_extension_runtime():
     clear_current_context()
 
 
-def test_start_pause_resume_logs_start_and_resume_to_wordpress_via_extension():
+def test_start_pause_resume_logs_all_work_transitions_to_wordpress_via_extension():
     task = Task(
         id="t1",
         summary="Anki",
@@ -139,13 +139,15 @@ def test_start_pause_resume_logs_start_and_resume_to_wordpress_via_extension():
             "task_paused",
             "task_resumed",
         ]
-        assert len(wordpress.calls) == 2
+        assert len(wordpress.calls) == 3
 
         started_text, started_meta = wordpress.calls[0]
-        resumed_text, resumed_meta = wordpress.calls[1]
+        paused_text, paused_meta = wordpress.calls[1]
+        resumed_text, resumed_meta = wordpress.calls[2]
         assert started_meta["title"] == "Started — Anki"
+        assert paused_meta["title"] == "Paused — Anki"
         assert resumed_meta["title"] == "Resumed — Anki"
-        for text in (started_text, resumed_text):
+        for text in (started_text, paused_text, resumed_text):
             assert "Task: Anki" in text
             assert "Task UID: t1" in text
             assert "Actual time: 2026-08-29T14:31:00" in text

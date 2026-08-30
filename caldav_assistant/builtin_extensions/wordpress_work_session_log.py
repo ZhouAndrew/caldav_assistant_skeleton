@@ -1,4 +1,4 @@
-"""Log Task start/resume work-session transitions to WordPress.
+"""Log Task start/pause/resume work-session transitions to WordPress.
 
 This is a bundled extension, not TaskService business logic.  It listens to the
 public Full Extension Hook API and writes through the Scratch-like Easy API, so
@@ -83,6 +83,11 @@ def _write(event: HookEvent, *, verb: str) -> Any:
 @on("task.started")
 def log_task_started(event: HookEvent) -> Any:
     return _write(event, verb="Started")
+
+
+@on("task.paused")
+def log_task_paused(event: HookEvent) -> Any:
+    return _write(event, verb="Paused")
 
 
 @on("task.resumed")

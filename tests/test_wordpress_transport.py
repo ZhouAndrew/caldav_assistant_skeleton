@@ -59,8 +59,9 @@ def test_create_log_creates_one_daily_post_when_today_post_is_missing():
     assert result == {"id": 101}
     lookup = runner.calls[0][0]
     assert lookup[:3] == ["wp", "post", "list"]
-    assert "--search=August 29 Saturday 2026" in lookup
     assert "--post_status=any" in lookup
+    assert "--fields=ID,post_title" in lookup
+    assert "--format=json" in lookup
 
     create = runner.calls[1][0]
     assert create[:3] == ["wp", "post", "create"]
@@ -122,6 +123,65 @@ def test_daily_log_retry_is_idempotent_when_hidden_request_marker_already_exists
     assert result == {"id": 13554}
     assert len(runner.calls) == 2
     assert all(call[0][2:4] != ["post", "update"] for call in runner.calls)
+
+
+def test_daily_lookup_reuses_post_created_by_user_shell_script_spacing():
+    existing = "<!-- wp:paragraph -->\n<p>08:00 Existing</p>\n<!-- /wp:paragraph -->"
+    runner = Runner(
+        [
+            response('[{"ID":77,"post_title":"August 29  Saturday  2026"}]'),
+            response(existing),
+            response("Success"),
+        ]
+    )
+    adapter = WPCLIAdapter(executable="wp", runner=runner)
+
+    result = adapter.create_log(
+        "Assistant entry",
+        _logged_at="2026-08-29T14:05:00+08:00",
+        _request_id="req-compatible",
+    )
+
+    assert result == {"id": 77}
+    assert len(runner.calls) == 3
+    assert runner.calls[2][0][:4] == ["wp", "post", "update", "77"]
+
+
+def test_read_daily_log_returns_actual_remote_post_content_and_accepts_abbreviated_month():
+    content = "<!-- wp:paragraph -->\n<p>08:00 Actual remote log</p>\n<!-- /wp:paragraph -->"
+    runner = Runner(
+        [
+            response('[{"ID":88,"post_title":"Aug 29 Saturday 2026"}]'),
+            response(content),
+        ]
+    )
+    adapter = WPCLIAdapter(
+        executable="wp",
+        runner=runner,
+        clock=lambda: datetime(2026, 8, 29, 14, 5, tzinfo=timezone.utc),
+    )
+
+    result = adapter.read_daily_log()
+
+    assert result == {
+        "id": 88,
+        "title": "Aug 29 Saturday 2026",
+        "content": content,
+    }
+    assert runner.calls[1][0] == ["wp", "post", "get", "88", "--field=post_content"]
+
+
+def test_read_daily_log_returns_none_without_creating_a_post():
+    runner = Runner([response("[]")])
+    adapter = WPCLIAdapter(
+        executable="wp",
+        runner=runner,
+        clock=lambda: datetime(2026, 8, 29, 14, 5, tzinfo=timezone.utc),
+    )
+
+    assert adapter.read_daily_log() is None
+    assert len(runner.calls) == 1
+    assert runner.calls[0][0][:3] == ["wp", "post", "list"]
 
 
 def test_explicit_log_title_becomes_entry_heading_not_daily_post_title():

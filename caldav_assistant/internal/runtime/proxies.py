@@ -55,6 +55,8 @@ class RemoteWordPressAPI(_RemoteAPI):
     def create_post(self, title, content="", **metadata): return self._call("create_post", title=title, content=content, **metadata)
     def update_post(self, post_id, **changes): return self._call("update_post", post_id=post_id, **changes)
     def pending(self): return self._call("pending")
+    # CLI-only observability; intentionally outside the frozen public WordPressAPI.
+    def _daily_log(self): return self._call("daily_log")
 
 class RemoteActivityAPI(_RemoteAPI):
     prefix="activity"

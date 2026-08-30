@@ -11,6 +11,7 @@ from datetime import datetime
 from html import escape
 import json
 from pathlib import Path
+import re
 from typing import Any
 import shutil
 import subprocess
@@ -113,6 +114,29 @@ class WPCLIAdapter:
         return f"{months[value.month]} {value.day} {weekdays[value.weekday()]} {value.year}"
 
     @staticmethod
+    def _daily_title_matches(title: str, value: datetime) -> bool:
+        """Match the user's existing shell-script convention without whitespace assumptions."""
+        months = (
+            ("", ""),
+            ("January", "Jan"), ("February", "Feb"), ("March", "Mar"),
+            ("April", "Apr"), ("May", "May"), ("June", "Jun"),
+            ("July", "Jul"), ("August", "Aug"), ("September", "Sep"),
+            ("October", "Oct"), ("November", "Nov"), ("December", "Dec"),
+        )
+        weekdays = (
+            "Monday", "Tuesday", "Wednesday", "Thursday",
+            "Friday", "Saturday", "Sunday",
+        )
+        text = str(title or "")
+        folded = text.casefold()
+        full_month, short_month = months[value.month]
+        has_month = full_month.casefold() in folded or short_month.casefold() in folded
+        has_day = re.search(rf"(?<!\d){value.day}(?!\d)", text) is not None
+        has_year = str(value.year) in text
+        has_weekday = weekdays[value.weekday()].casefold() in folded
+        return has_month and has_day and has_year and has_weekday
+
+    @staticmethod
     def _log_marker(request_id: Any) -> str:
         clean = str(request_id or "").strip()
         return f"<!-- caldav-assistant-log:{clean} -->" if clean else ""
@@ -139,38 +163,73 @@ class WPCLIAdapter:
         block = f"<!-- wp:paragraph -->\n<p>{visible}</p>\n<!-- /wp:paragraph -->"
         return f"{marker}\n{block}" if marker else block
 
-    def _find_post_by_title(self, title: str, *, post_type: str = "post") -> int | str | None:
-        stdout = self._run(
-            [
-                "post",
-                "list",
-                self._argument("post_type", post_type),
-                self._argument("post_status", "any"),
-                self._argument("search", title),
-                "--fields=ID,post_title",
-                "--format=json",
-            ]
-        )
+    @staticmethod
+    def _decode_post_list(stdout: str) -> list[dict[str, Any]]:
         try:
             items = json.loads(stdout or "[]")
         except json.JSONDecodeError as exc:
             raise UnavailableError("WP-CLI returned invalid post-list JSON") from exc
         if not isinstance(items, list):
             raise UnavailableError("WP-CLI returned invalid post-list data")
+        return [item for item in items if isinstance(item, dict)]
 
-        for item in items:
-            if not isinstance(item, dict):
-                continue
+    @staticmethod
+    def _item_post_id(item: dict[str, Any]) -> int | str | None:
+        value = item.get("ID")
+        if value in (None, ""):
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return str(value)
+
+    def _list_post_titles(self, *, post_type: str = "post", search: str | None = None) -> list[dict[str, Any]]:
+        args = [
+            "post",
+            "list",
+            self._argument("post_type", post_type),
+            self._argument("post_status", "any"),
+        ]
+        if search:
+            args.append(self._argument("search", search))
+        args.extend(["--fields=ID,post_title", "--format=json"])
+        return self._decode_post_list(self._run(args))
+
+    def _find_post_by_title(self, title: str, *, post_type: str = "post") -> int | str | None:
+        for item in self._list_post_titles(post_type=post_type, search=title):
             if str(item.get("post_title") or "").strip() != title:
                 continue
-            value = item.get("ID")
-            if value in (None, ""):
-                continue
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                return str(value)
+            post_id = self._item_post_id(item)
+            if post_id is not None:
+                return post_id
         return None
+
+    def _find_daily_post_record(
+        self,
+        value: datetime,
+        *,
+        post_type: str = "post",
+    ) -> dict[str, Any] | None:
+        """Return the matching WP-CLI title/ID record without normalizing remote data."""
+        # Match the user's long-standing find-today-post.sh behavior: month may be
+        # full or abbreviated and extra spaces are irrelevant. Listing title/ID
+        # pairs lets Assistant reuse daily posts created by that script and, for
+        # queries, return the exact post_title that WordPress actually stores.
+        for item in self._list_post_titles(post_type=post_type):
+            title = str(item.get("post_title") or "")
+            if not self._daily_title_matches(title, value):
+                continue
+            post_id = self._item_post_id(item)
+            if post_id is not None:
+                return {
+                    "id": post_id,
+                    "title": title,
+                }
+        return None
+
+    def _find_daily_post(self, value: datetime, *, post_type: str = "post") -> int | str | None:
+        item = self._find_daily_post_record(value, post_type=post_type)
+        return None if item is None else item["id"]
 
     def _post_content(self, post_id: Any) -> str:
         return self._run(["post", "get", str(post_id), "--field=post_content"])
@@ -184,9 +243,9 @@ class WPCLIAdapter:
         """Append one log entry to today's single WordPress daily-log post.
 
         The stable public operation remains ``create_log``.  Transport semantics are
-        now daily aggregation: an exact-title post is updated when present, otherwise
-        one draft post for the day is created.  A hidden request marker makes Outbox
-        retries idempotent without adding visible noise to the post.
+        daily aggregation: an existing user/Assistant daily post is updated when
+        present, otherwise one post for the day is created.  A hidden request marker
+        makes Outbox retries idempotent without adding visible noise to the post.
         """
         logged_at = metadata.pop("_logged_at", None)
         if logged_at:
@@ -211,7 +270,7 @@ class WPCLIAdapter:
             request_id=request_id,
         )
         marker = self._log_marker(request_id)
-        post_id = self._find_post_by_title(daily_title, post_type=post_type)
+        post_id = self._find_daily_post(now, post_type=post_type)
 
         if post_id is None:
             return self.create_post(
@@ -233,6 +292,28 @@ class WPCLIAdapter:
             post_content=self._append_content(existing, entry),
         )
         return {"id": post_id}
+
+    def read_daily_log(
+        self,
+        *,
+        at: datetime | None = None,
+        post_type: str = "post",
+    ) -> dict[str, Any] | None:
+        """Return the actual WordPress daily-log post title and content."""
+        value = self._local_now() if at is None else at
+        if not isinstance(value, datetime):
+            raise TypeError("WordPress daily-log timestamp must be datetime")
+        if value.tzinfo is None:
+            value = value.astimezone()
+        item = self._find_daily_post_record(value, post_type=post_type)
+        if item is None:
+            return None
+        post_id = item["id"]
+        return {
+            "id": post_id,
+            "title": item["title"],
+            "content": self._post_content(post_id),
+        }
 
     def create_post(self, title: str, content: str = "", **fields: Any) -> dict[str, Any]:
         if not str(title).strip():
