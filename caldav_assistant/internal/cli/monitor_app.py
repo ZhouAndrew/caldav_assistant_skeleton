@@ -2,20 +2,19 @@
 
 Normal work is passive: after a Task/Event becomes the selected monitor target the
 client stops presenting a command prompt and watches the background service's actual
-notification-delivery feed. Every delivered reminder rings the terminal bell (\a)
-and prints what was accessed, what happened, and the confirmed result.
-
-Ctrl-C does not kill the Assistant while monitoring. It opens a small action menu;
-Task lifecycle choices are sent through the existing CommandService/Core API. The
-ordinary console is a separate mode for other commands.
+runtime feed. Confirmed reminder delivery rings the terminal bell. Mutating command
+progress is streamed from factual Core milestones while the command is still running.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from queue import Empty, Queue
 import sys
+from threading import Thread
 from time import sleep
 from typing import Any, Sequence
+from uuid import uuid4
 
 from ...api.v1.errors import ValidationError
 from ...api.v1.models import Event, Task
@@ -90,8 +89,6 @@ def _runtime_call(app: Any, method: str, **payload: Any) -> Any:
     try:
         return call(method, **payload)
     except RuntimeError as exc:
-        # A pre-update daemon can still be serving the old route table. Restart it
-        # once so the foreground never silently falls back to fake local monitoring.
         if f"IPC method is not allowed: {method}" not in str(exc):
             raise
         restart = getattr(runtime, "restart", None)
@@ -256,37 +253,85 @@ def _show_delivery(app: Any, event: dict[str, Any], target: MonitorTarget) -> No
     _show(app, f"Still monitoring {target.kind}: {target.summary}")
 
 
-def _primary_route(name: str) -> str:
-    key = name.casefold()
-    routes = {
-        "start": "CLI -> CommandService -> Local IPC -> TaskService.start -> CalDAV/Activity/WorkLog; optional duration -> work_period.allocate -> explicit Reminder",
-        "done": "CLI -> CommandService -> Local IPC -> TaskService.complete -> CalDAV/Activity/WorkLog -> work-period cleanup",
-        "complete": "CLI -> CommandService -> Local IPC -> TaskService.complete -> CalDAV/Activity/WorkLog -> work-period cleanup",
-        "pause": "CLI -> CommandService -> Local IPC -> TaskService.pause -> Activity/WorkLog -> work-period cleanup",
-        "resume": "CLI -> CommandService -> Local IPC -> TaskService.resume -> CalDAV/Activity/WorkLog; optional duration -> work_period.allocate",
-        "work-period": "CLI -> Local IPC -> WorkPeriodService -> ReminderService explicit reminder (assistant_state); Task DUE unchanged",
-        "timer": "CLI -> Local IPC -> WorkPeriodService -> ReminderService explicit reminder (assistant_state); Task DUE unchanged",
-        "today": "CLI -> CommandService -> Local IPC -> AgendaService.today -> Task/Event read path",
-        "next": "CLI -> CommandService -> Local IPC -> AgendaService.next -> Task/Event read path",
-        "current": "CLI -> CommandService -> Session current-task read",
-        "now": "CLI -> CommandService -> Session current-task read",
-        "edit": "CLI -> CommandService -> Local IPC -> TaskService.update -> CalDAV/Activity",
-        "settings": "CLI -> Settings client -> Local IPC -> Settings/CalDAV setup services",
-        "history": "CLI -> history provider -> Activity/WordPress/Outbox read path",
-    }
-    return routes.get(key, "CLI -> CommandService -> configured Core/public API route")
+def _show_progress(app: Any, event: dict[str, Any]) -> None:
+    state = str(event.get("state") or "info")
+    prefix = {"started": "→", "done": "✓", "failed": "!"}.get(state, "·")
+    _show(app, f"{prefix} {event.get('message') or event.get('stage') or 'Progress'}")
 
 
 def _execute_visible(app: Any, parsed: base.ParsedCommand, *, paginate: bool = True) -> tuple[int, bool]:
     original = parsed
     parsed, period_seconds = _split_lifecycle_duration(parsed)
+    operation_id = uuid4().hex
+    cursor = _cursor(app)
     _show(app, "")
     _show(app, "=== Command request ===")
     _show(app, f"Input: {original.raw}")
-    _show(app, f"Primary access path: {_primary_route(original.name)}")
+    _show(app, "Live progress: showing factual Core milestones as they happen.")
     if period_seconds is not None:
         _show(app, f"Work-period request: {format_work_duration(period_seconds)}; separate from Task DUE.")
-    code, should_exit = base._execute(app, parsed, paginate=paginate)
+
+    result: Queue[tuple[bool, Any]] = Queue(maxsize=1)
+    runtime = getattr(app, "runtime", None)
+
+    def worker() -> None:
+        original_call = getattr(runtime, "call", None)
+        try:
+            if callable(original_call):
+                def tagged_call(method: str, **payload: Any) -> Any:
+                    tagged = dict(payload)
+                    tagged.setdefault("__operation_id", operation_id)
+                    return original_call(method, **tagged)
+                runtime.call = tagged_call
+            value = base._execute(app, parsed, paginate=paginate)
+            result.put((True, value))
+        except BaseException as exc:
+            result.put((False, exc))
+        finally:
+            if callable(original_call):
+                runtime.call = original_call
+
+    Thread(
+        target=worker,
+        name="caldav-assistant-visible-command",
+        daemon=True,
+    ).start()
+
+    outcome: tuple[bool, Any] | None = None
+    while outcome is None:
+        try:
+            outcome = result.get_nowait()
+        except Empty:
+            pass
+        try:
+            for event in _events(app, cursor):
+                cursor = max(cursor, int(event.get("seq", cursor) or cursor))
+                if event.get("kind") == "operation_progress":
+                    if event.get("operation_id") == operation_id:
+                        _show_progress(app, event)
+                    continue
+                target = _monitor_target(app)
+                if target is not None:
+                    _show_delivery(app, event, target)
+        except Exception:
+            # Failure to render progress must not interrupt the authoritative call.
+            pass
+        if outcome is None:
+            sleep(0.05)
+
+    # Drain milestones published immediately before the final IPC response.
+    try:
+        for event in _events(app, cursor):
+            cursor = max(cursor, int(event.get("seq", cursor) or cursor))
+            if event.get("kind") == "operation_progress" and event.get("operation_id") == operation_id:
+                _show_progress(app, event)
+    except Exception:
+        pass
+
+    ok, value = outcome
+    if not ok:
+        raise value
+    code, should_exit = value
     if code == 0 and period_seconds is not None:
         if not _allocate_after_lifecycle(app, period_seconds):
             code = 1
@@ -385,6 +430,8 @@ def _monitor(app: Any, target: MonitorTarget) -> str:
         try:
             for event in _events(app, cursor):
                 cursor = max(cursor, int(event.get("seq", cursor) or cursor))
+                if event.get("kind") == "operation_progress":
+                    continue
                 _show_delivery(app, event, target)
 
             if target.current_work:
@@ -432,10 +479,6 @@ def _console(app: Any) -> tuple[int, str]:
         if should_exit:
             return code, "exit"
 
-        # From the initial idle console, selecting/starting a concrete item should
-        # immediately enter passive monitor mode. If Ctrl-C opened this console from
-        # an existing monitor, stay here for as many other commands as the user wants
-        # until they explicitly type `monitor` (or press Ctrl-C again).
         if not entered_with_target and code == 0 and _monitor_target(app) is not None:
             return last_code, "monitor"
 
@@ -459,7 +502,6 @@ def run_monitor_repl(app: Any) -> int:
             last_code, action = _console(app)
             if action == "exit":
                 return last_code
-        # monitor/recheck both simply recompute the authoritative/local selection.
 
 
 def _prepare(app: Any, argv: Sequence[str]) -> None:
@@ -499,33 +541,19 @@ def run_cli(argv: Sequence[str] | None = None, *, app: Any = None) -> int:
         argv = sys.argv[1:]
     if app is None:
         from ..bootstrap import build_cli_application
-
         app = build_cli_application()
 
     _prepare(app, argv)
     if argv:
-        # Preserve ordinary one-shot output. Only start/resume with a trailing
-        # duration needs the monitor wrapper so allocation happens after lifecycle.
         parsed = base.ParsedCommand(
             raw=" ".join(str(item) for item in argv),
             name=str(argv[0]).strip(),
             args=tuple(str(item) for item in argv[1:]),
         )
         effective, seconds = _split_lifecycle_duration(parsed)
-        if seconds is None:
-            return base.run_one_shot(app, argv)
-        code, _ = _execute_visible(app, parsed, paginate=False)
-        return code
+        if seconds is not None or effective.name.casefold() in {"start", "pause", "resume", "done", "complete"}:
+            code, _ = _execute_visible(app, parsed, paginate=False)
+            return code
+        return base.run_one_shot(app, argv)
     with completion_session(app):
         return run_monitor_repl(app)
-
-
-def main() -> int:
-    return run_cli()
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-
-
-__all__ = ["MonitorTarget", "run_monitor_repl", "run_cli", "main"]
