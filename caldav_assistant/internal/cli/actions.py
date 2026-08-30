@@ -40,6 +40,145 @@ class BuiltinCommand:
     aliases: tuple[str, ...] = ()
 
 
+_COMMAND_OPERATION_GUIDE: dict[str, tuple[str, str, str]] = {
+    "today": (
+        "REPL/one-shot → CommandRegistry → Agenda API → AgendaService/Engine → Task/Event reads → presenter.",
+        "Read-only. CalDAV is authoritative; experimental cache may serve a labelled verified snapshot.",
+        "Run `today` again; use `settings cache status` to see whether a cache or CalDAV served recent reads.",
+    ),
+    "next": (
+        "REPL/one-shot → CommandRegistry → Agenda.next → NextEngine → Task/Event reads → presenter.",
+        "Read-only recommendation; it does not start or modify the recommended Task.",
+        "Compare `next`, `today`, and `current`.",
+    ),
+    "current": (
+        "REPL/one-shot → CommandRegistry → Session current-task pointer + Activity history → Task presentation.",
+        "Read-only. CalDAV STATUS remains Task truth; Session only identifies which in-process Task is current.",
+        "Run `history task <name>` to see start/pause/resume timestamps.",
+    ),
+    "start": (
+        "REPL → CommandRegistry → target/Next selection → Task API → Runtime/IPC → TaskService → CalDAVAdapter; Activity/hook side effects follow Core action.",
+        "Writes the Task work state to CalDAV and records Assistant activity. Configured extensions may add independent logging hooks.",
+        "Run `current`, then `history task <name>`; use your CalDAV client to confirm STATUS:IN-PROCESS.",
+    ),
+    "pause": (
+        "REPL → CommandRegistry → Session current Task → Task API → Runtime/IPC → TaskService → CalDAVAdapter + Activity.",
+        "Pauses only the Task currently being worked on; it does not change planned DTSTART.",
+        "Run `current` and `history task <name>`; the Task should no longer be current and a task_paused activity should exist.",
+    ),
+    "resume": (
+        "REPL → CommandRegistry → paused-Task selection → Task API → Runtime/IPC → TaskService → CalDAVAdapter + Activity.",
+        "Restores actual work state; it does not rewrite the planned start date.",
+        "Run `current` and `history task <name>`; the latest lifecycle entry should be task_resumed.",
+    ),
+    "done": (
+        "REPL → CommandRegistry → Task target → Task API → Runtime/IPC → TaskService → CalDAVAdapter → ActionResult.",
+        "CalDAV is completed first (STATUS:COMPLETED / completed fields). WordPress cannot block Task completion.",
+        "Run `history task <name>` and inspect the Task in CalDAV; `undo` reports/restores the latest reversible change.",
+    ),
+    "edit": (
+        "REPL → CommandRegistry → Task selector → field Prompt → TemporalParser/validation → Task API → Runtime/IPC → TaskService → CalDAVAdapter.",
+        "Writes only the chosen Task field. The mutation participates in the shared Undo path.",
+        "Run `tasks`/`today` and inspect the Task in CalDAV; use `undo` if the last change was wrong.",
+    ),
+    "add": (
+        "REPL → CommandRegistry → Task/Event choice → PromptKit/TemporalParser → Task/Event API → Runtime/IPC → Service → CalDAVAdapter.",
+        "Creates a real VTODO or VEVENT in the configured CalDAV collection.",
+        "Run `tasks` or `events`, then verify the object in another CalDAV client.",
+    ),
+    "tasks": (
+        "REPL → CommandRegistry → Task API list → Runtime/IPC → TaskService/CalDAV read → numbered presenter + Session.last_items.",
+        "Read-only. Every displayed number becomes an active Task reference for `edit N`, `start N`, `done N`, etc.",
+        "Immediately run `edit N`, `start N`, or `done N`; the number resolves to the exact object from the displayed list.",
+    ),
+    "events": (
+        "REPL → CommandRegistry → Event API list → Runtime/IPC → EventService/CalDAV read → numbered presenter + Session.last_items.",
+        "Read-only. Every displayed number becomes an active Event reference.",
+        "Immediately run `edit-event N` or `remove event N`.",
+    ),
+    "edit-event": (
+        "REPL → CommandRegistry → Event target → PromptKit/TemporalParser → Event API → Runtime/IPC → EventService → CalDAVAdapter.",
+        "Writes the chosen VEVENT field through the shared Event service.",
+        "Run `events` and verify the Event in another CalDAV client.",
+    ),
+    "remove": (
+        "REPL → CommandRegistry → Task/Event target → danger confirmation → Task/Event API → Runtime/IPC → Service → CalDAVAdapter.",
+        "Deletes the CalDAV object and records undo information; active current Tasks are protected from deletion.",
+        "Run `tasks`/`events`; use `undo` immediately if the deletion was unintended.",
+    ),
+    "log": (
+        "REPL → CommandRegistry → WordPress API → WordPressService → durable local Outbox → immediate WordPress transport attempt → ActionResult.",
+        "The text is written to Outbox before network delivery. If delivery fails it remains pending instead of being lost.",
+        "Run `history wordpress` to read the real daily post and `history pending` to see undelivered Outbox items.",
+    ),
+    "history": (
+        "REPL → CommandRegistry → selected observability source: ActivityService (SQLite), Task activity, real WordPress post_content, or WordPress Outbox.",
+        "Read-only diagnostic command. Activity is not Task truth and WordPress is not Task truth.",
+        "Use `history today`, `history task NAME`, `history wordpress`, and `history pending` to cross-check each store independently.",
+    ),
+    "menu": (
+        "REPL → Menu/Choice navigation → the same CommandService.run() used by direct commands.",
+        "Menu has no business logic of its own. `0/back` returns one menu level; typing a normal command hands it back to the REPL.",
+        "Compare a menu action with the equivalent direct command; results and side effects must match.",
+    ),
+    "settings": (
+        "REPL → SettingsActions → public Settings API/Runtime bridge. Commands and Extensions panels dispatch their canonical management commands.",
+        "Validated settings are stored through SettingsService; secrets use dedicated flows. Settings does not edit SQLite/config files directly.",
+        "Use `settings get KEY`, `settings list`, CalDAV test/status, or reopen the panel to confirm the saved value.",
+    ),
+    "background": (
+        "one-shot/REPL → BackgroundActions → RuntimeClient + platform AutostartManager → local Assistant Service.",
+        "Controls service process and reminder autostart; it does not implement Task logic separately.",
+        "Run `background status`; it reports service state, reminder autostart, maintenance state and PID when running.",
+    ),
+    "undo": (
+        "REPL → Undo CLI → Runtime/IPC → UndoManager → original Task/Event service/CalDAV mutation path.",
+        "Reverses the latest reversible Task/Event change using durable undo state.",
+        "Re-run `tasks`/`events` and verify in CalDAV after undo.",
+    ),
+    "extensions": (
+        "REPL → CommandRegistry → ExtensionActions → ExtensionManager discovery/state list.",
+        "Read-only list of official and user extensions with real lifecycle status.",
+        "Use `extension info NAME` and `extension errors [NAME]` for details.",
+    ),
+    "extension": (
+        "REPL → CommandRegistry → ExtensionActions → ExtensionManager → load/enable/disable/reload/unload/new/error operations.",
+        "Lifecycle changes use the same manager that loads extension commands/hooks; one extension failure is isolated from Core.",
+        "Run `extensions`, `extension info NAME`, and `extension errors NAME`.",
+    ),
+    "api": (
+        "REPL → Public API catalog/introspection → signatures/existence/usage presentation.",
+        "Read-only developer aid; it does not bypass or replace the public API.",
+        "Import the shown symbol from `caldav_assistant.easy`, `caldav_assistant.api`, or `caldav_assistant.api.v1` and run its documented example.",
+    ),
+    "clear": (
+        "REPL → developer_tools extension command → terminal clear escape/OS terminal operation.",
+        "Presentation-only; no CalDAV, WordPress, Activity, or settings data changes.",
+        "The screen clears; `history` and Task/Event data remain unchanged.",
+    ),
+    "shell": (
+        "REPL → developer_tools extension → foreground subprocess/interactive shell → return to the same Assistant REPL.",
+        "External process effects are whatever that process performs; Assistant Core data is not implicitly changed.",
+        "Exit the child shell/process and confirm the Assistant prompt returns; inspect the external command's own exit/output.",
+    ),
+    "run": (
+        "REPL → developer_tools extension → foreground or detached subprocess; detached output is preserved in its run log.",
+        "External command effects are independent from CalDAV Assistant unless the invoked program changes shared resources.",
+        "Inspect the command exit/output or its background run log, then use normal Assistant query commands for Assistant state.",
+    ),
+    "help": (
+        "REPL → CommandRegistry metadata + command operation guide → presenter.",
+        "Read-only. It explains the real handler path, persistent effects and verification instead of merely restating the command name.",
+        "Run `help <command>` for any registered command.",
+    ),
+    "exit": (
+        "REPL → internal exit signal → CLI process exits. Background Service remains independent.",
+        "No Task/Event mutation and no forced background-service stop.",
+        "Run `caldav-assistant background status` after leaving the REPL if you want to confirm reminders remain active.",
+    ),
+}
+
+
 class BuiltinActions:
     """Small CLI action bricks composed only from the frozen public namespaces."""
 
@@ -116,7 +255,7 @@ class BuiltinActions:
         """Return the latest actual work-start instant from Activity Journal.
 
         DTSTART is the planned start and must never be reused as the answer to
-        "when did I start working?".  The journal is behaviour history only; the
+        "when did I start working?". The journal is behaviour history only; the
         Session service still decides whether the Task is actually current.
         """
         activity = getattr(self.ctx, "activity", None)
@@ -156,7 +295,6 @@ class BuiltinActions:
         value = getattr(result, "value", result)
         if value is None:
             return None
-        # Task-shaped public objects have a status field; Event does not.
         if not hasattr(value, "status"):
             return None
         if bool(getattr(value, "completed", False)):
@@ -167,8 +305,6 @@ class BuiltinActions:
 
     def _ensure_worklog_ready(self) -> bool:
         settings = getattr(self.ctx, "settings", None)
-        # Unit/small contexts may intentionally omit the production CalDAV setup
-        # bridge. In the real CLI RemoteSettingsAPI exposes caldav_collections().
         if settings is None or not callable(getattr(settings, "caldav_collections", None)):
             return True
         return WorkLogSetup(self.ctx).ensure()
@@ -189,9 +325,6 @@ class BuiltinActions:
         if parts:
             raise ValidationError(f"{name} does not take arguments")
 
-    # ------------------------------------------------------------------
-    # Query commands
-    # ------------------------------------------------------------------
     def today(self, *parts: Any) -> Any:
         self._no_args("today", parts)
         return self.ctx.agenda.today()
@@ -209,18 +342,12 @@ class BuiltinActions:
                 return "No task is active right now. You have paused work; use 'resume' to continue it."
             return "No task is active right now. Use 'start' to begin working on the recommended task."
 
-        # Keep Task as the return type so normal CLI/session behaviour remains
-        # unchanged.  Annotate only this detached presentation copy with transient
-        # work-session context; never mutate the authoritative Task object.
         view = copy(task)
         working_since = self._current_work_since(task)
         if working_since is not None:
             setattr(view, "_assistant_working_since", working_since)
         return view
 
-    # ------------------------------------------------------------------
-    # Task lifecycle commands
-    # ------------------------------------------------------------------
     def done(self, *target_parts: Any) -> Any:
         if target_parts:
             task = self._task_from_parts(target_parts)
@@ -306,9 +433,6 @@ class BuiltinActions:
         self._explain_task_action("Resume work", task)
         return self.ctx.tasks.resume(task)
 
-    # ------------------------------------------------------------------
-    # Edit command: scheduling/data editing, not work-session lifecycle
-    # ------------------------------------------------------------------
     def _edit_due(self, task: Any) -> Any:
         due = self.ctx.ui.ask_date("New due date")
         if due is None:
@@ -358,11 +482,7 @@ class BuiltinActions:
         return action(task)
 
     def edit_due(self, task: Any = None, due: Any = None) -> Any:
-        """Compatibility brick retained for older integrations.
-
-        Normal users should use ``edit``; this command is intentionally hidden from
-        the default help list so compatibility machinery does not become UX.
-        """
+        """Compatibility brick retained for older integrations."""
         if task is None:
             task = self.ctx.ui.choose_task()
         elif isinstance(task, str):
@@ -380,9 +500,6 @@ class BuiltinActions:
         self._explain_task_action("Edit", task, due=due)
         return self.ctx.tasks.update(task, due=due)
 
-    # ------------------------------------------------------------------
-    # Long-term log / shell utility commands
-    # ------------------------------------------------------------------
     def log(self, *text_parts: Any) -> Any:
         if text_parts:
             text = self._join_text(text_parts, label="Log text")
@@ -395,7 +512,15 @@ class BuiltinActions:
             text = text.strip()
 
         self._show(f"Log → {text}")
-        return self.ctx.wordpress.log(text)
+        self._show(
+            "Steps: validate text → save durable WordPress Outbox item → try immediate WordPress upload. "
+            "If upload fails, the Outbox item stays pending."
+        )
+        result = self.ctx.wordpress.log(text)
+        self._show(
+            "Check: `history wordpress` reads the real daily post; `history pending` shows anything not delivered."
+        )
+        return result
 
     def help(self, *name_parts: Any) -> str:
         if name_parts:
@@ -403,11 +528,27 @@ class BuiltinActions:
             entry = self.ctx.commands.resolve(name)
             aliases = ", ".join(entry.aliases) if entry.aliases else "-"
             description = entry.description or "No description."
+            guide = _COMMAND_OPERATION_GUIDE.get(entry.name)
+            if guide is None:
+                flow = (
+                    f"REPL/one-shot → CommandRegistry → {entry.source} handler → public services used by that handler."
+                )
+                effects = (
+                    "Effects are defined by this extension/command handler; Core data is changed only through services it explicitly calls."
+                )
+                check = (
+                    "Inspect the command/extension documentation and use the relevant Task/Event/history/settings query to verify its effect."
+                )
+            else:
+                flow, effects, check = guide
             return (
                 f"{entry.name}\n"
-                f"  {description}\n"
-                f"  aliases: {aliases}\n"
-                f"  source: {entry.source}"
+                f"  Purpose: {description}\n"
+                f"  Aliases: {aliases}\n"
+                f"  Source: {entry.source}\n"
+                f"  Runtime: {flow}\n"
+                f"  Effects: {effects}\n"
+                f"  Verify: {check}"
             )
 
         lines = ["Commands:"]
@@ -416,6 +557,13 @@ class BuiltinActions:
                 continue
             description = f" — {entry.description}" if entry.description else ""
             lines.append(f"  {entry.name}{description}")
+        lines.extend(
+            [
+                "",
+                "Use `help <command>` for its runtime path, persistent effects, and verification steps.",
+                "Visible numbers from `today`, `tasks`, and `events` are actionable references where the command expects that object type.",
+            ]
+        )
         return "\n".join(lines)
 
     def exit(self, *parts: Any) -> _ExitSignal:
