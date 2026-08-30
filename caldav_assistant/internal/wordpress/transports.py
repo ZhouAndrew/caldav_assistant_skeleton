@@ -204,18 +204,32 @@ class WPCLIAdapter:
                 return post_id
         return None
 
-    def _find_daily_post(self, value: datetime, *, post_type: str = "post") -> int | str | None:
+    def _find_daily_post_record(
+        self,
+        value: datetime,
+        *,
+        post_type: str = "post",
+    ) -> dict[str, Any] | None:
+        """Return the matching WP-CLI title/ID record without normalizing remote data."""
         # Match the user's long-standing find-today-post.sh behavior: month may be
-        # full or abbreviated and extra spaces are irrelevant.  Listing title/ID
-        # pairs also lets Assistant reuse daily posts created by that script.
+        # full or abbreviated and extra spaces are irrelevant. Listing title/ID
+        # pairs lets Assistant reuse daily posts created by that script and, for
+        # queries, return the exact post_title that WordPress actually stores.
         for item in self._list_post_titles(post_type=post_type):
             title = str(item.get("post_title") or "")
             if not self._daily_title_matches(title, value):
                 continue
             post_id = self._item_post_id(item)
             if post_id is not None:
-                return post_id
+                return {
+                    "id": post_id,
+                    "title": title,
+                }
         return None
+
+    def _find_daily_post(self, value: datetime, *, post_type: str = "post") -> int | str | None:
+        item = self._find_daily_post_record(value, post_type=post_type)
+        return None if item is None else item["id"]
 
     def _post_content(self, post_id: Any) -> str:
         return self._run(["post", "get", str(post_id), "--field=post_content"])
@@ -285,18 +299,19 @@ class WPCLIAdapter:
         at: datetime | None = None,
         post_type: str = "post",
     ) -> dict[str, Any] | None:
-        """Return the actual WordPress daily-log post and content for one local day."""
+        """Return the actual WordPress daily-log post title and content."""
         value = self._local_now() if at is None else at
         if not isinstance(value, datetime):
             raise TypeError("WordPress daily-log timestamp must be datetime")
         if value.tzinfo is None:
             value = value.astimezone()
-        post_id = self._find_daily_post(value, post_type=post_type)
-        if post_id is None:
+        item = self._find_daily_post_record(value, post_type=post_type)
+        if item is None:
             return None
+        post_id = item["id"]
         return {
             "id": post_id,
-            "title": self._daily_title(value),
+            "title": item["title"],
             "content": self._post_content(post_id),
         }
 
