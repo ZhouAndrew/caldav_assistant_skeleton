@@ -1,8 +1,11 @@
 """Human-facing Task/Event CRUD actions for the CLI.
 
-This module is presentation/composition only.  It uses PromptKit through ``ctx.ui``
-and the frozen Object API namespaces through ``ctx.tasks``/``ctx.events``.  It does
+This module is presentation/composition only. It uses PromptKit through ``ctx.ui``
+and the frozen Object API namespaces through ``ctx.tasks``/``ctx.events``. It does
 not access CalDAV XML, IPC details, SQLite, or duplicate Core validation rules.
+
+Any numbered Task/Event list shown by this module is also recorded in Session state.
+A visible number is therefore an actionable reference, not decorative output.
 """
 from __future__ import annotations
 
@@ -81,12 +84,27 @@ class CrudActions:
             if self._ordinary_event(item)
         ]
 
+    def _remember_numbered_items(self, items: list[Any]) -> None:
+        session = getattr(self.ctx, "session", None)
+        if session is None:
+            return
+        try:
+            session.last_items = list(items)
+            session.current_selection = None
+        except Exception:
+            # Small test/extension Session implementations may be read-only. The
+            # list command must remain usable even when contextual references are
+            # unavailable.
+            return
+
     def _task_target(self, parts: tuple[Any, ...]) -> Any:
         if not parts:
             choose_task = getattr(self.ctx.ui, "choose_task", None)
             if not callable(choose_task):
                 raise ValidationError("Task selection requires interactive UI")
             return choose_task()
+        if len(parts) == 1 and not isinstance(parts[0], str):
+            return parts[0]
         return self.ctx.tasks.find(self._join(parts, label="Task"))
 
     def _event_target(self, parts: tuple[Any, ...]) -> Any:
@@ -100,6 +118,11 @@ class CrudActions:
                 items,
                 item_label=lambda item: self._summary(item),
             )
+        if len(parts) == 1 and not isinstance(parts[0], str):
+            event = parts[0]
+            if not self._ordinary_event(event):
+                raise ValidationError("Internal work-session Events are not editable here")
+            return event
 
         query = self._join(parts, label="Event")
         needle = query.casefold()
@@ -217,8 +240,6 @@ class CrudActions:
             elif first in {"event", "calendar", "e"}:
                 kind, title_parts = "Event", parts[1:]
             else:
-                # A bare title is preserved, but Task/Event remains an explicit
-                # selection rather than a hidden guess.
                 title_parts = parts
 
         if kind is None:
@@ -253,24 +274,28 @@ class CrudActions:
         if parts:
             raise ValidationError("tasks does not take arguments")
         items = list(self.ctx.tasks.list() or ())
+        self._remember_numbered_items(items)
         self._show(f"Tasks · {len(items)}")
         if not items:
             self._show("(none)")
             return None
         for index, item in enumerate(items, 1):
             self._show(f"{index:>3}. {self._summary(item)}")
+        self._show("Numbers are active references for Task commands, e.g. `edit 3`, `start 3`, `done 3`.")
         return None
 
     def events(self, *parts: Any) -> None:
         if parts:
             raise ValidationError("events does not take arguments")
         items = self._ordinary_events()
+        self._remember_numbered_items(items)
         self._show(f"Events · {len(items)}")
         if not items:
             self._show("(none)")
             return None
         for index, item in enumerate(items, 1):
             self._show(f"{index:>3}. {self._summary(item)}")
+        self._show("Numbers are active references for Event commands, e.g. `edit-event 3`, `remove event 3`.")
         return None
 
     # ------------------------------------------------------------------
