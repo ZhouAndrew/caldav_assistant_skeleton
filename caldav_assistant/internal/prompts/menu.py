@@ -292,6 +292,9 @@ class Menu:
         non-empty text that is neither a menu control nor a valid selection is given
         to that callback and its return value becomes the result of ``choose``.
         Out-of-range numeric input remains a menu error instead of being passed on.
+
+        Blank Enter is intentionally neutral when there is no default: it simply
+        redraws the same menu. An empty line is not an invalid human choice.
         """
         all_choices = self._choices(items, item_label=item_label)
         if not all_choices:
@@ -324,9 +327,11 @@ class Menu:
             raw = self._read(prompt).strip()
             token = raw.casefold()
 
-            if not raw and default_index:
-                choice = filtered[default_index - 1]
-                return [choice.value] if multiple else choice.value
+            if not raw:
+                if default_index:
+                    choice = filtered[default_index - 1]
+                    return [choice.value] if multiple else choice.value
+                continue
             if token in self.BACK_TOKENS or token in self.CANCEL_TOKENS:
                 return [] if multiple else None
             if token in self.HELP_TOKENS:
