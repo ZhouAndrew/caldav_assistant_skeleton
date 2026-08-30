@@ -24,4 +24,10 @@ jobs:
       - name: Test
         run: python -m pytest -q
       - name: Real installed CLI conversation acceptance
-        run: python scripts/acceptance_conversation_real.py
+        run: python scripts/acceptance_conversation_real.py 2>&1 | tee conversation-acceptance-${{ matrix.python-version }}.log
+      - name: Archive conversation acceptance transcript
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conversation-acceptance-${{ matrix.python-version }}
+          path: conversation-acceptance-${{ matrix.python-version }}.log
