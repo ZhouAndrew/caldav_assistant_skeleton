@@ -17,7 +17,8 @@ At the `>` prompt:
   • use 0 to go back one level.
 
 Start from what you want to do: Agenda, Work, Logs, Manage, or Settings & setup.
-Commands are optional shortcuts, not required knowledge."""
+Commands are optional shortcuts, not required knowledge. For example, experienced
+users may use `add` or `edit-event` directly, but beginners never need to memorize them."""
 
 _ZH_CN_READY = """使用 CalDAV Assistant 不需要先学习一套命令。
 
@@ -27,25 +28,27 @@ _ZH_CN_READY = """使用 CalDAV Assistant 不需要先学习一套命令。
   • 输入 0 只返回上一层。
 
 从你要做的事情开始选：日程、工作、日志、管理，或设置。
-命令只是熟练后的快捷方式，不是使用前提。"""
+命令只是熟练后的快捷方式，不是使用前提；例如熟练后可以直接用 `add`、
+`edit-event`，但新用户完全不需要先记住它们。"""
 
-_EN_SETUP_SERVER = """CalDAV is not configured yet. You can finish setup without learning commands.
+_EN_SETUP_SERVER = """First-run setup is not complete yet: CalDAV is not configured.
+You can finish setup without learning commands.
 
-At the `>` prompt press Enter, choose `Settings & setup`, then open CalDAV.
+At the `>` prompt press Enter, choose `Settings & setup`, then open the CalDAV settings.
 The setup flow will guide you through server address/discovery, credentials when
-needed, connection testing, and Task/Event collection roles.
+needed, connection testing, and Collection roles for Tasks and Events.
 
 Use numbers and 0/back. After setup, press Enter again and choose what you want to do."""
 
-_ZH_CN_SETUP_SERVER = """CalDAV 还没有配置完成，但不需要先学命令。
+_ZH_CN_SETUP_SERVER = """首次设置还没有完成：CalDAV 尚未配置，但不需要先学命令。
 
-在 `>` 提示符直接按 Enter，选择“Settings & setup / 设置”，再进入 CalDAV。
+在 `>` 提示符直接按 Enter，选择“Settings & setup / 设置”，再进入 CalDAV settings。
 设置流程会依次引导：服务器地址或自动发现、需要时的账号凭据、连接测试，以及
-Task / Event collection 的用途选择。
+Task / Event 的 Collection roles。
 
 全程可以只用数字和 0 返回。设置完成后，再按 Enter 按目标选择功能即可。"""
 
-_EN_SETUP_ROLES = """The CalDAV server is configured, but Task/Event collection roles are not selected yet.
+_EN_SETUP_ROLES = """The CalDAV server is configured, but Task/Event Collection roles are not selected yet.
 
 Press Enter → Settings & setup → CalDAV → Collection roles.
 Choose a VTODO collection for Tasks and/or a VEVENT collection for Events.
@@ -54,7 +57,7 @@ The Work-log collection is optional.
 You do not need to memorize these names for normal use; this is only the one-time
 storage setup. The menu will guide normal use afterwards."""
 
-_ZH_CN_SETUP_ROLES = """CalDAV 服务器已经配置，但还没有选好 Task / Event 使用哪些 collection。
+_ZH_CN_SETUP_ROLES = """CalDAV 服务器已经配置，但还没有选好 Task / Event 的 Collection roles。
 
 按 Enter → Settings & setup / 设置 → CalDAV → Collection roles。
 为 Task 选择支持 VTODO 的 collection，并/或为 Event 选择支持 VEVENT 的 collection。
