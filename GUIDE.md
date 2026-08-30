@@ -1,890 +1,931 @@
-# CalDAV Assistant — Detailed Guide / 详细使用指南
+# CalDAV Assistant — User + Developer Guide / 使用与开发指南
 
-> This guide describes the user-facing behavior of the v1 CLI after the log-query and
-> multi-level-menu work. The short version is: **CalDAV is truth, SQLite Activity is
-> audit history, WordPress is the human long-term diary, and the Outbox is the reliable
-> bridge between them.**
+> 这份 Guide 不再把功能名重复一遍当作“说明”。它回答三个具体问题：
 >
-> 本指南说明 v1 CLI 的实际工作方式。最重要的一句话是：**CalDAV 是事实源，SQLite
-> Activity 是行为审计历史，WordPress 是给人长期阅读的日志，Outbox 是可靠上传桥梁。**
+> 1. **一个第一次打开软件的人，下一步按什么？**
+> 2. **为什么菜单现在真的有父层、子层和返回路径？**
+> 3. **开发者增加功能时，该改哪一层，绝对不该把什么逻辑塞进菜单？**
+
+CalDAV Assistant v1 的冻结原则仍然不变：CLI-first；CalDAV 保存 Task/Event 事实；SQLite 只保存缓存与 Assistant 辅助状态；WordPress 保存长期文字记录；Menu/Prompt/Temporal/Core Service/Adapter 分层；Easy API 保持 Scratch-like。实现不得为了技术方便反过来提高用户学习成本。
 
 ---
 
-## 1. 先理解四种“记录”
+# 一、第一次使用：不用学命令
 
-CalDAV Assistant 不把所有东西塞进一个“日志文件”。不同数据承担不同责任：
+启动：
 
-| 层 | 保存什么 | 是不是事实源 | 典型查询 |
-|---|---|---:|---|
-| CalDAV VTODO | Task 标题、计划开始、due、priority、STATUS、完成状态 | **是，Task 的事实源** | `today`, `tasks`, `current` |
-| CalDAV Work VEVENT | 实际工作的开始/暂停/继续/结束区间 | **是，工作时间区间的事实源** | 完成时生成工作摘要 |
-| SQLite Activity Journal | Assistant 已成功执行过的行为，例如 start/pause/resume/update/complete | 否；是审计历史 | `history today`, `history task ...` |
-| WordPress daily post | 给人阅读的长期活动日志 | 否；是长期文字日志 | `history wordpress` |
-| WordPress Outbox | 尚未成功送到 WordPress 的可靠消息 | 否；是传输队列 | `history pending` |
-
-### 为什么要分层？
-
-如果 WordPress 暂时坏了，Task 仍然必须可以完成；如果 CLI 被关闭，已经成功写进
-CalDAV 的 Task 状态不能被撤销；如果网络稍后恢复，Outbox 又必须能继续上传而不重复写
-同一条日志。
-
-所以：
-
-1. **先完成 authoritative operation（权威操作）**；
-2. 再写 Activity；
-3. 再把适合长期阅读的内容送到 WordPress/Outbox；
-4. WordPress 失败不能反向把成功的 Task 操作变成失败。
-
----
-
-## 2. 两种界面同时存在：命令 + 多级菜单
-
-CalDAV Assistant 仍然是 **CLI-first**。菜单只是一个可选导航层，不会代替命令。
-
-### 直接命令
-
-适合熟悉以后、脚本、复制粘贴：
-
-```text
-today
-next
-current
-start
-pause
-resume
-done
-edit
-add
-tasks
-events
-log Finished chapter 3
-history today
-history task Anki
-history wordpress
-history pending
+```bash
+caldav-assistant
 ```
 
-### 多级菜单
-
-输入：
-
-```text
-menu
-```
-
-或短命令：
-
-```text
-m
-```
-
-主菜单：
+看到 `>` 后，**直接按 Enter**。
 
 ```text
 CalDAV Assistant
-  Agenda
-  Work
-  Logs
-  Manage
-  Help
+Press Enter for the guided menu. Commands are optional shortcuts.
+
+>
 ```
 
-每一项再进入下一层。例如：
+Enter 会打开：
 
 ```text
-menu
-  -> Logs
-     -> WordPress today (real post)
+CalDAV Assistant
+
+1. Agenda
+2. Work
+3. Logs
+4. Manage
+5. Settings & setup
+6. Help
+0. Leave menu
 ```
 
-这最终调用的仍然是：
+最低学习成本只有：
 
 ```text
-history wordpress
+数字     选择
+0        返回上一层
+?        当前菜单帮助
 ```
 
-因此菜单和命令不会各维护一套业务实现。
+`today`、`next`、`add`、`done` 等仍然存在，但它们是熟练用户的快捷方式，不是普通用户开始使用前必须背下来的词汇。
 
-### 为什么这很重要？
+## 按目标操作
 
-如果菜单自己实现“完成 Task”，命令 `done` 又实现另一份逻辑，半年以后两者一定会发生
-行为差异。现在菜单只做 **dispatch（导航与分发）**，真正操作仍由 CommandService 中已有
-命令完成。
+### 看今天
+
+```text
+Enter → Agenda → Today
+```
+
+### 看下一步建议
+
+```text
+Enter → Agenda → Next
+```
+
+### 开始 / 暂停 / 继续 / 完成工作
+
+```text
+Enter → Work
+```
+
+然后按目标选择。
+
+### 新建 Task 或 Event
+
+```text
+Enter → Manage → Add Task/Event
+```
+
+### 修改 Task
+
+```text
+Enter → Manage → Tasks → Edit Task
+```
+
+### 修改 Event
+
+```text
+Enter → Manage → Events → Edit Event
+```
+
+### 设置
+
+```text
+Enter → Settings & setup
+```
+
+### 看历史或 WordPress 日志
+
+```text
+Enter → Logs
+```
 
 ---
 
-## 3. `history`：正式的日志查询命令
+# 二、Task 与 Event：用户真正需要知道的模型
 
-`history` 有别名：
+## Task
 
-```text
-logs
-journal
-```
-
-不带参数时：
-
-```text
-history
-```
-
-会打开日志子菜单。
-
-### 3.1 `history today`
-
-```text
-history today
-```
-
-查询的是：
-
-```text
-~/.caldav-assistant/assistant.sqlite3
-```
-
-中的 Activity Journal（通过 ActivityService/Repository 查询，不由 CLI 直接读 SQLite）。
-
-输出会包含：
-
-- 本地时间戳；
-- action；
-- object/task UID；
-- metadata。
+Task 是“要完成的工作”，底层是 CalDAV `VTODO`。
 
 例如：
 
 ```text
-Activity Journal · today · local SQLite
-Entries: 3
-  1. 2026-08-30T08:20:00+08:00  task_started  object=t1
-     metadata={"due": "...", "priority": 4, ...}
-  2. 2026-08-30T08:45:00+08:00  task_paused  object=t1
-  3. 2026-08-30T09:10:00+08:00  task_resumed  object=t1
+写报告
+背单词
+修电脑
 ```
 
-Activity 的作用是回答：
-
-> “Assistant 当时到底做过什么？”
-
-它**不负责**回答 Task 现在的 authoritative 状态。现在状态仍然看 CalDAV。
-
-### 3.2 `history task <name>`
+Task 有工作生命周期：
 
 ```text
-history task Anki
+start → pause → resume → complete
 ```
 
-查询指定 Task UID 的 Activity Journal 历史。
+## Event
 
-如果省略名称：
+Event 是“某个时间发生的事情”，底层是 CalDAV `VEVENT`。
+
+例如：
 
 ```text
-history task
+14:30 开会
+20:00 Cambly
 ```
 
-会通过 PromptKit 让你选择 Task。
+Event 可以查看、编辑、删除，但没有 Task 那种 `done` 生命周期。
 
-适合排查：
+这一区分来自数据模型，不是 UI 随便分的两个菜单。
 
-- 我什么时候开始工作？
-- 有没有 pause？
-- due 是什么时候改的？
-- Task 什么时候 complete？
-- 某次操作是不是 Assistant 真正执行过？
+---
 
-### 3.3 `history wordpress`
+# 三、第一次 CalDAV 设置
+
+如果服务器还没配置，启动说明只告诉你下一步，不再先发一张命令表。
 
 ```text
-history wordpress
+Enter
+→ Settings & setup
+→ CalDAV
 ```
 
-这是“真正的 WordPress 日志查询”。
+随后按设置菜单完成：
 
-它不是：
+1. Server 地址或自动发现；
+2. 需要时输入 credentials；
+3. Test connection；
+4. Collection roles；
+5. Task 选择支持 `VTODO` 的 collection；
+6. Event 选择支持 `VEVENT` 的 collection（需要 Event 时）。
 
-- SQLite 的副本；
-- Outbox payload；
-- 假装已经上传的本地缓存。
+Work-log collection 是可选增强。没有它，Task 的 start/pause/resume 仍然工作，活动过程可以退回本地 Activity Journal。
 
-它会通过后台 Runtime 调用 WordPressService 的 CLI-only reader，再由 `WPCLIAdapter`
-执行真正的 WP-CLI 查询：
+`VTODO / VEVENT / collection role` 属于一次性存储配置知识，不应该成为日常使用前提。
 
-1. 查找今天对应的 WordPress post；
-2. 找到 post ID；
-3. `wp post get <ID> --field=post_content`；
-4. 把远端/本机 WordPress 中**实际存在的 post_content**返回给 CLI。
+---
 
-输出会明确标记：
+# 四、多级菜单现在为什么是真的“有层”
+
+当前导航结构：
 
 ```text
-WordPress daily log · today · REAL post_content
-Post ID: ...
-Title: ...
-Content:
+CalDAV Assistant
+├─ Agenda
+│  ├─ Today
+│  ├─ Next
+│  └─ Current work
+├─ Work
+│  ├─ Start recommended task
+│  ├─ Pause current task
+│  ├─ Resume paused task
+│  └─ Complete task
+├─ Logs
+│  ├─ Write log
+│  ├─ Activity today
+│  ├─ Task history
+│  ├─ WordPress today (real post)
+│  └─ Pending WordPress uploads
+├─ Manage
+│  ├─ Add Task/Event
+│  ├─ Tasks
+│  │  ├─ List Tasks
+│  │  ├─ Edit Task
+│  │  └─ Complete Task
+│  ├─ Events
+│  │  ├─ List Events
+│  │  └─ Edit Event
+│  └─ Remove Task/Event
+├─ Settings & setup
+└─ Help
+```
+
+进入第三层时标题显示当前位置：
+
+```text
+CalDAV Assistant > Manage > Tasks
+```
+
+并显示：
+
+```text
+0. Back to Manage
+```
+
+此时按 `0`，只回到 Manage；再按 `0`，才回 Root。
+
+这不是仅仅换了标题，因为实现层维护一个真正的 navigation stack。
+
+---
+
+# 五、旧实现的问题到底是什么
+
+旧代码虽然存在 `_agenda_menu()`、`_work_menu()`、`_manage_menu()` 等函数，但实际运行更接近：
+
+```text
+Root chooser
+↓
+调用一个 submenu 函数
+↓
+submenu chooser
+↓
+执行一次 command
+↓
+整个函数返回
+```
+
+这里没有：
+
+```text
+parent node
+navigation stack
+current path
+pop one level
+```
+
+所以它只是“连续调用两个 chooser”，不是一个真正的层级导航模型。
+
+现在的结构是显式节点：
+
+```python
+NavigationMenu(
+    "Manage",
+    (
+        NavigationCommand("Add Task/Event", "add"),
+        NavigationMenu(
+            "Tasks",
+            (
+                NavigationCommand("List Tasks", "tasks"),
+                NavigationCommand("Edit Task", "edit"),
+                NavigationCommand("Complete Task", "done"),
+            ),
+        ),
+    ),
+)
+```
+
+运行时：
+
+```python
+stack = [root]
+```
+
+进入 Manage：
+
+```python
+[root, manage]
+```
+
+进入 Tasks：
+
+```python
+[root, manage, tasks]
+```
+
+按 `0`：
+
+```python
+stack.pop()
+```
+
+得到：
+
+```python
+[root, manage]
+```
+
+因此“返回上一层”现在是数据结构上的事实。
+
+Breadcrumb：
+
+```text
+CalDAV Assistant > Manage > Tasks
+```
+
+由 stack 动态生成，不是写死文案。
+
+---
+
+# 六、菜单不拥有 Task/Event 业务逻辑
+
+这是开发边界。
+
+一个菜单叶子只描述：
+
+```text
+显示 label
+canonical command
+可选参数
+```
+
+例如：
+
+```python
+NavigationCommand("Complete Task", "done")
+```
+
+执行路径：
+
+```text
+Navigation leaf
+↓
+ctx.commands.run("done")
+↓
+CommandService
+↓
+原有 done CLI composition
+↓
+TaskService.complete(...)
+↓
+CalDAVAdapter
+↓
+CalDAV VTODO
+```
+
+禁止在 navigation 里：
+
+```python
+task.status = "COMPLETED"
+adapter.update_task(...)
+```
+
+也禁止复制 `done` 已经拥有的 Task 查找、确认、Undo、Activity 等流程。
+
+**Navigation 决定“去哪里”；Core Service 决定“动作怎么做”。**
+
+---
+
+# 七、为什么 Navigation 现在复用统一 Menu
+
+旧 Navigation 为了允许“菜单中直接输入正常命令”，自己写了一套 input loop：
+
+```text
+print title
+print 1/2/3
+read input
+parse number
+parse back
+parse help
+```
+
+这与冻结的 `Menu / Choice` 模块重复，也会造成 Terminal 与未来 Web 客户端逐渐行为分叉。
+
+现在选择行为回到：
+
+```text
+PromptKit.choose(...)
+↓
+Menu.choose(...)
+↓
+MenuView
+↓
+Text / JSON / HTML renderer
+```
+
+Terminal Navigation 唯一的额外需求是：
+
+> 菜单里输入 `today` 时，不把它当“非法菜单选项”，而是交回正常 REPL。
+
+因此共享 Menu 提供一个客户端组合 hook：
+
+```python
+Menu.choose(..., on_unmatched=callback)
+```
+
+Menu 自己仍然**不理解 command**。
+
+终端 callback 只做：
+
+```text
+push_line(raw)
+```
+
+然后 Navigation 退出。
+
+下一轮 REPL 才真正：
+
+```text
+parse_command_line
+↓
+CommandService
+```
+
+所以菜单没有变成第二个命令解释器。
+
+---
+
+# 八、为什么执行一个叶子后回到 `>`
+
+例如：
+
+```text
+Enter → Agenda → Today
+```
+
+找到 `Today` 后：
+
+```text
+NavigationCommand("Today", "today")
+↓
+CommandService.run("today")
+```
+
+结果交给正常 CLI renderer 显示，然后返回 `>`。
+
+这是刻意的：层级菜单负责**找到动作**，正常 REPL 负责**执行与渲染动作**。
+
+如果选择叶子后仍长期卡在一个特殊菜单 event loop，就会形成第二套 CLI 生命周期和第二套输出规则。
+
+因此：
+
+- 进入子菜单、`0` 返回时，navigation stack 保持层级；
+- 真正执行叶子动作以后，导航结束；
+- 需要继续菜单时按 Enter 再打开。
+
+这两件事并不冲突。
+
+---
+
+# 九、空 Enter 为什么不会破坏 one-shot CLI
+
+交互 REPL 中：
+
+```text
+用户输入空行
+↓
+parse_command_line() → None
+↓
+检测 CommandRegistry 是否存在 menu
+↓
+存在：构造 ParsedCommand(name="menu")
+↓
+仍然经过 _execute() / CommandService
+```
+
+这只是 discoverability shortcut。
+
+one-shot：
+
+```bash
+caldav-assistant today
+```
+
+仍然直接：
+
+```text
+argv
+↓
+run_one_shot
+↓
+CommandService
+↓
+退出
+```
+
+不会进入菜单。
+
+---
+
+# 十、一次完整的“修改截止日期”调用链
+
+用户：
+
+```text
+Enter
+→ Manage
+→ Tasks
+→ Edit Task
+→ 选择任务
+→ Due date
+→ August5
+```
+
+调用链概念上是：
+
+```text
+REPL
+↓
+Navigation / Menu
+↓
+canonical edit command
+↓
+Item selector / choose_task
+↓
+Field menu
+↓
+PromptKit.ask_date
+↓
+TemporalParser.parse_date("August5")
+↓
+TaskService update/set_due
+↓
+CalDAVAdapter
+↓
+VTODO
+```
+
+旁路可以有：
+
+```text
+Undo Journal
+Activity Journal
+Extension hook
+```
+
+但：
+
+- Menu 不解析 `August5`；
+- Edit 不自己实现另一套日期 parser；
+- CLI 不直接写 CalDAV XML；
+- Activity Journal 不能覆盖 CalDAV Task 状态。
+
+---
+
+# 十一、数据到底放在哪里
+
+## CalDAV — Task/Event 事实源
+
+保存 VTODO / VEVENT 及标准字段。
+
+```text
+status
+start
+due
+priority
+completed
+categories
+recurrence
+alarm
 ...
 ```
 
-如果今天没有文章，不会为了“查询”偷偷创建一篇，而是返回：
+## SQLite — Assistant 辅助状态
+
+可以保存：
 
 ```text
-No matching WordPress post exists.
+cache
+current task pointer
+settings
+undo
+activity journal
+reminder dedupe
+WordPress outbox
 ```
 
-### 3.4 `history pending`
+但它不能变成第二套 Task database。
+
+## WordPress — 长期文字记录
+
+保存有长期价值的工作/学习日志。
+
+WordPress 暂时离线不能导致：
 
 ```text
-history pending
-```
-
-查看可靠 Outbox 中尚未送达的项目。
-
-它会显示：
-
-- Outbox id；
-- operation；
-- attempts；
-- created time；
-- request id；
-- last error；
-- 对 create_log，显示 pending text。
-
-注意：
-
-> `history pending` 说明“准备送什么”；`history wordpress` 说明“WordPress 现在真的有什么”。
-
-两者不能互相替代。
-
----
-
-## 4. `log`：真正写入长期日志
-
-手工写日志：
-
-```text
-log Finished the physics exercise set
-```
-
-或：
-
-```text
-log
-```
-
-然后按提示输入文字。
-
-处理顺序：
-
-```text
-CLI log
-  -> WordPressService.log()
-     -> durable Outbox enqueue
-     -> immediate WP-CLI delivery attempt
-        -> success: remove/ack Outbox + Activity wordpress_log_created
-        -> failure: keep Outbox + mark error + return "upload pending"
-```
-
-这意味着即使 WordPress 临时不可用，`log` 也不是“什么都没发生”。内容首先进入持久 Outbox。
-
-### publish 状态
-
-长期日志 API 默认携带：
-
-```text
-post_status=publish
-```
-
-这是为了与现有真实日志脚本一致。
-
-**安全提醒：** WordPress 的 `publish` 可能意味着文章可被网站访问。你的站点如果不是纯本地/
-私有站点，请确认访问控制、主题、REST API、搜索引擎设置等符合你的隐私预期。
-
-普通 `create_post()` API 没有被强制改成 publish；这个默认只属于“日志”语义。
-
----
-
-## 5. WordPress 每日日志如何与现有 shell 脚本兼容
-
-现有工作流的核心约定是：
-
-```text
-Month + day + weekday + year
-```
-
-例如：
-
-```text
-August 30  Sunday  2026
-```
-
-Assistant 现在查找 daily post 时兼容：
-
-- 完整月份：`August`；
-- 月份缩写：`Aug`；
-- 日期必须是独立数字，避免 `30` 错匹配 `130`；
-- weekday；
-- year；
-- 一个或多个空格都不影响判断。
-
-所以脚本产生的：
-
-```text
-August 30  Sunday  2026
-```
-
-和 Assistant 自己标准化产生的：
-
-```text
-August 30 Sunday 2026
-```
-
-会被视为同一天的 daily post。
-
-### 找到旧文章时
-
-不会创建第二篇，而是：
-
-1. 读取现有 `post_content`；
-2. 在末尾追加新 block；
-3. 更新原 post。
-
-### 找不到时
-
-Assistant 创建标准化标题：
-
-```text
-August 30 Sunday 2026
-```
-
-日志 API 会要求 `publish`。
-
-### 防止重试重复
-
-每次日志请求都有 request id，并在 WordPress 内容中加入不可见 marker：
-
-```html
-<!-- caldav-assistant-log:<request-id> -->
-```
-
-如果远端其实已经写成功、但本地刚好来不及确认，Outbox 重试时会先检查 marker；已经存在就不再追加
-第二份可见日志。
-
-### 为什么保存 `_logged_at`？
-
-假设你在 23:58 写日志，但 WordPress 当时离线，第二天 00:10 才恢复。
-
-如果按“上传成功时间”判断日期，这条日志会跑到第二天。
-
-所以 Outbox payload 在用户写日志时就保存 `_logged_at`。重试时仍按原始行为日期追加到正确的 daily post。
-
----
-
-## 6. Task 工作生命周期：现在会记录什么
-
-### `start`
-
-```text
-start
-start Anki
-```
-
-含义：**现在开始实际工作**，不是修改计划 DTSTART。
-
-成功后：
-
-1. CalDAV Task 状态进入工作状态；
-2. Work session/Work VEVENT 开始；
-3. SQLite Activity 写 `task_started`；
-4. 发出 `task.started` hook；
-5. 默认 WordPress work-session extension 写 `Started — <Task>` 日志。
-
-### `pause`
-
-```text
-pause
-```
-
-只允许暂停**当前真的在工作**的 Task，不能写：
-
-```text
-pause Some Planned Task
-```
-
-成功后：
-
-1. 当前 Work interval 被暂停/关闭；
-2. SQLite Activity 写 `task_paused`；
-3. 发出 `task.paused` hook；
-4. WordPress 写 `Paused — <Task>`。
-
-### `resume`
-
-```text
-resume
-```
-
-只允许继续之前 pause 的工作。
-
-成功后：
-
-1. 新的 Work interval 开始；
-2. SQLite Activity 写 `task_resumed`；
-3. 发出 `task.resumed` hook；
-4. WordPress 写 `Resumed — <Task>`。
-
-### `done`
-
-```text
-done
-complete
-```
-
-Task 完成后：
-
-1. CalDAV VTODO 写 authoritative completed/status/completed_at；
-2. 当前 Work interval 正确结束；
-3. Activity 写 `task_completed`；
-4. Completion Log Service 根据真实 CalDAV Work VEVENT 生成完整工作摘要；
-5. 完成摘要进入 WordPress Outbox，随后上传。
-
-完成摘要比一个简单 `Completed` hook 更丰富，因此不会再额外生成一份重复的 completion hook 日志。
-
----
-
-## 7. Task 与 Event 的边界
-
-### Task
-
-Task 是“要完成的工作”，所以可以：
-
-```text
-start
-pause
-resume
-done
-```
-
-### Event
-
-Event 是“发生在某个时间的事情”。
-
-它可以：
-
-```text
-add event ...
-events
-edit-event
-remove event ...
-```
-
-但没有：
-
-```text
-start event
-pause event
-resume event
-done event
-```
-
-因为“会议发生过”和“Task 完成”不是同一个领域概念。
-
----
-
-## 8. 多级菜单的完整映射
-
-### Agenda
-
-| 菜单 | 实际命令 |
-|---|---|
-| Today | `today` |
-| Next | `next` |
-| Current work | `current` |
-
-### Work
-
-| 菜单 | 实际命令 |
-|---|---|
-| Start recommended task | `start` |
-| Pause current task | `pause` |
-| Resume paused task | `resume` |
-| Complete task | `done` |
-
-### Logs
-
-| 菜单 | 实际命令 |
-|---|---|
-| Write log | `log` |
-| Activity today | `history today` |
-| Task history | `history task` |
-| WordPress today (real post) | `history wordpress` |
-| Pending WordPress uploads | `history pending` |
-
-### Manage
-
-| 菜单 | 实际命令 |
-|---|---|
-| Add Task/Event | `add` |
-| List Tasks | `tasks` |
-| List Events | `events` |
-| Edit Task | `edit` |
-| Edit Event | `edit-event` |
-| Remove Task/Event | `remove` |
-
-### Help
-
-等价于：
-
-```text
-help
+done failed
+start failed
+edit failed
 ```
 
 ---
 
-## 9. 推荐的日常工作方式
+# 十二、开发者要改哪个文件
 
-刚开始使用时：
+## `caldav_assistant/internal/cli/app.py`
 
-```text
-menu
-```
-
-熟悉后：
+负责：
 
 ```text
-today
-start
-pause
-resume
-done
-history today
-history wordpress
+REPL / one-shot
+parse command line
+_execute
+result rendering entry
+blank Enter → guided menu discoverability
 ```
 
-排查日志上传：
+不负责 Task/Event 业务。
+
+## `caldav_assistant/internal/cli/navigation.py`
+
+负责：
 
 ```text
-history pending
-history wordpress
+NavigationMenu
+NavigationCommand
+navigation stack
+breadcrumb
+history composition
+leaf → CommandService
 ```
 
-排查一个 Task 的行为历史：
+不负责直接改 CalDAV。
+
+## `caldav_assistant/internal/prompts/menu.py`
+
+负责所有通用菜单规则：
 
 ```text
-history task Anki
+number
+0/back
+q/cancel
+?/help
+search
+paging
+MenuView
+on_unmatched client handoff
 ```
+
+它不知道什么是 Task complete。
+
+## `caldav_assistant/internal/prompts/kit.py`
+
+统一交互积木：
+
+```text
+ask_text
+ask_date
+ask_datetime
+choose
+choose_task
+choose_event
+confirm
+```
+
+## `caldav_assistant/internal/presentation/`
+
+负责把同一 View 渲染成：
+
+```text
+TXT
+JSON
+HTML
+```
+
+客户端不应该重新定义业务菜单。
+
+## `caldav_assistant/builtin_extensions/software_intro.py`
+
+负责根据 setup stage 给用户**一个明确下一步**，不再承担“先教一整套命令”的角色。
 
 ---
 
-## 10. WordPress 离线时怎么办？
+# 十三、增加菜单功能的正确方式
 
-如果 `log` 返回类似：
+## 已经有 command
 
-```text
-Saved locally; WordPress upload pending.
-```
-
-含义不是“失败并丢失”，而是：
-
-- Outbox 已经持久保存；
-- 即时上传失败；
-- 后台 flush 可以之后重试。
-
-先看：
+例如未来想加：
 
 ```text
-history pending
+Undo last change
 ```
 
-再看真实 WordPress：
+如果 canonical `undo` 已存在，只增加：
+
+```python
+NavigationCommand("Undo last change", "undo")
+```
+
+不要重新实现 Undo。
+
+## 还没有 command
+
+正确顺序：
 
 ```text
-history wordpress
+Core Service / reusable action
+↓
+canonical command registration
+↓
+CLI composition
+↓
+NavigationCommand leaf
 ```
 
-如果 pending 有内容、WordPress 没有，说明“本地已有，远端未到”。
+错误顺序：
 
-如果 pending 没有、WordPress 有，说明已送达。
+```text
+menu callback 直接操作 DB/CalDAV
+↓
+以后再想办法让 command 复用
+```
 
-如果两边都没有，再去查 Activity/命令输入和 WordPress 配置。
+那会重新产生菜单版业务和命令版业务两套实现。
 
 ---
 
-## 11. 后台命令输出日志与 Activity/WordPress 日志不是一回事
+# 十四、增加子菜单的正确方式
 
-开发者扩展的：
+只声明结构：
 
-```text
-run python worker.py in background
+```python
+NavigationMenu(
+    "Projects",
+    (
+        NavigationCommand("Project agenda", "project-agenda"),
+        NavigationCommand("Project log", "project-log"),
+    ),
+)
 ```
 
-会把 stdout/stderr 写到：
+不要写：
 
-```text
-~/.caldav-assistant/run-logs/run-....log
+```python
+while True:
+    print("1 ...")
+    value = input()
+    if value == "1": ...
 ```
 
-这是**外部进程输出日志**。
-
-不要与：
-
-- `history today`（Activity Journal）；
-- `history wordpress`（长期生活/工作日志）；
-- `history pending`（Outbox）
-
-混为一谈。
+统一 Menu 已经负责选择、返回、帮助、渲染和输入恢复。
 
 ---
 
-## 12. 常见排障
+# 十五、扩展作者应该从 Easy API 开始
 
-### 12.1 `history wordpress` 提示 runtime 不支持
+普通扩展：
 
-通常说明 CLI 已更新，但旧后台服务还在运行。
+```python
+from caldav_assistant.easy import command, show, overdue_tasks
 
-重启：
+@command("urgent")
+def urgent():
+    show(overdue_tasks())
+```
+
+普通扩展不应该先理解：
+
+```text
+Context
+RuntimeClient
+IPC
+CalDAV XML
+SQLite schema
+Dependency injection
+```
+
+三层 API：
+
+```text
+Easy API
+↓
+Object API (ctx.tasks / ctx.events / ctx.ui / ...)
+↓
+Full Extension API v1
+↓
+Internal Core
+```
+
+简单功能优先 Easy API；不要因为 Full API 强大，就把内部复杂度强迫给每个扩展作者。
+
+---
+
+# 十六、验收“用户不需要学习”的测试标准
+
+代码能运行还不够。
+
+必须验证：
+
+### A. 完全不知道命令
+
+```text
+启动 → Enter → 数字 → 数字
+```
+
+可以到达核心功能。
+
+### B. `0` 只退一级
+
+```text
+Root → Manage → Tasks → 0
+```
+
+结果必须是 Manage。
+
+### C. 第三层能看到路径
+
+```text
+CalDAV Assistant > Manage > Tasks
+```
+
+### D. 菜单里可随时输入正常命令
+
+```text
+CalDAV Assistant > Logs
+> today
+```
+
+必须交回正常 REPL，而不是把 `today` 判定为 invalid menu choice。
+
+### E. 菜单与直接命令复用同一 handler
+
+菜单 Today 与直接 `today` 最终都必须走 CommandService 的同一个 canonical command。
+
+### F. one-shot 保持稳定
 
 ```bash
-caldav-assistant background restart
+caldav-assistant today
 ```
 
-然后再：
+执行一次以后退出。
+
+### G. 修改共享 Menu 必须跑全套测试
+
+因为它还被以下功能复用：
 
 ```text
-history wordpress
+settings
+choose_task
+choose_event
+edit
+add
+extensions
 ```
 
-### 12.2 `history wordpress` 没有文章，但 `history pending` 有
-
-WordPress 还没有成功收到日志。
-
-检查：
-
-- WP-CLI 是否可执行；
-- WordPress path；
-- `sudo`/文件权限（如果你的部署需要）；
-- Outbox 的 `last_error`。
-
-### 12.3 WordPress 明明有今天文章却找不到
-
-匹配至少需要：
-
-- month full 或 abbreviation；
-- day；
-- weekday；
-- year。
-
-例如：
-
-```text
-Aug 30 Sunday 2026
-August 30 Sunday 2026
-August 30  Sunday  2026
-```
-
-都可匹配。
-
-### 12.4 为什么 Activity 有 `task_paused`，WordPress 没有 Paused？
-
-先检查：
-
-```text
-extension list
-extension errors wordpress_work_session_log
-history pending
-```
-
-Activity 先于扩展 side effect 持久化，因此扩展失败时 Activity 仍可能存在。这是故意的可靠性边界。
-
-### 12.5 为什么 `history today` 里 WordPress delivery action 比 Task action晚？
-
-因为：
-
-1. Task/Activity 是本地 authoritative/审计链路；
-2. WordPress 是二级长期记录；
-3. 网络和 WP-CLI 传输可能晚一些。
-
-这是正常现象。
+所以不是只跑 navigation tests。
 
 ---
 
-## 13. 开发者与扩展作者
+# 十七、不要再写“说了跟没说一样”的说明
 
-扩展应优先使用：
-
-```python
-from caldav_assistant.easy import ...
-```
-
-或稳定的：
-
-```python
-from caldav_assistant.api import ...
-from caldav_assistant.api.v1 import ...
-```
-
-不要让普通扩展直接：
-
-- 操作 SQLite 表；
-- 修改 CalDAV XML；
-- 依赖 IPC 细节；
-- 把 Event 当作 Task 完成；
-- 绕开 WordPress Outbox 自己假装上传成功。
-
-WordPress work-session extension 的正确模式是：
+无效说明往往只是：
 
 ```text
-Activity durable record
-  -> public hook
-     -> Easy API write_log
-        -> WordPressService
-           -> Outbox
-           -> WP-CLI
+Agenda：日程
+Settings：设置
+Extensions：扩展
 ```
 
-扩展异常不能回滚已经成功的 Task 操作。
+这只是在重复 UI label。
+
+真正有用的说明至少回答：
+
+```text
+什么时候用？
+具体按什么？
+下一步会出现什么？
+会修改哪里的数据？
+失败以后会怎样？
+开发层最终调用哪个 Service？
+```
+
+例如“Complete task”的有效说明应该说明：
+
+```text
+用户选择 Task
+↓
+TaskService.complete
+↓
+写 CalDAV STATUS:COMPLETED / COMPLETED / PERCENT-COMPLETE
+↓
+Activity/Undo 等辅助记录
+```
+
+而不是只写：
+
+```text
+Complete task：完成任务。
+```
 
 ---
 
-# English Guide
+# Eighteen — English quick guide
 
-## 14. Mental model
+You do not need to learn commands first.
 
-CalDAV Assistant deliberately keeps different kinds of truth separate:
-
-- **CalDAV VTODO** is the authoritative Task state.
-- **CalDAV Work VEVENTs** are authoritative work intervals.
-- **SQLite Activity Journal** is a durable audit trail of Assistant behavior.
-- **WordPress daily posts** are the human-readable long-term diary.
-- **WordPress Outbox** is a durable delivery queue, not a claim that remote delivery
-  already happened.
-
-A WordPress outage must never undo a successful Task operation.
-
-## 15. Commands and menu coexist
-
-Direct commands remain first-class:
+Start `caldav-assistant`, then press **Enter** at the `>` prompt. Choose by number; `0`
+goes back exactly one level. The current path is visible, e.g.:
 
 ```text
-today
-start
-pause
-resume
-done
-log ...
-history today
-history task Report
-history wordpress
-history pending
+CalDAV Assistant > Manage > Tasks
 ```
 
-The optional nested menu is:
+Direct commands remain optional shortcuts and may be typed even while a menu is open.
+The terminal hands unmatched command text back to the normal REPL instead of building
+a second command parser inside Menu.
+
+Developer rule:
 
 ```text
-menu
+Navigation decides where to go.
+Command composition chooses the canonical action.
+Core Service implements business behavior.
+Adapter performs external storage/platform IO.
 ```
 
-or:
+Do not move business logic into Menu/Navigation.
 
-```text
-m
-```
+---
 
-The menu dispatches to the exact same command handlers. It does not implement a second
-copy of Task or log behavior.
+# 最终原则
 
-## 16. Log queries
+> **打开就能用：Enter 是发现入口，数字是基础操作，0 是一级返回，命令是快捷方式。**
 
-### Local audit history
+> **导航有真正的树和 stack，但它不拥有 Task/Event 业务。**
 
-```text
-history today
-```
+> **菜单、直接命令、通知、自然语言和 Python API 最终复用同一个 Core Service。**
 
-Reads today's durable Activity Journal through the Activity API.
+> **CalDAV 是 Task/Event 事实源；SQLite 是辅助状态；WordPress 是长期记录。**
 
-```text
-history task Report
-```
-
-Reads Activity rows for one Task UID.
-
-### Actual WordPress content
-
-```text
-history wordpress
-```
-
-Uses WP-CLI to locate today's existing daily post and then reads its actual
-`post_content`. It does not create a post merely because you queried it.
-
-### Pending delivery
-
-```text
-history pending
-```
-
-Shows Outbox items that still need delivery. A pending payload and an actual WordPress
-post are intentionally different views.
-
-## 17. Writing logs
-
-```text
-log Finished the report
-```
-
-is Outbox-first. The request is made durable before immediate WP-CLI delivery is
-attempted. Long-term log operations default to `post_status=publish` to match the
-existing daily-log workflow. Generic post creation is not globally forced to publish.
-
-Each log request receives an idempotency marker, so retry after an uncertain remote
-success does not duplicate the visible entry.
-
-## 18. Work lifecycle logging
-
-For Tasks:
-
-- `start` -> `task_started` -> `task.started` -> WordPress `Started` entry.
-- `pause` -> `task_paused` -> `task.paused` -> WordPress `Paused` entry.
-- `resume` -> `task_resumed` -> `task.resumed` -> WordPress `Resumed` entry.
-- `done` -> authoritative completion plus the richer completion summary built from
-  actual CalDAV work intervals.
-
-Events do not have this completion lifecycle.
-
-## 19. Compatibility with existing daily-post scripts
-
-Daily-post discovery accepts:
-
-- full or abbreviated English month names;
-- the day as an independent number;
-- weekday;
-- year;
-- arbitrary extra whitespace.
-
-Therefore both of these refer to the same day:
-
-```text
-August 30 Sunday 2026
-August 30  Sunday  2026
-```
-
-This allows Assistant to reuse posts created by the existing shell workflow instead of
-creating duplicate daily posts.
-
-## 20. Troubleshooting checklist
-
-If remote logs seem missing:
-
-```text
-history today
-history pending
-history wordpress
-```
-
-Interpret them in that order:
-
-1. Did the Assistant record the action locally?
-2. Is a WordPress operation still pending?
-3. What content is actually present in WordPress now?
-
-If `history wordpress` says the runtime does not support the query after an upgrade,
-restart the background service so the CLI and Runtime use the same version.
+> **内部可以复杂，但复杂度不能转嫁给普通用户或 Easy API 扩展作者。**
