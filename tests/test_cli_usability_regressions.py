@@ -170,7 +170,7 @@ def test_command_typed_at_agenda_pager_is_replayed_by_repl_and_counts_items():
     assert not any("-- 10/16 --" in prompt for prompt in io.prompts)
 
 
-def test_first_start_guides_worklog_setup_then_creates_caldav_work_interval():
+def test_first_start_auto_configures_single_worklog_collection_then_creates_caldav_work_interval():
     adapter = IntegrationAdapter()
     settings = SetupSettings()
     ui = SetupUI()
@@ -191,6 +191,7 @@ def test_first_start_guides_worklog_setup_then_creates_caldav_work_interval():
     assert worklog.current_task_id() == "t1"
     assert len(adapter.events) == 1
     assert adapter.events[0].summary == "Work — Anki"
-    assert any("Work history setup" in message for message in ui.messages)
-    assert any("✓ Work log collection: Personal" in message for message in ui.messages)
+    assert ui.choices == []
+    assert any("Work history ready: Personal" in message for message in ui.messages)
+    assert any("only compatible calendar was selected automatically" in message for message in ui.messages)
     assert any("Start working → Anki" in message for message in ui.messages)
