@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 from ...api import Event, Task
 from ...api.v1.errors import AmbiguousError, NotFoundError, ValidationError
+from ..progress import emit_progress
 
 
 class WorkLogService:
@@ -88,10 +89,6 @@ class WorkLogService:
     def _all_work_events(self) -> list[Event]:
         target = self._collection_url(required=False)
         if target is None:
-            # Work tracking is an optional enhancement for read/query paths.
-            # Commands such as next/current/done must remain usable before the
-            # user chooses where VEVENT work history should live. Mutating work
-            # operations still call _collection_url(required=True).
             return []
         items = self.adapter.list_events(category=self.CATEGORY)
         return [
@@ -152,9 +149,24 @@ class WorkLogService:
             categories=[self.CATEGORY, self.OPEN_CATEGORY],
         )
         setattr(event, "_caldav_collection_url", target)
+        emit_progress(
+            "worklog.open",
+            f"Opening CalDAV Work interval for {task.summary}...",
+            state="started",
+            task_id=task_id,
+            collection_url=target,
+        )
         created = self.adapter.create_event(event)
         if not isinstance(created, Event):
             raise TypeError("CalDAVAdapter must return Event for work-log creation")
+        emit_progress(
+            "worklog.open",
+            "CalDAV Work interval opened.",
+            state="done",
+            task_id=task_id,
+            event_id=created.id,
+            start=created.start.isoformat() if isinstance(created.start, datetime) else created.start,
+        )
         return created
 
     def close_segment(self, task: Task | str, *, required: bool = True) -> Event | None:
@@ -163,15 +175,32 @@ class WorkLogService:
             if required:
                 raise ValidationError("This Task has no open CalDAV work interval")
             return None
+        task_id = str(getattr(task, "id", task) or "").strip()
+        closed_at = self.now()
+        emit_progress(
+            "worklog.close",
+            "Closing current CalDAV Work interval...",
+            state="started",
+            task_id=task_id,
+            event_id=event.id,
+        )
         updated = self.adapter.update_event(
             event.id,
             {
-                "end": self.now(),
+                "end": closed_at,
                 "categories": [self.CATEGORY],
             },
         )
         if not isinstance(updated, Event):
             raise TypeError("CalDAVAdapter must return Event for work-log update")
+        emit_progress(
+            "worklog.close",
+            "CalDAV Work interval closed (DTEND saved; open marker removed).",
+            state="done",
+            task_id=task_id,
+            event_id=updated.id,
+            end=updated.end.isoformat() if isinstance(updated.end, datetime) else updated.end,
+        )
         return updated
 
     def reopen_segment(self, event: Event) -> Event:
