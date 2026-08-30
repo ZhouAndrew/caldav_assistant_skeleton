@@ -1,9 +1,11 @@
 """Live-progress composition for the zero-learning conversation client.
 
-`conversation_app` owns the welcome/guided-menu/Waiting-Mode experience.  This module
+`conversation_app` owns the welcome/guided-menu/Waiting-Mode experience. This module
 changes only foreground execution observability: lifecycle commands stream factual
-Core milestones while they are happening.  It does not duplicate Task business
-logic and it does not predict a call chain.
+Core milestones while they are happening, and the final command result is rendered
+only after those milestones have reached the terminal.
+
+It does not duplicate Task business logic and it never predicts a call chain.
 """
 from __future__ import annotations
 
@@ -11,9 +13,11 @@ from datetime import datetime
 from time import monotonic
 from typing import Any, Sequence
 
+from ...api.v1.errors import CalDAVAssistantError, NotFoundError
 from . import app as base
 from . import conversation_app as conversation
 from . import monitor_app as legacy
+from .actions import EXIT_REPL
 from .live_command import run_with_live_progress
 
 
@@ -36,6 +40,71 @@ def _show_progress(app: Any, event: dict[str, Any]) -> None:
     )
 
 
+def _run_command_without_render(
+    app: Any,
+    parsed: base.ParsedCommand,
+) -> tuple[int, bool, Any]:
+    """Run the normal CommandService path but postpone result presentation.
+
+    This mirrors only the CLI error/dispatch shell from ``base._execute``. The
+    command itself still resolves through CommandService and all Task/Event writes
+    remain in the existing Core services. Postponing ``_render_result`` guarantees
+    that a final result/What-changed summary cannot overtake progress events emitted
+    by Core before its IPC response returned.
+    """
+    try:
+        entry = app.commands.resolve(parsed.name)
+    except NotFoundError:
+        base._error(app, base._unsupported_command_message(app, parsed.name))
+        return 2, False, None
+    except CalDAVAssistantError as exc:
+        base._error(app, f"{type(exc).__name__}: {exc}")
+        return 2, False, None
+
+    if parsed.name.casefold() != entry.name.casefold():
+        base._ui_show(
+            app,
+            base._t(
+                app,
+                "cli.command_resolution",
+                "Command → {command}",
+                command=entry.name,
+            ),
+        )
+
+    try:
+        args = base._resolve_numbered_reference(app, entry.name, parsed.args)
+        result = app.commands.run(entry.name, *args)
+    except KeyboardInterrupt:
+        base._error(app, base._t(app, "cli.cancelled", "Cancelled."))
+        return 130, False, None
+    except EOFError:
+        return 0, True, None
+    except NotFoundError as exc:
+        if entry.name.casefold() == "help" and parsed.args:
+            target = " ".join(parsed.args).strip()
+            base._error(app, base._unsupported_command_message(app, target))
+        else:
+            base._error(app, f"{type(exc).__name__}: {exc}")
+        return 2, False, None
+    except CalDAVAssistantError as exc:
+        base._error(app, f"{type(exc).__name__}: {exc}")
+        return 2, False, None
+    except (TypeError, ValueError) as exc:
+        base._error(
+            app,
+            base._t(app, "cli.invalid_input", "Invalid input: {error}", error=exc),
+        )
+        return 2, False, None
+    except Exception as exc:
+        base._error(app, f"{type(exc).__name__}: {exc}")
+        return 1, False, None
+
+    if result is EXIT_REPL:
+        return 0, True, None
+    return 0, False, result
+
+
 def _execute_user(
     app: Any,
     parsed: base.ParsedCommand,
@@ -47,38 +116,54 @@ def _execute_user(
     effective, period_seconds = legacy._split_lifecycle_duration(parsed)
     conversation._show(app, "")
     conversation._show(app, f"Working: {original.raw}")
-    conversation._show(app, "Progress is reported by the operation that actually performs each step.")
+    conversation._show(
+        app,
+        "Progress is reported by the operation that actually performs each step.",
+    )
     started = monotonic()
 
     delivery_target = legacy._monitor_target(app)
 
-    def execute_core() -> tuple[int, bool]:
-        return base._execute(app, effective, paginate=paginate)
+    def execute_core() -> tuple[int, bool, Any]:
+        return _run_command_without_render(app, effective)
 
     def on_delivery(event: dict[str, Any]) -> None:
         target = delivery_target or legacy._monitor_target(app)
         if target is not None:
             _delivery_only(app, event, target)
 
-    code, should_exit = run_with_live_progress(
+    code, should_exit, result = run_with_live_progress(
         app,
         execute_core,
         on_progress=lambda event: _show_progress(app, event),
         on_delivery=on_delivery,
     )
 
-    # Work-period allocation remains a distinct Assistant operation.  It already
-    # reports before and after execution here, while Task DUE/DTSTART remain untouched.
+    # Every service-side milestone emitted before the IPC result has been drained.
+    # Only now may the final result/What-changed presentation be shown.
+    if result is not None:
+        base._render_result(app, result, paginate=paginate)
+
+    # Work-period allocation is a distinct Assistant operation. It reports its own
+    # before/after state here while Task DUE/DTSTART remain untouched.
     if code == 0 and period_seconds is not None:
         target = legacy._monitor_target(app)
-        if target is None or target.kind != "task" or not target.current_work or not target.object_id:
+        if (
+            target is None
+            or target.kind != "task"
+            or not target.current_work
+            or not target.object_id
+        ):
             conversation._show(
                 app,
                 "✗ Task started, but the Assistant could not resolve the current Task for its work period.",
             )
             code = 1
         else:
-            conversation._show(app, "→ Setting the work-period reminder in the background Assistant…")
+            conversation._show(
+                app,
+                "→ Setting the work-period reminder in the background Assistant…",
+            )
             try:
                 status = legacy._runtime_call(
                     app,
@@ -109,7 +194,7 @@ def _execute_user(
                 if isinstance(remaining, (int, float)):
                     conversation._show(
                         app,
-                        f"  Remaining: {legacy.format_work_duration(max(0, int(remaining)))}",
+                        f"  Remaining: {conversation.format_work_duration(max(0, int(remaining)))}",
                     )
                 conversation._show(app, "  Task DUE/DTSTART were not changed.")
 
