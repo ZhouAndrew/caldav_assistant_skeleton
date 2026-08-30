@@ -3,7 +3,7 @@ from types import MappingProxyType
 
 _EN = {
     "cli.banner": "CalDAV Assistant",
-    "cli.hint": "Type 'help' for commands. Ctrl-D or Ctrl-C exits.",
+    "cli.hint": "Press Enter for the guided menu. Commands are optional shortcuts. Ctrl-D or Ctrl-C exits.",
     "cli.unknown_command": "Unknown command: {command}. Type 'help' for commands.",
     "cli.unsupported_command": "Unsupported command: {command}. Type 'help' for available commands.",
     "cli.command_supported_extension_missing": "Command '{command}' is supported by official extension '{extension}', but that extension is not installed in this build.",
@@ -121,7 +121,7 @@ extensions should prefer Easy API.""",
 
 _ZH_CN = {
     "cli.banner": "CalDAV Assistant",
-    "cli.hint": "输入 'help' 查看命令。Ctrl-D 或 Ctrl-C 退出。",
+    "cli.hint": "直接按 Enter 打开引导菜单；命令只是可选快捷方式。Ctrl-D 或 Ctrl-C 退出。",
     "cli.unknown_command": "未知命令：{command}。输入 'help' 查看命令。",
     "cli.unsupported_command": "不支持的命令：{command}。输入 'help' 查看当前可用命令。",
     "cli.command_supported_extension_missing": "命令“{command}”受官方扩展“{extension}”支持，但当前软件包中没有安装该扩展。",

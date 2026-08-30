@@ -1,18 +1,21 @@
-"""Log-history queries and optional multi-level CLI navigation.
+"""Log-history queries and real hierarchical CLI navigation.
 
-This module is presentation/composition only.  Direct commands remain the canonical
-entry points; ``menu`` simply dispatches to those same CommandService handlers.
-Activity queries use the public Activity namespace.  Reading the real WordPress daily
-post uses a deliberately private CLI observability method so the frozen public v1
-WordPress API does not need to grow transport-specific query semantics.
+This module is presentation/composition only. Direct commands remain canonical entry
+points; ``menu`` declares a navigation tree and dispatches executable leaves to the
+same CommandService handlers used by the normal REPL.
 
-Navigation is intentionally *not* a second CLI mode.  At every navigation level a
-user may type any ordinary command.  Production StdConsoleIO pushes that raw line
-back to the normal REPL, so aliases, numbered references, parsing, rendering and
-error handling stay exactly the same as at the top-level ``>`` prompt.
+The navigation tree has an explicit stack. Therefore a submenu has a parent, ``0``
+returns exactly one level, and the title shows the current path. Selecting an action
+leaf deliberately leaves navigation after dispatch so result rendering remains owned
+by the ordinary CLI path rather than a second modal shell.
+
+Navigation is also non-modal: at any level, production terminal users may type a
+normal CLI command. The shared Menu passes unmatched text to ``push_line`` and this
+module exits the navigation stack; the normal REPL then parses that exact line.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 import json
 from typing import Any, Callable
@@ -20,11 +23,28 @@ from typing import Any, Callable
 from ...api.v1.errors import ValidationError
 
 
-class NavigationActions:
-    """Small human-facing bricks for history queries and nested menus."""
+_RELEASED_TO_REPL = object()
 
-    _BACK = frozenset({"0", "back", "b", "q", "quit", "cancel", "c"})
-    _HELP = frozenset({"?", "help", "h"})
+
+@dataclass(frozen=True, slots=True)
+class NavigationCommand:
+    """A leaf in the navigation tree that delegates to one canonical command."""
+
+    label: str
+    command: str
+    args: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class NavigationMenu:
+    """A real parent/child node; business behavior never lives here."""
+
+    label: str
+    children: tuple[Any, ...]
+
+
+class NavigationActions:
+    """Human-facing history bricks plus a stack-based goal navigation tree."""
 
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx
@@ -46,73 +66,41 @@ class NavigationActions:
             raise ValidationError(f"{label} must not be empty")
         return value
 
-    @staticmethod
-    def _exact_label(items: tuple[str, ...], raw: str) -> str | None:
-        needle = raw.strip().casefold()
-        matches = [item for item in items if item.strip().casefold() == needle]
-        return matches[0] if len(matches) == 1 else None
-
-    def _choose(self, title: str, items: tuple[str, ...]) -> str | None:
-        """Choose one navigation item without trapping ordinary CLI commands.
-
-        PromptKit/Menu remains the generic frozen chooser for Task/Event selections.
-        Navigation needs one extra CLI-specific property: unmatched text is not an
-        "invalid choice"; it may be a perfectly valid direct command.  When the
-        production IO supports ``push_line``, release that text back to the REPL and
-        exit the menu.  Small test/extension UIs without pushback retain the previous
-        PromptKit ``choose`` behavior.
-        """
+    def _release_to_repl(self, raw: str) -> Any:
         ui = getattr(self.ctx, "ui", None)
         io = getattr(ui, "io", None)
-        reader = getattr(io, "read", None)
-        writer = getattr(io, "write", None)
         push_line = getattr(io, "push_line", None)
+        if not callable(push_line):
+            raise ValidationError("This client cannot hand a command line back to the REPL")
+        push_line(raw)
+        return _RELEASED_TO_REPL
 
-        if not (callable(reader) and callable(writer) and callable(push_line)):
-            choose = getattr(ui, "choose", None)
-            if not callable(choose):
-                raise ValidationError(f"{title} requires interactive UI")
-            return choose(title, items)
+    def _choose(
+        self,
+        title: str,
+        items: tuple[str, ...],
+        *,
+        back_label: str = "Back",
+    ) -> Any:
+        """Use the shared PromptKit/Menu instead of implementing another menu loop."""
+        ui = getattr(self.ctx, "ui", None)
+        choose = getattr(ui, "choose", None)
+        if not callable(choose):
+            raise ValidationError(f"{title} requires interactive UI")
 
-        values = tuple(str(item) for item in items)
-        while True:
-            writer(title)
-            for index, label in enumerate(values, 1):
-                writer(f"{index}. {label}")
-            writer("0. Back")
-            writer("Tip: type any normal CLI command here to run it and leave the menu.")
-            raw = str(reader("> ") or "").strip()
-            token = raw.casefold()
-
-            if token in self._BACK:
-                return None
-            if token in self._HELP:
-                writer(
-                    "Choose by number or exact label. 0/back returns. "
-                    "Any other command line is handed to the normal CLI."
-                )
-                continue
-
-            exact = self._exact_label(values, raw)
-            if exact is not None:
-                return exact
-
-            try:
-                index = int(raw)
-            except ValueError:
-                index = -1
-            if 1 <= index <= len(values):
-                return values[index - 1]
-            if raw.isascii() and raw.isdigit():
-                writer(
-                    f"Choose 1-{len(values)}, 0 to go back, or type a normal CLI command."
-                )
-                continue
-
-            if not raw:
-                continue
-            push_line(raw)
-            return None
+        io = getattr(ui, "io", None)
+        push_line = getattr(io, "push_line", None)
+        options: dict[str, Any] = {
+            "searchable": False,
+            "back_label": back_label,
+            "help_text": (
+                "Choose by number. 0 goes back one level. Commands are optional "
+                "shortcuts; in the terminal you may also type a normal command here."
+            ),
+        }
+        if callable(push_line):
+            options["on_unmatched"] = self._release_to_repl
+        return choose(title, items, **options)
 
     def _run(self, name: str, *args: Any) -> Any:
         """Dispatch through the same registry used by direct CLI commands."""
@@ -229,7 +217,7 @@ class NavigationActions:
 
     def _history_menu(self) -> Any:
         selected = self._choose(
-            "Logs / History",
+            "History",
             (
                 "Activity today",
                 "Task history",
@@ -237,7 +225,7 @@ class NavigationActions:
                 "Pending WordPress uploads",
             ),
         )
-        if selected is None:
+        if selected is None or selected is _RELEASED_TO_REPL:
             return None
         actions: dict[str, Callable[[], Any]] = {
             "Activity today": lambda: self.history("today"),
@@ -275,79 +263,125 @@ class NavigationActions:
         )
 
     # ------------------------------------------------------------------
-    # Multi-level menu: dispatch only, never duplicate command behavior.
+    # Real hierarchy: declarative tree + navigation stack + CommandService leaves.
     # ------------------------------------------------------------------
-    def _agenda_menu(self) -> Any:
-        selected = self._choose("Agenda", ("Today", "Next", "Current work"))
-        return {
-            "Today": lambda: self._run("today"),
-            "Next": lambda: self._run("next"),
-            "Current work": lambda: self._run("current"),
-        }.get(selected, lambda: None)()
-
-    def _work_menu(self) -> Any:
-        selected = self._choose(
-            "Work",
-            ("Start recommended task", "Pause current task", "Resume paused task", "Complete task"),
-        )
-        return {
-            "Start recommended task": lambda: self._run("start"),
-            "Pause current task": lambda: self._run("pause"),
-            "Resume paused task": lambda: self._run("resume"),
-            "Complete task": lambda: self._run("done"),
-        }.get(selected, lambda: None)()
-
-    def _logs_menu(self) -> Any:
-        selected = self._choose(
-            "Logs",
+    @staticmethod
+    def _navigation_tree() -> NavigationMenu:
+        tasks = NavigationMenu(
+            "Tasks",
             (
-                "Write log",
-                "Activity today",
-                "Task history",
-                "WordPress today (real post)",
-                "Pending WordPress uploads",
+                NavigationCommand("List Tasks", "tasks"),
+                NavigationCommand("Edit Task", "edit"),
+                NavigationCommand("Complete Task", "done"),
             ),
         )
-        return {
-            "Write log": lambda: self._run("log"),
-            "Activity today": lambda: self._run("history", "today"),
-            "Task history": lambda: self._run("history", "task"),
-            "WordPress today (real post)": lambda: self._run("history", "wordpress"),
-            "Pending WordPress uploads": lambda: self._run("history", "pending"),
-        }.get(selected, lambda: None)()
-
-    def _manage_menu(self) -> Any:
-        selected = self._choose(
-            "Manage",
-            ("Add Task/Event", "List Tasks", "List Events", "Edit Task", "Edit Event", "Remove Task/Event"),
+        events = NavigationMenu(
+            "Events",
+            (
+                NavigationCommand("List Events", "events"),
+                NavigationCommand("Edit Event", "edit-event"),
+            ),
         )
-        return {
-            "Add Task/Event": lambda: self._run("add"),
-            "List Tasks": lambda: self._run("tasks"),
-            "List Events": lambda: self._run("events"),
-            "Edit Task": lambda: self._run("edit"),
-            "Edit Event": lambda: self._run("edit-event"),
-            "Remove Task/Event": lambda: self._run("remove"),
-        }.get(selected, lambda: None)()
+        return NavigationMenu(
+            "CalDAV Assistant",
+            (
+                NavigationMenu(
+                    "Agenda",
+                    (
+                        NavigationCommand("Today", "today"),
+                        NavigationCommand("Next", "next"),
+                        NavigationCommand("Current work", "current"),
+                    ),
+                ),
+                NavigationMenu(
+                    "Work",
+                    (
+                        NavigationCommand("Start recommended task", "start"),
+                        NavigationCommand("Pause current task", "pause"),
+                        NavigationCommand("Resume paused task", "resume"),
+                        NavigationCommand("Complete task", "done"),
+                    ),
+                ),
+                NavigationMenu(
+                    "Logs",
+                    (
+                        NavigationCommand("Write log", "log"),
+                        NavigationCommand("Activity today", "history", ("today",)),
+                        NavigationCommand("Task history", "history", ("task",)),
+                        NavigationCommand(
+                            "WordPress today (real post)",
+                            "history",
+                            ("wordpress",),
+                        ),
+                        NavigationCommand(
+                            "Pending WordPress uploads",
+                            "history",
+                            ("pending",),
+                        ),
+                    ),
+                ),
+                NavigationMenu(
+                    "Manage",
+                    (
+                        NavigationCommand("Add Task/Event", "add"),
+                        tasks,
+                        events,
+                        NavigationCommand("Remove Task/Event", "remove"),
+                    ),
+                ),
+                NavigationCommand("Settings & setup", "settings"),
+                NavigationCommand("Help", "help"),
+            ),
+        )
+
+    @staticmethod
+    def _path_title(stack: list[NavigationMenu]) -> str:
+        return " > ".join(node.label for node in stack)
 
     def menu(self, *parts: Any) -> Any:
+        """Navigate a real parent/child tree, then dispatch one canonical leaf."""
         if parts:
             raise ValidationError("menu does not take arguments; use direct commands for scripting")
-        selected = self._choose(
-            "CalDAV Assistant",
-            ("Agenda", "Work", "Logs", "Manage", "Help"),
-        )
-        return {
-            "Agenda": self._agenda_menu,
-            "Work": self._work_menu,
-            "Logs": self._logs_menu,
-            "Manage": self._manage_menu,
-            "Help": lambda: self._run("help"),
-        }.get(selected, lambda: None)()
+
+        root = self._navigation_tree()
+        stack: list[NavigationMenu] = [root]
+
+        while stack:
+            node = stack[-1]
+            labels = tuple(child.label for child in node.children)
+            if len(stack) == 1:
+                back_label = "Leave menu"
+            else:
+                back_label = f"Back to {stack[-2].label}"
+
+            selected = self._choose(
+                self._path_title(stack),
+                labels,
+                back_label=back_label,
+            )
+            if selected is _RELEASED_TO_REPL:
+                return None
+            if selected is None:
+                if len(stack) == 1:
+                    return None
+                stack.pop()
+                continue
+
+            child = next((item for item in node.children if item.label == selected), None)
+            if child is None:
+                raise ValidationError(f"Navigation item disappeared: {selected}")
+            if isinstance(child, NavigationMenu):
+                stack.append(child)
+                continue
+            if isinstance(child, NavigationCommand):
+                return self._run(child.command, *child.args)
+            raise ValidationError(f"Unsupported navigation node: {type(child).__name__}")
+
+        return None
 
 
 def register_navigation_cli_commands(commands: Any, ctx: Any) -> NavigationActions:
-    """Register optional navigation without replacing any existing direct command."""
+    """Register navigation without replacing any existing direct command."""
     actions = NavigationActions(ctx)
     specs = (
         (
@@ -360,7 +394,7 @@ def register_navigation_cli_commands(commands: Any, ctx: Any) -> NavigationActio
             "menu",
             actions.menu,
             ("m",),
-            "Open optional navigation; numbers and ordinary CLI commands work side by side.",
+            "Open guided hierarchical navigation; numbers work without learning commands.",
         ),
     )
     existing = set(commands.names(include_aliases=True))
@@ -379,4 +413,9 @@ def register_navigation_cli_commands(commands: Any, ctx: Any) -> NavigationActio
     return actions
 
 
-__all__ = ["NavigationActions", "register_navigation_cli_commands"]
+__all__ = [
+    "NavigationActions",
+    "NavigationCommand",
+    "NavigationMenu",
+    "register_navigation_cli_commands",
+]

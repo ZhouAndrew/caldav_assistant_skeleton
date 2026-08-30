@@ -14,6 +14,12 @@ Frozen interaction behavior:
 
 A menu is described once as ``MenuView``. The terminal client renders that view as
 text; browser clients can render the same view as JSON or HTML.
+
+``on_unmatched`` is an internal composition hook used by non-modal clients such as
+the CLI navigation shell. It does not parse commands itself: it only gives the
+client a chance to hand an otherwise-unmatched line back to its normal input path.
+That keeps command parsing out of Menu while removing the need for navigation code
+to implement a second hand-written menu loop.
 """
 from __future__ import annotations
 
@@ -91,17 +97,17 @@ class Menu:
         item_label: Callable[[Any], str] | None = None,
     ) -> list[Choice]:
         if isinstance(items, Mapping):
-            raw_items = [Choice(str(label), value) for label, value in items.items()]
-        else:
-            raw_items = []
-            for item in list(items or ()):
-                if isinstance(item, Choice):
-                    raw_items.append(item)
-                elif isinstance(item, tuple) and len(item) == 2 and isinstance(item[0], str):
-                    raw_items.append(Choice(item[0], item[1]))
-                else:
-                    label = item_label(item) if item_label else cls._label(item)
-                    raw_items.append(Choice(str(label), item))
+            return [Choice(str(label), value) for label, value in items.items()]
+
+        raw_items: list[Choice] = []
+        for item in list(items or ()):
+            if isinstance(item, Choice):
+                raw_items.append(item)
+            elif isinstance(item, tuple) and len(item) == 2 and isinstance(item[0], str):
+                raw_items.append(Choice(item[0], item[1]))
+            else:
+                label = item_label(item) if item_label else cls._label(item)
+                raw_items.append(Choice(str(label), item))
         return raw_items
 
     @staticmethod
@@ -146,10 +152,18 @@ class Menu:
             return None
         return list(dict.fromkeys(values))
 
-    def _show_help(self, *, multiple: bool, searchable: bool, paged: bool, extra: str | None) -> None:
+    def _show_help(
+        self,
+        *,
+        multiple: bool,
+        searchable: bool,
+        paged: bool,
+        extra: str | None,
+        back_label: str | None = None,
+    ) -> None:
         lines = [
             "number or exact label: choose",
-            f"0/back: {self._t('menu.back', 'Back')}",
+            f"0/back: {back_label or self._t('menu.back', 'Back')}",
             f"q/cancel: {self._t('menu.cancel', 'Cancel')}",
             f"?/help: {self._t('menu.help', 'Help')}",
         ]
@@ -189,6 +203,7 @@ class Menu:
         multiple: bool,
         searchable: bool,
         default: Any,
+        back_label: str | None = None,
     ) -> MenuView:
         page_count = max(1, (len(filtered) + size - 1) // size)
         page = min(max(0, int(page)), page_count - 1)
@@ -207,7 +222,7 @@ class Menu:
         return MenuView(
             title=str(title),
             items=items,
-            back_label=self._t("menu.back", "Back"),
+            back_label=str(back_label or self._t("menu.back", "Back")),
             page=page + 1,
             page_count=page_count,
             query=query,
@@ -229,6 +244,7 @@ class Menu:
         searchable: bool = True,
         default: Any = None,
         item_label: Callable[[Any], str] | None = None,
+        back_label: str | None = None,
     ) -> MenuView:
         """Build the same menu page for terminal, JSON, HTML, or future clients."""
         choices = self._choices(items, item_label=item_label)
@@ -243,6 +259,7 @@ class Menu:
             multiple=multiple,
             searchable=searchable,
             default=default,
+            back_label=back_label,
         )
 
     @staticmethod
@@ -266,7 +283,16 @@ class Menu:
         help_text: str | None = None,
         item_label: Callable[[Any], str] | None = None,
         empty_message: str = "No choices available.",
+        back_label: str | None = None,
+        on_unmatched: Callable[[str], Any] | None = None,
     ) -> Any:
+        """Choose a value using the shared Menu behavior.
+
+        ``on_unmatched`` is deliberately presentation/client-facing. If supplied,
+        non-empty text that is neither a menu control nor a valid selection is given
+        to that callback and its return value becomes the result of ``choose``.
+        Out-of-range numeric input remains a menu error instead of being passed on.
+        """
         all_choices = self._choices(items, item_label=item_label)
         if not all_choices:
             self._write(empty_message)
@@ -289,6 +315,7 @@ class Menu:
                 multiple=multiple,
                 searchable=searchable,
                 default=default,
+                back_label=back_label,
             )
             self._show_presentation(view)
 
@@ -308,6 +335,7 @@ class Menu:
                     searchable=searchable,
                     paged=page_count > 1,
                     extra=help_text,
+                    back_label=back_label,
                 )
                 continue
             if token in self.NEXT_TOKENS and page_count > 1:
@@ -349,6 +377,13 @@ class Menu:
                     index = -1
                 if 1 <= index <= len(filtered):
                     return filtered[index - 1].value
+
+            if (
+                callable(on_unmatched)
+                and raw
+                and not (raw.isascii() and raw.isdigit())
+            ):
+                return on_unmatched(raw)
 
             self._write("Invalid choice. Enter a number or exact label, 0/back, q/cancel, or ?/help.")
 

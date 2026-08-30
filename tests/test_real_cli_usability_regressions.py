@@ -111,8 +111,8 @@ def test_direct_command_typed_inside_nested_menu_returns_to_normal_repl_executio
     assert calls == [("CalDAV", "Assistant", "real", "log", "test")]
     visible = stdout.getvalue()
     assert "CalDAV Assistant" in visible
-    assert "Logs" in visible
-    assert "Tip: type any normal CLI command here" in visible
+    assert "CalDAV Assistant > Logs" in visible
+    assert "0. Back to CalDAV Assistant" in visible
     assert "LOG COMMAND RAN THROUGH NORMAL REPL" in visible
     assert "Invalid choice" not in visible
     assert stderr.getvalue() == ""
@@ -131,4 +131,6 @@ def test_invalid_numeric_menu_choice_is_recoverable_but_not_misread_as_a_command
     actions = register_navigation_cli_commands(commands, ctx)
 
     assert actions.menu() is None
-    assert "Choose 1-5, 0 to go back, or type a normal CLI command." in stdout.getvalue()
+    visible = stdout.getvalue()
+    assert "Invalid choice. Enter a number or exact label" in visible
+    assert visible.count("CalDAV Assistant") >= 2
