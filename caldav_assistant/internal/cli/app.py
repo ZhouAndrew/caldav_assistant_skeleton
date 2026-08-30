@@ -7,6 +7,10 @@ MODULE CONTRACT
   SQLite tables, OS notification APIs, or duplicate Core business rules.
 
 Both one-shot and REPL input terminate at the same ``CommandService.run()`` entry point.
+An empty interactive line is a discoverability affordance: when the guided ``menu``
+command exists, Enter opens it. This means a new user can operate the program using
+numbers without first learning command vocabulary; experienced users retain the
+same direct-command path.
 """
 from __future__ import annotations
 
@@ -284,9 +288,25 @@ def _emit_repl_started(app: Any) -> None:
         emit("cli.repl.started", app.ctx)
 
 
+def _guided_menu_command(app: Any) -> ParsedCommand | None:
+    """Return the zero-learning Enter action only when this client has ``menu``."""
+    try:
+        app.commands.resolve("menu")
+    except Exception:
+        return None
+    return ParsedCommand(raw="menu", name="menu", args=())
+
+
 def run_repl(app: Any) -> int:
     _ui_show(app, _t(app, "cli.banner", "CalDAV Assistant"))
-    _ui_show(app, _t(app, "cli.hint", "Type 'help' for commands. Ctrl-D or Ctrl-C exits."))
+    _ui_show(
+        app,
+        _t(
+            app,
+            "cli.hint",
+            "Press Enter for the guided menu. Commands are optional shortcuts. Ctrl-D or Ctrl-C exits.",
+        ),
+    )
     _emit_repl_started(app)
     last_code = 0
     while True:
@@ -310,7 +330,9 @@ def run_repl(app: Any) -> int:
             last_code = 2
             continue
         if parsed is None:
-            continue
+            parsed = _guided_menu_command(app)
+            if parsed is None:
+                continue
         code, should_exit = _execute(app, parsed, paginate=True)
         last_code = code
         if should_exit:
