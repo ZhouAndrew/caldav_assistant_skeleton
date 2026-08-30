@@ -42,6 +42,7 @@ class MenuView:
     page: int = 1
     page_count: int = 1
     query: str = ""
+    match_count: int | None = None
     multiple: bool = False
     searchable: bool = True
     default_key: str | None = None
@@ -49,6 +50,10 @@ class MenuView:
     @property
     def kind(self) -> str:
         return "menu"
+
+    @property
+    def visible_match_count(self) -> int:
+        return len(self.items) if self.match_count is None else int(self.match_count)
 
     def resolve(self, key: str) -> Any:
         """Resolve a client-submitted selection key to the internal value."""
@@ -73,5 +78,6 @@ class MenuView:
                 "number": self.page,
                 "count": self.page_count,
                 "query": self.query,
+                "match_count": self.visible_match_count,
             },
         }
