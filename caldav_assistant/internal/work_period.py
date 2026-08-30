@@ -129,10 +129,7 @@ class WorkPeriodService:
         task_id = self._task_id(task)
         cancelled: list[Any] = []
         for reminder in self._items_for(task_id):
-            try:
-                cancelled.append(self.reminders.cancel(reminder))
-            except Exception:
-                raise
+            cancelled.append(self.reminders.cancel(reminder))
         if cancelled and record and self.activity is not None:
             self.activity.record(
                 "work_period_cancelled",
@@ -146,10 +143,14 @@ class WorkPeriodService:
     def allocate(self, task_id: str | None = None, seconds: Any = None) -> dict[str, Any]:
         seconds_value = parse_work_duration(seconds)
         current_id = self._current_task_id()
+        if current_id is None:
+            raise ValidationError(
+                "No Task is currently being worked on; start or resume a Task before assigning a work period"
+            )
         if task_id is None:
             task_id = current_id
         task_id = self._task_id(task_id)
-        if current_id is not None and current_id != task_id:
+        if current_id != task_id:
             raise ValidationError(
                 "A work period can only be assigned to the Task you are working on now"
             )
