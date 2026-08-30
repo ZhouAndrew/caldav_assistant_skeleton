@@ -8,12 +8,18 @@ MODULE CONTRACT
 """
 from __future__ import annotations
 
+from collections import deque
 import sys
 from typing import Any, Callable, TextIO
 
 
 class StdConsoleIO:
-    """Tiny line-oriented console adapter shared by REPL, Menu and PromptKit."""
+    """Tiny line-oriented console adapter shared by REPL, Menu and PromptKit.
+
+    ``push_line()`` is a presentation-only pushback primitive. It lets a nested
+    navigation menu hand an arbitrary line back to the ordinary REPL parser instead
+    of swallowing it as an invalid menu choice.
+    """
 
     def __init__(
         self,
@@ -25,8 +31,15 @@ class StdConsoleIO:
         self._input_fn = input_fn
         self.stdout = stdout or sys.stdout
         self.stderr = stderr or sys.stderr
+        self._pending_lines: deque[str] = deque()
+
+    def push_line(self, value: Any) -> None:
+        """Make one line the next value returned by ``read()`` without parsing it."""
+        self._pending_lines.appendleft(str(value))
 
     def read(self, prompt: str = "") -> str:
+        if self._pending_lines:
+            return self._pending_lines.popleft()
         reader = self._input_fn or input
         return reader(prompt)
 
