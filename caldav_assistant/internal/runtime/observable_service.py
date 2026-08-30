@@ -1,10 +1,9 @@
 """Observable background Assistant Service for foreground monitor clients.
 
-The ordinary AssistantService remains the scheduler/orchestrator.  This subclass adds
-one internal, read-only delivery feed over Local IPC.  A feed event is published only
-after ReminderService.process_due() has successfully delivered the notification and
-persisted its de-duplication key, so the foreground never claims that an alert was
-sent when it was not.
+The ordinary AssistantService remains the scheduler/orchestrator. This subclass adds
+one internal, read-only delivery feed over Local IPC. A feed event is published only
+after ReminderService.process_due() has successfully returned that notification as
+sent, so the foreground never invents a reminder event of its own.
 
 This is an internal client/runtime contract, not part of the frozen public Python API.
 """
@@ -12,11 +11,10 @@ from __future__ import annotations
 
 from collections import deque
 from datetime import datetime, timezone
-from threading import current_thread
 from typing import Any
-import os
 import signal
 
+from .ipc import IPCAlreadyRunningError
 from .service import AssistantService
 
 
@@ -167,7 +165,15 @@ def main() -> int:
             except (ValueError, OSError):
                 pass
 
-    service.run_forever()
+    try:
+        service.run_forever()
+    except IPCAlreadyRunningError:
+        # Preserve the singleton launch contract of the original service entrypoint:
+        # a concurrent losing launcher exits cleanly after the real daemon owns IPC.
+        return 0
+    except KeyboardInterrupt:
+        service.stop()
+        return 130
     return 0
 
 
