@@ -50,6 +50,13 @@ class ObservableAssistantService(AssistantService):
         if not isinstance(metadata, dict):
             metadata = {"value": str(metadata)}
 
+        # Explicit Assistant reminders normally have source="reminder" and their
+        # object id is the reminder id.  Work-period deadlines deliberately carry a
+        # semantic source/task id in metadata so the foreground can report the human
+        # event without changing the frozen ReminderEngine request contract.
+        source = str(metadata.get("source") or self._request_value(request, "source", "reminder") or "reminder")
+        object_id = metadata.get("task_id") or self._request_value(request, "object_id", None)
+
         adapter = getattr(getattr(self.reminders, "notifications", None), "adapter", None)
         adapter_name = type(adapter).__name__ if adapter is not None else None
 
@@ -60,8 +67,8 @@ class ObservableAssistantService(AssistantService):
                     "seq": self._event_seq,
                     "occurred_at": datetime.now(timezone.utc).isoformat(),
                     "scheduled_for": when_text,
-                    "source": str(self._request_value(request, "source", "reminder") or "reminder"),
-                    "object_id": self._request_value(request, "object_id", None),
+                    "source": source,
+                    "object_id": object_id,
                     "title": str(self._request_value(request, "title", "") or ""),
                     "body": str(self._request_value(request, "body", "") or ""),
                     "delivery_key": str(self._request_value(request, "key", "") or ""),
