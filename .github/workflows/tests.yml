@@ -25,6 +25,8 @@ jobs:
         run: python -m pytest -q
       - name: Real installed CLI conversation acceptance
         shell: bash
+        env:
+          CALDAV_ASSISTANT_ACCEPTANCE_TRANSCRIPT: conversation-transcript-${{ matrix.python-version }}.log
         run: |
           set -o pipefail
           python scripts/acceptance_conversation_real.py 2>&1 | tee conversation-acceptance-${{ matrix.python-version }}.log
@@ -33,4 +35,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: conversation-acceptance-${{ matrix.python-version }}
-          path: conversation-acceptance-${{ matrix.python-version }}.log
+          path: |
+            conversation-acceptance-${{ matrix.python-version }}.log
+            conversation-transcript-${{ matrix.python-version }}.log
