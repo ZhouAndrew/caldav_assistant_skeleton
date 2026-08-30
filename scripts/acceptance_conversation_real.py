@@ -4,7 +4,11 @@
 This is intentionally not a unit test. It starts a real local Radicale server,
 creates real VTODO/VEVENT resources through python-caldav, writes production Settings
 storage, launches the installed ``caldav-assistant`` executable in a PTY, follows the
-zero-learning human path, and finally verifies the VTODO changed on the CalDAV server.
+zero-learning human path, and verifies both intermediate and final CalDAV facts.
+
+The acceptance specifically guards the human contract for lifecycle transparency:
+progress must be visible while pause/resume/done are executing, not reconstructed only
+afterward, and a paused IN-PROCESS Task must not be reported as ``current``.
 
 Dependencies used only by this acceptance harness: radicale, pexpect.
 """
@@ -52,7 +56,7 @@ def _wait_http(url: str, timeout: float = 10.0) -> None:
             with urllib.request.urlopen(url, timeout=0.5) as response:
                 if response.status < 500:
                     return
-        except Exception as exc:  # server may still be booting
+        except Exception as exc:
             error = exc
         time.sleep(0.1)
     raise RuntimeError(f"Radicale did not become ready: {error}")
@@ -113,14 +117,15 @@ def _configure_assistant(home: Path, base_url: str, calendar_url: str) -> None:
     store.migrate()
     settings = SettingsService(SQLiteKeyValueRepository(store, "settings"))
     settings.set(CALDAV_BASE_URL, base_url)
-    settings.set(CALDAV_CREDENTIALS, {"username": "acceptance", "password": "acceptance"})
+    settings.set(
+        CALDAV_CREDENTIALS,
+        {"username": "acceptance", "password": "acceptance"},
+    )
     settings.set(CALDAV_TASK_COLLECTION_URL, calendar_url)
     settings.set(CALDAV_EVENT_COLLECTION_URL, calendar_url)
     settings.set(AGENDA_UPCOMING_HOURS, 24)
     settings.set(NOTIFICATIONS_ENABLED, False)
     settings.set(WORDPRESS_ENABLED, False)
-    # Keep startup deterministic. This test is about the normal user client, not
-    # extension onboarding hooks.
     settings.set(
         EXTENSIONS_ENABLED,
         {"software_intro": False, "wordpress_work_session_log": False},
@@ -132,16 +137,47 @@ def _expect(child: pexpect.spawn, pattern: str, *, label: str) -> None:
     print(f"PASS: {label}")
 
 
-def _verify_server(calendar) -> None:
-    todos = list(calendar.todos(include_completed=True))
+def _todo_by_uid(calendar, uid: str):
     matches = []
-    for resource in todos:
+    for resource in calendar.todos(include_completed=True):
         component = resource.get_icalendar_component()
-        if str(component.get("UID", "")) == "accept-task-english-writing":
+        if str(component.get("UID", "")) == uid:
             matches.append(component)
     if len(matches) != 1:
-        raise AssertionError(f"Expected exactly one acceptance VTODO, got {len(matches)}")
-    todo = matches[0]
+        raise AssertionError(f"Expected exactly one VTODO {uid}, got {len(matches)}")
+    return matches[0]
+
+
+def _verify_paused_server(calendar) -> None:
+    todo = _todo_by_uid(calendar, "accept-task-english-writing")
+    if str(todo.get("STATUS", "")) != "IN-PROCESS":
+        raise AssertionError(
+            f"Paused VTODO must remain IN-PROCESS, got {todo.get('STATUS')}"
+        )
+
+    work_events = []
+    for resource in calendar.events():
+        component = resource.get_icalendar_component()
+        categories = component.get("CATEGORIES")
+        category_text = str(categories or "")
+        description = str(component.get("DESCRIPTION", "") or "")
+        if (
+            "caldav-assistant-work" in category_text
+            and "Task-UID: accept-task-english-writing" in description
+        ):
+            work_events.append(component)
+    if not work_events:
+        raise AssertionError("Pause did not leave a real CalDAV Work VEVENT")
+    latest = work_events[-1]
+    if latest.get("DTEND") is None:
+        raise AssertionError("Paused CalDAV Work VEVENT has no DTEND")
+    if "caldav-assistant-work-open" in str(latest.get("CATEGORIES", "") or ""):
+        raise AssertionError("Paused CalDAV Work VEVENT still has the open marker")
+    print("PASS: real CalDAV confirms paused Task is IN-PROCESS with a closed Work VEVENT")
+
+
+def _verify_server(calendar) -> None:
+    todo = _todo_by_uid(calendar, "accept-task-english-writing")
     if str(todo.get("STATUS", "")) != "COMPLETED":
         raise AssertionError(f"VTODO was not completed in real CalDAV: {todo.get('STATUS')}")
     if int(todo.get("PERCENT-COMPLETE", 0) or 0) != 100:
@@ -156,6 +192,20 @@ def _verify_server(calendar) -> None:
     if "accept-event-english-class" not in event_uids:
         raise AssertionError("Acceptance VEVENT disappeared during Task lifecycle")
     print("PASS: CalDAV server confirms Task COMPLETED and Event still exists")
+
+
+def _assert_order(text: str, start_marker: str, *markers: str) -> None:
+    start = text.find(start_marker)
+    if start < 0:
+        raise AssertionError(f"Transcript missing start marker: {start_marker}")
+    position = start
+    for marker in markers:
+        found = text.find(marker, position + 1)
+        if found < 0:
+            raise AssertionError(
+                f"Transcript missing ordered marker after {start_marker!r}: {marker!r}"
+            )
+        position = found
 
 
 def main() -> int:
@@ -201,7 +251,11 @@ def main() -> int:
         env["PYTHONUNBUFFERED"] = "1"
         try:
             _wait_http(base_url)
-            client = DAVClient(url=base_url, username="acceptance", password="acceptance")
+            client = DAVClient(
+                url=base_url,
+                username="acceptance",
+                password="acceptance",
+            )
             principal = client.principal()
             calendar = principal.make_calendar(name="Acceptance")
             calendar.save_todo(_todo_ics(datetime.now(timezone.utc)))
@@ -212,7 +266,9 @@ def main() -> int:
             print(f"PASS: real CalDAV collection seeded at {calendar_url}")
 
             transcript_raw = os.environ.get("CALDAV_ASSISTANT_ACCEPTANCE_TRANSCRIPT")
-            transcript_path = Path(transcript_raw) if transcript_raw else tmp / "conversation.txt"
+            transcript_path = (
+                Path(transcript_raw) if transcript_raw else tmp / "conversation.txt"
+            )
             if not transcript_path.is_absolute():
                 transcript_path = root / transcript_path
             transcript_path.parent.mkdir(parents=True, exist_ok=True)
@@ -228,15 +284,18 @@ def main() -> int:
             child.logfile = transcript
 
             _expect(child, "CalDAV Assistant", label="installed executable launched")
-            _expect(child, "Reading current work, Tasks and Events", label="startup reports real work")
+            _expect(
+                child,
+                "Reading current work, Tasks and Events",
+                label="startup reports real work",
+            )
             _expect(child, "Upcoming · next 24h", label="Upcoming window shown")
             _expect(child, "English writing acceptance", label="Upcoming Task shown")
             _expect(child, "English class acceptance", label="Upcoming Event shown")
             _expect(child, "Recommended", label="recommendation section shown")
             _expect(child, "Console ready", label="unified console entered")
 
-            # Zero-learning path: Enter -> first recommended Task -> 15 minutes ->
-            # default confirmation -> Waiting Mode. No canonical command is required.
+            # Zero-learning path: Enter -> recommended Task -> 15 minutes -> confirm.
             child.sendline("")
             _expect(child, "What do you want to do", label="Enter opens guided menu")
             child.sendline("1")
@@ -245,27 +304,112 @@ def main() -> int:
             _expect(child, "Ready to start", label="start/end plan preview shown")
             _expect(child, "Start now", label="start confirmation shown")
             child.sendline("")
+            _expect(
+                child,
+                "Opening CalDAV Work interval",
+                label="start reports real CalDAV Work write before completion",
+            )
+            _expect(child, "CalDAV Work interval opened", label="start Work write confirmed")
             _expect(child, "Work period is active", label="background work period allocated")
-            _expect(child, "Task DUE/DTSTART were not changed", label="timing semantics are explicit")
+            _expect(
+                child,
+                "Task DUE/DTSTART were not changed",
+                label="timing semantics are explicit",
+            )
             _expect(child, "Waiting Mode", label="Waiting Mode entered")
             _expect(child, r"start .* end .* remaining", label="start/end/remaining shown live")
 
             child.sendline("p")
             _expect(child, "Working: pause", label="pause accepted from Waiting Mode")
-            _expect(child, "Operation finished", label="pause reports completion")
+            _expect(
+                child,
+                "Closing current CalDAV Work interval",
+                label="pause reports Work VEVENT close before it finishes",
+            )
+            _expect(
+                child,
+                "CalDAV Work interval closed",
+                label="pause confirms DTEND/open-marker write immediately",
+            )
+            _expect(
+                child,
+                "Recording Activity Journal: task_paused",
+                label="pause reports Activity persist start",
+            )
+            _expect(
+                child,
+                "Activity Journal recorded: task_paused",
+                label="pause reports Activity persist completion",
+            )
+            _expect(
+                child,
+                "Running task.paused extensions",
+                label="pause reports hook phase after Activity",
+            )
+            _expect(
+                child,
+                "task.paused extensions finished",
+                label="pause reports hook completion",
+            )
+            _expect(
+                child,
+                "Cleaning up the current work-period reminder",
+                label="pause reports work-period cleanup start",
+            )
+            _expect(
+                child,
+                "Work-period cleanup finished",
+                label="pause reports work-period cleanup completion",
+            )
+            _expect(child, "Operation finished", label="pause final summary follows live milestones")
             _expect(child, "Console ready", label="pause returns to console")
 
-            # Resume with an explicit period as a power-user shortcut; this must use
-            # the same Core lifecycle and return to Waiting Mode.
+            _verify_paused_server(calendar)
+
+            # `current` must mean actual active human work, not merely VTODO
+            # STATUS:IN-PROCESS.  The paused task stays IN-PROCESS in CalDAV but is
+            # explicitly not current.
+            child.sendline("current")
+            _expect(child, "Working: current", label="current query accepted after pause")
+            _expect(
+                child,
+                "No task is active right now. You have paused work",
+                label="paused IN-PROCESS Task is not reported as current",
+            )
+            _expect(child, "Operation finished", label="current query completed")
+
+            # Resume through the same Core lifecycle and restore Waiting Mode.
             child.sendline("resume 15m")
             _expect(child, "Working: resume 15m", label="resume shortcut accepted")
+            _expect(
+                child,
+                "Opening CalDAV Work interval",
+                label="resume reports real CalDAV Work write",
+            )
+            _expect(child, "CalDAV Work interval opened", label="resume Work write confirmed")
             _expect(child, "Work period is active", label="resume allocates new period")
             _expect(child, "Waiting Mode", label="resume returns to Waiting Mode")
             _expect(child, r"start .* end .* remaining", label="resumed timing is visible")
 
             child.sendline("d")
             _expect(child, "Working: done", label="done accepted from Waiting Mode")
-            _expect(child, "Operation finished", label="done reports persistence")
+            _expect(
+                child,
+                "Closing current CalDAV Work interval",
+                label="done reports closing active Work interval",
+            )
+            _expect(child, "CalDAV Work interval closed", label="done Work close confirmed")
+            _expect(
+                child,
+                "Recording Activity Journal: task_completed",
+                label="done reports Activity persist",
+            )
+            _expect(
+                child,
+                "Work-period cleanup finished",
+                label="done reports work-period cleanup",
+            )
+            _expect(child, "Operation finished", label="done final summary follows milestones")
             _expect(child, "Console ready", label="completion returns to console")
             child.sendline("exit")
             child.expect(pexpect.EOF)
@@ -278,17 +422,33 @@ def main() -> int:
                 "Traceback (most recent call last)",
                 "IPC method is not allowed",
                 "Unknown command",
-                "No command prompt is active now",
+                "Primary access path:",
             )
             for marker in forbidden:
                 if marker in text:
                     raise AssertionError(f"Unexpected user-visible failure marker: {marker}")
-            print("PASS: transcript has no traceback/stale-IPC/legacy-passive-monitor failure")
+
+            _assert_order(
+                text,
+                "Working: pause",
+                "Closing current CalDAV Work interval",
+                "CalDAV Work interval closed",
+                "Recording Activity Journal: task_paused",
+                "Activity Journal recorded: task_paused",
+                "Running task.paused extensions",
+                "task.paused extensions finished",
+                "Cleaning up the current work-period reminder",
+                "Work-period cleanup finished",
+                "Operation finished",
+                "Console ready",
+                "Working: current",
+                "No task is active right now. You have paused work",
+            )
+            print("PASS: transcript proves live pause milestones occur before final result")
+            print("PASS: transcript proves pause -> current semantics")
 
             _verify_server(calendar)
 
-            # Check that the real background daemon was used and can be cleanly
-            # managed from the installed client after the interaction.
             stopped = subprocess.run(
                 [executable, "background", "stop"],
                 cwd=root,
