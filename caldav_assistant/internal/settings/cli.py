@@ -4,6 +4,10 @@ Presentation/composition only:
 CLI -> ctx.settings (RemoteSettingsAPI) -> RuntimeClient -> IPC -> service-side
 CalDAVSetupService / PublicSettingsAPI.
 
+Settings panels that manage another subsystem (Commands/Extensions) dispatch through
+the same CommandService used by the top-level CLI. They are real management surfaces,
+not informational shells and not a second implementation of those subsystems.
+
 This module never reads SQLite, credentials, CalDAV XML, or HTTP directly.
 """
 from __future__ import annotations
@@ -20,7 +24,6 @@ from .keys import (
     CALDAV_TASK_COLLECTION_URL,
     CALDAV_WORKLOG_COLLECTION_URL,
     EXPERIMENTAL_FAST_QUERY_CACHE,
-    EXTENSIONS_ENABLED,
 )
 from .schema import DEFAULT_SETTINGS_SCHEMA, SettingSpec
 
@@ -107,18 +110,99 @@ class SettingsActions:
         normalized = self.ctx.settings.set(spec.key, value)
         self._show(f"✓ {spec.label}: {_display_value(normalized)}")
 
+    def _run_command(self, name: str, *parts: str) -> Any:
+        commands = getattr(self.ctx, "commands", None)
+        run = getattr(commands, "run", None)
+        if not callable(run):
+            raise ValidationError(
+                f"{name} management requires the normal CommandService"
+            )
+        return run(name, *parts)
+
+    def _show_command_result(self, name: str, *parts: str) -> Any:
+        result = self._run_command(name, *parts)
+        if result is not None:
+            self._show(result)
+        return result
+
+    def _ask_extension_name(self, action: str) -> str | None:
+        value = self._ask_text(f"Extension name for {action}")
+        if value is None:
+            return None
+        clean = str(value).strip()
+        if not clean:
+            raise ValidationError("Extension name must not be empty")
+        return clean
+
     def _extensions_panel(self) -> None:
-        state = self.ctx.settings.get(EXTENSIONS_ENABLED, {})
-        enabled = sorted(
-            name for name, active in (state or {}).items() if bool(active)
-        )
-        lines = ["Extensions"]
-        lines.append("Enabled: " + (", ".join(enabled) if enabled else "none"))
-        lines.append(
-            "Use `extensions` and `extension enable|disable|reload ...` "
-            "for lifecycle management."
-        )
-        self._show("\n".join(lines))
+        """Manage the real ExtensionManager through its canonical CLI commands."""
+        while True:
+            selected = self._choose(
+                "Extensions",
+                [
+                    "Show extensions",
+                    "Enable extension",
+                    "Disable extension",
+                    "Reload extension",
+                    "Extension errors",
+                    "Create user extension",
+                    "Extension guide",
+                ],
+            )
+            if selected is None:
+                return
+            if selected == "Show extensions":
+                self._show_command_result("extensions")
+                continue
+            if selected == "Extension guide":
+                self._show_command_result("extension", "guide")
+                continue
+            if selected == "Extension errors":
+                name = self._ask_text("Extension name (empty = all)")
+                clean = str(name or "").strip()
+                self._show_command_result("extension", "errors", *([clean] if clean else []))
+                continue
+            if selected == "Create user extension":
+                name = self._ask_extension_name("create")
+                if name is not None:
+                    self._show_command_result("extension", "new", name)
+                continue
+
+            verb = {
+                "Enable extension": "enable",
+                "Disable extension": "disable",
+                "Reload extension": "reload",
+            }.get(selected)
+            if verb is None:
+                raise ValidationError("Unknown Extensions menu selection")
+            name = self._ask_extension_name(verb)
+            if name is not None:
+                self._show_command_result("extension", verb, name)
+
+    def _commands_panel(self) -> None:
+        """Browse the actual CommandRegistry instead of pretending ASCII is editable."""
+        while True:
+            selected = self._choose(
+                "Commands",
+                [
+                    "Show available commands",
+                    "Explain a command",
+                    "Canonical command language: ASCII English (fixed)",
+                ],
+            )
+            if selected is None:
+                return
+            if selected == "Show available commands":
+                self._show_command_result("help")
+            elif selected == "Explain a command":
+                name = self._ask_text("Command name")
+                if name is not None and str(name).strip():
+                    self._show_command_result("help", str(name).strip())
+            else:
+                self._show(
+                    "Canonical command names remain ASCII English by the frozen v1 contract.\n"
+                    "UI language is independent; aliases/extensions may add other entry points."
+                )
 
     # ------------------------------------------------------------------
     # Experimental cache diagnostics (CLI-internal Runtime bridge)
@@ -527,6 +611,9 @@ class SettingsActions:
         if category == "CalDAV":
             self._caldav_panel()
             return
+        if category == "Commands":
+            self._commands_panel()
+            return
         if category == "Extensions":
             self._extensions_panel()
             return
@@ -585,7 +672,9 @@ class SettingsActions:
             "settings caldav server URL\n"
             "settings caldav credentials\n"
             "settings caldav clear-credentials\n"
-            "settings cache status|refresh"
+            "settings cache status|refresh\n"
+            "settings extensions [list|enable|disable|reload|errors|new|guide] [NAME]\n"
+            "settings commands [COMMAND]"
         )
 
     def list_settings(self, category: str | None = None) -> str:
@@ -666,6 +755,29 @@ class SettingsActions:
             return self._format_refresh_result(self._refresh_cache())
         raise ValidationError(f"Unknown cache settings action: {parts[0]}")
 
+    def _extensions_command(self, *parts: Any) -> Any:
+        if not parts:
+            return self._extensions_panel()
+        action = str(parts[0]).strip().casefold()
+        if action in {"list", "show"}:
+            if len(parts) != 1:
+                raise ValidationError("settings extensions list takes no name")
+            return self._run_command("extensions")
+        if action in {"guide", "errors"} and len(parts) == 1:
+            return self._run_command("extension", action)
+        if action in {"enable", "disable", "reload", "errors", "new"} and len(parts) == 2:
+            return self._run_command("extension", action, str(parts[1]))
+        raise ValidationError(
+            "settings extensions expects list|enable|disable|reload|errors|new|guide [NAME]"
+        )
+
+    def _commands_command(self, *parts: Any) -> Any:
+        if not parts:
+            return self._run_command("help")
+        if len(parts) != 1:
+            raise ValidationError("settings commands accepts at most one command name")
+        return self._run_command("help", str(parts[0]))
+
     def settings(self, *parts: Any) -> Any:
         if not parts:
             return self.interactive()
@@ -679,6 +791,10 @@ class SettingsActions:
             return self._caldav_command(*parts[1:])
         if action == "cache":
             return self._cache_command(*parts[1:])
+        if action in {"extensions", "extension"}:
+            return self._extensions_command(*parts[1:])
+        if action in {"commands", "command"}:
+            return self._commands_command(*parts[1:])
         if action == "categories":
             if len(parts) != 1:
                 raise ValidationError("settings categories takes no arguments")
