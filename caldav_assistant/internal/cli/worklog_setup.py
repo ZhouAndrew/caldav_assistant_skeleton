@@ -73,7 +73,7 @@ class WorkLogSetup:
         if isinstance(current, str) and current.strip():
             return True
 
-        if not callable(setter) or not callable(choose):
+        if not callable(setter):
             self._show(
                 "Work history calendar is not configured. Continuing with the "
                 "Activity Journal fallback."
@@ -90,6 +90,27 @@ class WorkLogSetup:
             self._show(
                 "No VEVENT calendar is available for detailed work intervals. "
                 "Starting the Task anyway; lifecycle history will use the Activity Journal."
+            )
+            return True
+
+        # Zero-learning first run: when there is only one legal destination there is
+        # no meaningful decision to push onto the user. Persist the deterministic
+        # choice and explain it. Multiple compatible calendars remain a real user
+        # choice and therefore still use PromptKit/Menu below.
+        if len(compatible) == 1:
+            item = compatible[0]
+            url = str(self._collection_url(item))
+            name = self._collection_name(item)
+            setter(CALDAV_WORKLOG_COLLECTION_URL, url)
+            self._show(
+                f"✓ Work history ready: {name} (the only compatible calendar was selected automatically)."
+            )
+            return True
+
+        if not callable(choose):
+            self._show(
+                "Several VEVENT calendars are available, but this client cannot ask "
+                "which one to use. Starting with Activity Journal fallback."
             )
             return True
 
