@@ -13,7 +13,9 @@ class TextRenderer:
     def render_lines(self, view: MenuView) -> list[str]:
         lines = [view.title]
         if view.query:
-            lines.append(f"Search: {view.query} ({len(view.items)} match(es))")
+            lines.append(
+                f"Search: {view.query} ({view.visible_match_count} match(es))"
+            )
         lines.extend(f"{item.key}. {item.label}" for item in view.items)
         if view.page_count > 1:
             lines.append(f"Page {view.page}/{view.page_count}")
@@ -43,7 +45,7 @@ class HtmlRenderer:
         if view.query:
             parts.append(
                 '<p class="caldav-assistant-menu-search">'
-                f"Search: {escape(view.query)} ({len(view.items)} match(es))"
+                f"Search: {escape(view.query)} ({view.visible_match_count} match(es))"
                 "</p>"
             )
         parts.append('<div class="caldav-assistant-menu-items">')
