@@ -231,10 +231,8 @@ class BuiltinActions:
     def _task_from_parts(self, parts: tuple[Any, ...]) -> Any:
         if not parts:
             return self.ctx.ui.choose_task()
-
         if len(parts) == 1 and not isinstance(parts[0], str):
             return parts[0]
-
         query = self._join_text(parts, label="Task")
         try:
             return self.ctx.tasks.find(query)
@@ -252,36 +250,17 @@ class BuiltinActions:
         return list(getter() or ()) if callable(getter) else []
 
     def _current_work_since(self, task: Any) -> Any:
-        """Return the latest actual work-start instant from Activity Journal.
-
-        DTSTART is the planned start and must never be reused as the answer to
-        "when did I start working?". The journal is behaviour history only; the
-        Session service still decides whether the Task is actually current.
-        """
         activity = getattr(self.ctx, "activity", None)
         reader = getattr(activity, "for_task", None)
         if not callable(reader):
             return None
-
-        lifecycle = {
-            "task_started",
-            "task_resumed",
-            "task_paused",
-            "task_completed",
-            "task_deleted",
-        }
+        lifecycle = {"task_started", "task_resumed", "task_paused", "task_completed", "task_deleted"}
         try:
-            items = [
-                item
-                for item in (reader(task) or ())
-                if getattr(item, "action", None) in lifecycle
-                and getattr(item, "timestamp", None) is not None
-            ]
+            items = [item for item in (reader(task) or ()) if getattr(item, "action", None) in lifecycle and getattr(item, "timestamp", None) is not None]
         except Exception:
             return None
         if not items:
             return None
-
         latest = max(items, key=lambda item: getattr(item, "timestamp"))
         if getattr(latest, "action", None) not in {"task_started", "task_resumed"}:
             return None
@@ -293,13 +272,7 @@ class BuiltinActions:
         except TypeError:
             result = self.ctx.agenda.next()
         value = getattr(result, "value", result)
-        if value is None:
-            return None
-        if not hasattr(value, "status"):
-            return None
-        if bool(getattr(value, "completed", False)):
-            return None
-        if str(getattr(value, "status", "")) == "CANCELLED":
+        if value is None or not hasattr(value, "status") or bool(getattr(value, "completed", False)) or str(getattr(value, "status", "")) == "CANCELLED":
             return None
         return value
 
@@ -311,11 +284,7 @@ class BuiltinActions:
 
     def _explain_task_action(self, verb: str, task: Any, **details: Any) -> None:
         text = f"{verb} → {self._summary(task)}"
-        visible = [
-            f"{key}: {value}"
-            for key, value in details.items()
-            if value is not None
-        ]
+        visible = [f"{key}: {value}" for key, value in details.items() if value is not None]
         if visible:
             text += "; " + "; ".join(visible)
         self._show(text)
@@ -341,7 +310,6 @@ class BuiltinActions:
             if paused:
                 return "No task is active right now. You have paused work; use 'resume' to continue it."
             return "No task is active right now. Use 'start' to begin working on the recommended task."
-
         view = copy(task)
         working_since = self._current_work_since(task)
         if working_since is not None:
@@ -367,27 +335,16 @@ class BuiltinActions:
                 requested = self._task_from_parts(target_parts)
                 if getattr(requested, "id", None) == getattr(current, "id", None):
                     return f"Already working on: {self._summary(current)}"
-            raise ValidationError(
-                f"You are already working on '{self._summary(current)}'. Pause or complete it before starting another task."
-            )
-
+            raise ValidationError(f"You are already working on '{self._summary(current)}'. Pause or complete it before starting another task.")
         if target_parts:
             task = self._task_from_parts(target_parts)
         else:
             task = self._recommended_task()
             if task is None:
-                raise ValidationError(
-                    "No actionable task is currently recommended. Use 'start <task name>' to choose a specific task."
-                )
+                raise ValidationError("No actionable task is currently recommended. Use 'start <task name>' to choose a specific task.")
             confirm = getattr(self.ctx.ui, "confirm", None)
-            if callable(confirm):
-                accepted = confirm(
-                    f"Start working now on '{self._summary(task)}'?",
-                    default=True,
-                )
-                if not accepted:
-                    return None
-
+            if callable(confirm) and not confirm(f"Start working now on '{self._summary(task)}'?", default=True):
+                return None
         if task is None:
             return None
         if not self._ensure_worklog_ready():
@@ -397,9 +354,7 @@ class BuiltinActions:
 
     def pause(self, *parts: Any) -> Any:
         if parts:
-            raise ValidationError(
-                "pause does not take a task name; it pauses the task you are working on now"
-            )
+            raise ValidationError("pause does not take a task name; it pauses the task you are working on now")
         task = self._session_current_task()
         if task is None:
             raise ValidationError("No task is currently being worked on, so there is nothing to pause")
@@ -408,26 +363,17 @@ class BuiltinActions:
 
     def resume(self, *parts: Any) -> Any:
         if parts:
-            raise ValidationError(
-                "resume does not take an arbitrary task name; it continues work you previously paused"
-            )
+            raise ValidationError("resume does not take an arbitrary task name; it continues work you previously paused")
         current = self._session_current_task()
         if current is not None:
-            raise ValidationError(
-                f"You are already working on '{self._summary(current)}'. Pause or complete it before resuming something else."
-            )
-
+            raise ValidationError(f"You are already working on '{self._summary(current)}'. Pause or complete it before resuming something else.")
         paused = self._session_paused_tasks()
         if not paused:
             raise ValidationError("There is no paused work to resume")
         if len(paused) == 1:
             task = paused[0]
         else:
-            task = self.ctx.ui.choose(
-                "Resume which paused task?",
-                paused,
-                item_label=lambda item: self._summary(item),
-            )
+            task = self.ctx.ui.choose("Resume which paused task?", paused, item_label=lambda item: self._summary(item))
         if task is None:
             return None
         self._explain_task_action("Resume work", task)
@@ -467,12 +413,7 @@ class BuiltinActions:
         task = self._task_from_parts(target_parts)
         if task is None:
             return None
-
-        fields: dict[str, Callable[[Any], Any]] = {
-            "Due date": self._edit_due,
-            "Title": self._edit_title,
-            "Priority": self._edit_priority,
-        }
+        fields: dict[str, Callable[[Any], Any]] = {"Due date": self._edit_due, "Title": self._edit_title, "Priority": self._edit_priority}
         selected = self.ctx.ui.choose("Modify what?", tuple(fields))
         if selected is None:
             return None
@@ -482,21 +423,18 @@ class BuiltinActions:
         return action(task)
 
     def edit_due(self, task: Any = None, due: Any = None) -> Any:
-        """Compatibility brick retained for older integrations."""
         if task is None:
             task = self.ctx.ui.choose_task()
         elif isinstance(task, str):
             task = self._task_from_parts((task,))
         if task is None:
             return None
-
         if due is None:
             due = self.ctx.ui.ask_date("New due date")
         elif isinstance(due, str):
             due = self.ctx.time.parse_date(due, bias="future")
         if due is None:
             return None
-
         self._explain_task_action("Edit", task, due=due)
         return self.ctx.tasks.update(task, due=due)
 
@@ -510,16 +448,10 @@ class BuiltinActions:
             if not isinstance(text, str) or not text.strip():
                 raise ValidationError("Log text must not be empty")
             text = text.strip()
-
         self._show(f"Log → {text}")
-        self._show(
-            "Steps: validate text → save durable WordPress Outbox item → try immediate WordPress upload. "
-            "If upload fails, the Outbox item stays pending."
-        )
+        self._show("Steps: validate text → save durable WordPress Outbox item → try immediate WordPress upload. If upload fails, the Outbox item stays pending.")
         result = self.ctx.wordpress.log(text)
-        self._show(
-            "Check: `history wordpress` reads the real daily post; `history pending` shows anything not delivered."
-        )
+        self._show("Check: `history wordpress` reads the real daily post; `history pending` shows anything not delivered.")
         return result
 
     def help(self, *name_parts: Any) -> str:
@@ -530,40 +462,27 @@ class BuiltinActions:
             description = entry.description or "No description."
             guide = _COMMAND_OPERATION_GUIDE.get(entry.name)
             if guide is None:
-                flow = (
-                    f"REPL/one-shot → CommandRegistry → {entry.source} handler → public services used by that handler."
-                )
-                effects = (
-                    "Effects are defined by this extension/command handler; Core data is changed only through services it explicitly calls."
-                )
-                check = (
-                    "Inspect the command/extension documentation and use the relevant Task/Event/history/settings query to verify its effect."
-                )
+                flow = f"REPL/one-shot → CommandRegistry → {entry.source} handler → public services used by that handler."
+                effects = "Effects are defined by this extension/command handler; Core data is changed only through services it explicitly calls."
+                check = "Inspect the command/extension documentation and use the relevant Task/Event/history/settings query to verify its effect."
             else:
                 flow, effects, check = guide
             return (
                 f"{entry.name}\n"
                 f"  Purpose: {description}\n"
-                f"  Aliases: {aliases}\n"
-                f"  Source: {entry.source}\n"
+                f"  aliases: {aliases}\n"
+                f"  source: {entry.source}\n"
                 f"  Runtime: {flow}\n"
                 f"  Effects: {effects}\n"
                 f"  Verify: {check}"
             )
-
         lines = ["Commands:"]
         for entry in self.ctx.commands.list():
             if entry.name == "edit-due":
                 continue
             description = f" — {entry.description}" if entry.description else ""
             lines.append(f"  {entry.name}{description}")
-        lines.extend(
-            [
-                "",
-                "Use `help <command>` for its runtime path, persistent effects, and verification steps.",
-                "Visible numbers from `today`, `tasks`, and `events` are actionable references where the command expects that object type.",
-            ]
-        )
+        lines.extend(["", "Use `help <command>` for its runtime path, persistent effects, and verification steps.", "Visible numbers from `today`, `tasks`, and `events` are actionable references where the command expects that object type."])
         return "\n".join(lines)
 
     def exit(self, *parts: Any) -> _ExitSignal:
@@ -594,19 +513,11 @@ def builtin_command_specs() -> tuple[BuiltinCommand, ...]:
 def register_cli_builtin_commands(commands: Any, ctx: Any) -> None:
     actions = BuiltinActions(ctx)
     existing = set(commands.names(include_aliases=True))
-
     for spec in _BUILTINS:
         if spec.name in existing:
             continue
-
         collisions = set(spec.aliases) & existing
         aliases = () if collisions else spec.aliases
-
-        commands.register_builtin(
-            spec.name,
-            getattr(actions, spec.handler_name),
-            aliases=aliases,
-            description=spec.description,
-        )
+        commands.register_builtin(spec.name, getattr(actions, spec.handler_name), aliases=aliases, description=spec.description)
         existing.add(spec.name)
         existing.update(aliases)
