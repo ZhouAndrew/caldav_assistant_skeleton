@@ -61,7 +61,8 @@ def test_real_background_process_autostart_status_shutdown_restart(tmp_path):
         assert first["status"] == "running"
         assert first["maintenance_alive"] is True
         assert "delivery_event_cursor" in first
-        assert first_pid := first["pid"]
+        first_pid = first["pid"]
+        assert first_pid
         assert processes[-1].pid == first_pid
         assert (runtime_dir / f"{endpoint}.sock").exists()
         assert (runtime_dir / "ipc.auth").exists()
