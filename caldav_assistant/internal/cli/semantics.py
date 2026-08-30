@@ -1,7 +1,7 @@
 """Human-facing command semantics and operation explanations.
 
-This module is presentation-only.  Core services remain authoritative for mutations;
-this layer explains those mutations in the vocabulary a user can verify.  It must not
+This module is presentation-only. Core services remain authoritative for mutations;
+this layer explains those mutations in vocabulary a user can verify. It must not
 write CalDAV, Activity, WordPress, or local state itself.
 """
 from __future__ import annotations
@@ -120,7 +120,7 @@ def lifecycle_explanation(
             lines.append("  Work session: resumed state is derived from the Activity Journal fallback because no Work Log destination was visible.")
     elif action == "done":
         completed_at = getattr(affected, "completed_at", None)
-        lines.append("  CalDAV VTODO: STATUS -> COMPLETED; completed=true; PERCENT-COMPLETE/COMPLETED are persisted by the CalDAV adapter.")
+        lines.append("  CalDAV VTODO: STATUS -> COMPLETED; completed=true; standard completion fields are persisted by the CalDAV adapter.")
         if completed_at is not None:
             lines.append(f"  Completion time: {completed_at}.")
         if was_current and worklog:
@@ -227,7 +227,7 @@ _SEMANTICS: dict[str, CommandSemantics] = {
         usage="done [task name | list number]",
         meaning="Mark a Task authoritatively complete. Alias: complete.",
         writes=(
-            "CalDAV VTODO: STATUS=COMPLETED, completed=true, completion timestamp (and standard completion fields through the adapter).",
+            "CalDAV VTODO: STATUS=COMPLETED, completed=true, completion timestamp, and standard completion fields through the adapter.",
             "CalDAV Work VEVENT: closes the current work interval if this Task is active and Work Log is configured.",
             "Activity Journal (SQLite): records task_completed.",
         ),
@@ -348,7 +348,7 @@ def format_command_help(entry: Any) -> str:
             continue
         lines.extend(["", f"{title}:"])
         lines.extend(f"  - {item}" for item in items)
-    lines.extend(["", f"Aliases: {aliases}", f"Source: {source}"])
+    lines.extend(["", f"aliases: {aliases}", f"source: {source}"])
     return "\n".join(lines)
 
 
