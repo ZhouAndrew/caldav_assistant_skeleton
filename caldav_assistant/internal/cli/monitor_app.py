@@ -2,24 +2,22 @@
 
 Normal work is passive: after a Task/Event becomes the selected monitor target the
 client stops presenting a command prompt and watches the background service's actual
-notification-delivery feed.  Every delivered reminder rings the terminal bell (\a)
+notification-delivery feed. Every delivered reminder rings the terminal bell (\a)
 and prints what was accessed, what happened, and the confirmed result.
 
-Ctrl-C does not kill the Assistant while monitoring.  It opens a small action menu;
-Task lifecycle choices are sent through the existing CommandService/Core API.  The
+Ctrl-C does not kill the Assistant while monitoring. It opens a small action menu;
+Task lifecycle choices are sent through the existing CommandService/Core API. The
 ordinary console is a separate mode for other commands.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-import shlex
 import sys
 from time import sleep
 from typing import Any, Sequence
 
 from ...api.v1.models import Event, Task
 from . import app as base
-from .actions import EXIT_REPL
 from .completion import completion_session
 
 
@@ -89,7 +87,7 @@ def _runtime_call(app: Any, method: str, **payload: Any) -> Any:
     try:
         return call(method, **payload)
     except RuntimeError as exc:
-        # A pre-update daemon can still be serving the old route table.  Restart it
+        # A pre-update daemon can still be serving the old route table. Restart it
         # once so the foreground never silently falls back to fake local monitoring.
         if f"IPC method is not allowed: {method}" not in str(exc):
             raise
@@ -259,6 +257,7 @@ def _monitor(app: Any, target: MonitorTarget) -> str:
     _show(app, "No command prompt is active now.")
     _show(app, "Background service is watching reminders/events independently.")
     _show(app, "A confirmed reminder delivery rings the terminal bell (\\a) and is printed here.")
+    _show(app, "Live delivery feed: bounded in-memory runtime data; Task/Event and Activity/Work Log remain the persistent records.")
     _show(app, "Press Ctrl-C to complete/pause/manage this item or open the console.")
 
     while True:
@@ -282,6 +281,7 @@ def _console(app: Any) -> tuple[int, str]:
     _show(app, "Console mode: use commands for other functions.")
     _show(app, "Type 'monitor' to return to passive monitoring when a target exists.")
     last_code = 0
+    entered_with_target = _monitor_target(app) is not None
     while True:
         target = _monitor_target(app)
         label = f"[console | {target.summary}] > " if target is not None else "> "
@@ -311,9 +311,11 @@ def _console(app: Any) -> tuple[int, str]:
         if should_exit:
             return code, "exit"
 
-        # A successful command may have selected an Event/Task or started work.
-        # Follow the human model: once there is a concrete target, go passive.
-        if code == 0 and _monitor_target(app) is not None:
+        # From the initial idle console, selecting/starting a concrete item should
+        # immediately enter passive monitor mode. If Ctrl-C opened this console from
+        # an existing monitor, stay here for as many other commands as the user wants
+        # until they explicitly type `monitor` (or press Ctrl-C again).
+        if not entered_with_target and code == 0 and _monitor_target(app) is not None:
             return last_code, "monitor"
 
 
