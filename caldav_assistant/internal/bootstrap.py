@@ -76,11 +76,13 @@ from .storage.sqlite import (
     SQLiteStore,
     SQLiteUndoRepository,
 )
-from .tasks import CompletionLoggingTaskService, TaskCompletionLogService
+from .tasks import TaskCompletionLogService
+from .tasks.work_period_task_service import WorkPeriodAwareTaskService
 from .temporal import TemporalParser, TemporalService
 from .undo import UndoManager
 from .wordpress import WordPressService
 from .wordpress.transports import WPCLIAdapter
+from .work_period import WorkPeriodService
 from .worklog import WorkLogService
 
 
@@ -273,7 +275,7 @@ def build_service_application() -> ServiceApplication:
     completion_log = TaskCompletionLogService(worklog, wordpress)
 
     session = CalDAVSessionService(worklog, activity=activity)
-    tasks = CompletionLoggingTaskService(
+    tasks = WorkPeriodAwareTaskService(
         app_caldav,
         activity,
         undo,
@@ -302,6 +304,13 @@ def build_service_application() -> ServiceApplication:
         sync.cached_tasks,
         _ordinary_cached_events(sync.cached_events),
     )
+    work_periods = WorkPeriodService(
+        reminders,
+        activity=activity,
+        session=session,
+        tasks=tasks,
+    )
+    tasks.bind_work_periods(work_periods)
 
     registry = CommandRegistry()
     commands = CommandService(registry)
@@ -338,6 +347,9 @@ def build_service_application() -> ServiceApplication:
     dispatcher.register_internal("experimental.cache.status", app_caldav.diagnostics)
     dispatcher.register_internal("experimental.cache.refresh", sync.refresh)
     dispatcher.register_internal("undo.last", undo.undo_last)
+    dispatcher.register_internal("work_period.allocate", work_periods.allocate)
+    dispatcher.register_internal("work_period.status", work_periods.status)
+    dispatcher.register_internal("work_period.cancel", work_periods.cancel)
     background = AssistantService(
         sync,
         reminders,
