@@ -12,11 +12,14 @@ ordinary console is a separate mode for other commands.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import sys
 from time import sleep
 from typing import Any, Sequence
 
+from ...api.v1.errors import ValidationError
 from ...api.v1.models import Event, Task
+from ..work_period import format_work_duration, maybe_work_duration, parse_work_duration
 from . import app as base
 from .completion import completion_session
 
@@ -128,6 +131,100 @@ def _show(app: Any, value: Any = "") -> None:
     base._ui_show(app, value)
 
 
+def _local_deadline(value: Any) -> str:
+    if not value:
+        return "unknown"
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except ValueError:
+        return str(value)
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone()
+    return parsed.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _work_period_text(status: Any) -> str:
+    if not isinstance(status, dict):
+        return str(status)
+    state = str(status.get("state") or "none")
+    if state == "none":
+        return (
+            "No work period is allocated. Task DUE is unchanged. "
+            "Use 'work-period 30m' or 'start <task> 30m'."
+        )
+    if state == "cancelled":
+        return (
+            f"Work period cancelled ({status.get('cancelled', 0)} reminder(s)). "
+            "Storage: assistant_state/reminders.items.v1. Task DUE unchanged."
+        )
+    duration = int(status.get("duration_seconds", 0) or 0)
+    remaining = status.get("remaining_seconds")
+    remaining_text = (
+        format_work_duration(max(0, int(remaining)))
+        if isinstance(remaining, (int, float))
+        else "unknown"
+    )
+    return "\n".join(
+        [
+            f"Work period: {state}",
+            f"Task UID: {status.get('task_id') or '—'}",
+            f"Allocated: {format_work_duration(duration)}",
+            f"Deadline: {_local_deadline(status.get('deadline'))}",
+            f"Remaining: {remaining_text}",
+            "Stored as: Assistant explicit reminder -> assistant_state/reminders.items.v1",
+            "Task CalDAV DUE/DTSTART: unchanged",
+            "At deadline: notify only; Task is NOT auto-completed and NOT auto-paused.",
+        ]
+    )
+
+
+def _work_period_command(app: Any, *parts: Any) -> str:
+    target = _monitor_target(app)
+    task_id = target.object_id if target is not None and target.kind == "task" and target.current_work else None
+    if not parts or (len(parts) == 1 and str(parts[0]).strip().casefold() in {"status", "show"}):
+        return _work_period_text(_runtime_call(app, "work_period.status", task_id=task_id))
+    if len(parts) == 1 and str(parts[0]).strip().casefold() in {"cancel", "stop", "clear"}:
+        return _work_period_text(_runtime_call(app, "work_period.cancel", task_id=task_id, reason="user"))
+    if len(parts) != 1:
+        raise ValidationError("Use: work-period 30m | work-period status | work-period cancel")
+    seconds = parse_work_duration(parts[0])
+    status = _runtime_call(app, "work_period.allocate", task_id=task_id, seconds=seconds)
+    return _work_period_text(status)
+
+
+def _split_lifecycle_duration(parsed: base.ParsedCommand) -> tuple[base.ParsedCommand, int | None]:
+    if parsed.name.casefold() not in {"start", "resume"} or not parsed.args:
+        return parsed, None
+    seconds = maybe_work_duration(parsed.args[-1])
+    if seconds is None:
+        return parsed, None
+    args = parsed.args[:-1]
+    raw = " ".join([parsed.name, *[str(item) for item in args]]).strip()
+    return base.ParsedCommand(raw=raw, name=parsed.name, args=args), seconds
+
+
+def _allocate_after_lifecycle(app: Any, seconds: int) -> bool:
+    target = _monitor_target(app)
+    if target is None or target.kind != "task" or not target.current_work or not target.object_id:
+        _show(app, "Work-period allocation failed: Task lifecycle succeeded, but no current Task could be resolved.")
+        return False
+    try:
+        status = _runtime_call(
+            app,
+            "work_period.allocate",
+            task_id=target.object_id,
+            seconds=seconds,
+        )
+    except Exception as exc:
+        _show(app, f"Work-period allocation failed AFTER Task lifecycle succeeded: {type(exc).__name__}: {exc}")
+        return False
+    _show(app, "")
+    _show(app, "=== Work period allocated ===")
+    for line in _work_period_text(status).splitlines():
+        _show(app, line)
+    return True
+
+
 def _show_delivery(app: Any, event: dict[str, Any], target: MonitorTarget) -> None:
     _bell(app)
     _show(app, "")
@@ -139,6 +236,14 @@ def _show_delivery(app: Any, event: dict[str, Any], target: MonitorTarget) -> No
     _show(app, f"Notification: {event.get('title') or '(untitled)'}")
     if event.get("body"):
         _show(app, f"Detail: {event['body']}")
+    metadata = dict(event.get("metadata") or {})
+    if event.get("source") == "work_period_end":
+        _show(app, "")
+        _show(app, "Work-period meaning:")
+        _show(app, f"  Allocated duration: {format_work_duration(int(metadata.get('duration_seconds', 0) or 0))}")
+        _show(app, f"  Deadline: {_local_deadline(metadata.get('deadline') or event.get('scheduled_for'))}")
+        _show(app, "  This is NOT the Task DUE date and did not change CalDAV scheduling fields.")
+        _show(app, "  The Task remains in progress. Press Ctrl-C to complete or pause it.")
     _show(app, "")
     _show(app, "Program access / operation / result:")
     _show(app, "  1. Foreground read: Local IPC -> runtime.events.list (read-only).")
@@ -154,11 +259,13 @@ def _show_delivery(app: Any, event: dict[str, Any], target: MonitorTarget) -> No
 def _primary_route(name: str) -> str:
     key = name.casefold()
     routes = {
-        "start": "CLI -> CommandService -> Local IPC -> TaskService.start -> CalDAV/Activity/WorkLog",
-        "done": "CLI -> CommandService -> Local IPC -> TaskService.complete -> CalDAV/Activity/WorkLog",
-        "complete": "CLI -> CommandService -> Local IPC -> TaskService.complete -> CalDAV/Activity/WorkLog",
-        "pause": "CLI -> CommandService -> Local IPC -> TaskService.pause -> Activity/WorkLog",
-        "resume": "CLI -> CommandService -> Local IPC -> TaskService.resume -> CalDAV/Activity/WorkLog",
+        "start": "CLI -> CommandService -> Local IPC -> TaskService.start -> CalDAV/Activity/WorkLog; optional duration -> work_period.allocate -> explicit Reminder",
+        "done": "CLI -> CommandService -> Local IPC -> TaskService.complete -> CalDAV/Activity/WorkLog -> work-period cleanup",
+        "complete": "CLI -> CommandService -> Local IPC -> TaskService.complete -> CalDAV/Activity/WorkLog -> work-period cleanup",
+        "pause": "CLI -> CommandService -> Local IPC -> TaskService.pause -> Activity/WorkLog -> work-period cleanup",
+        "resume": "CLI -> CommandService -> Local IPC -> TaskService.resume -> CalDAV/Activity/WorkLog; optional duration -> work_period.allocate",
+        "work-period": "CLI -> Local IPC -> WorkPeriodService -> ReminderService explicit reminder (assistant_state); Task DUE unchanged",
+        "timer": "CLI -> Local IPC -> WorkPeriodService -> ReminderService explicit reminder (assistant_state); Task DUE unchanged",
         "today": "CLI -> CommandService -> Local IPC -> AgendaService.today -> Task/Event read path",
         "next": "CLI -> CommandService -> Local IPC -> AgendaService.next -> Task/Event read path",
         "current": "CLI -> CommandService -> Session current-task read",
@@ -171,13 +278,20 @@ def _primary_route(name: str) -> str:
 
 
 def _execute_visible(app: Any, parsed: base.ParsedCommand, *, paginate: bool = True) -> tuple[int, bool]:
+    original = parsed
+    parsed, period_seconds = _split_lifecycle_duration(parsed)
     _show(app, "")
     _show(app, "=== Command request ===")
-    _show(app, f"Input: {parsed.raw}")
-    _show(app, f"Primary access path: {_primary_route(parsed.name)}")
+    _show(app, f"Input: {original.raw}")
+    _show(app, f"Primary access path: {_primary_route(original.name)}")
+    if period_seconds is not None:
+        _show(app, f"Work-period request: {format_work_duration(period_seconds)}; separate from Task DUE.")
     code, should_exit = base._execute(app, parsed, paginate=paginate)
+    if code == 0 and period_seconds is not None:
+        if not _allocate_after_lifecycle(app, period_seconds):
+            code = 1
     _show(app, "=== Command result ===")
-    _show(app, f"Exit code: {code}; result: {'success' if code == 0 else 'failed'}")
+    _show(app, f"Exit code: {code}; result: {'success' if code == 0 else 'failed/partial'}")
     return code, should_exit
 
 
@@ -197,7 +311,7 @@ def _interrupt_menu(app: Any, target: MonitorTarget) -> str:
         _show(app, "1. Complete this Task")
         _show(app, "2. Pause current work")
         _show(app, "3. Continue monitoring")
-        _show(app, "4. Open console for other functions")
+        _show(app, "4. Open console for other functions / work-period")
         _show(app, "5. Exit client (background service keeps running)")
         choice = _read_choice(app)
         if choice in {"1", "done", "complete"}:
@@ -254,6 +368,13 @@ def _monitor(app: Any, target: MonitorTarget) -> str:
     cursor = _cursor(app)
     _show(app, "")
     _show(app, f"Monitoring {target.kind}: {target.summary}")
+    if target.kind == "task" and target.current_work:
+        try:
+            status = _runtime_call(app, "work_period.status", task_id=target.object_id)
+            if isinstance(status, dict) and status.get("state") != "none":
+                _show(app, _work_period_text(status))
+        except Exception as exc:
+            _show(app, f"Work-period status unavailable: {type(exc).__name__}: {exc}")
     _show(app, "No command prompt is active now.")
     _show(app, "Background service is watching reminders/events independently.")
     _show(app, "A confirmed reminder delivery rings the terminal bell (\\a) and is printed here.")
@@ -355,6 +476,16 @@ def _prepare(app: Any, argv: Sequence[str]) -> None:
         base.register_background_cli_command(app.commands, runtime, ui=app.ctx.ui)
     if runtime is not None and "undo" not in app.commands.registry:
         base.register_undo_cli_command(app.commands, runtime)
+    if runtime is not None and "work-period" not in app.commands.registry:
+        app.commands.register_builtin(
+            "work-period",
+            lambda *parts: _work_period_command(app, *parts),
+            aliases=("timer",),
+            description=(
+                "Set/show/cancel the current Task's work-period deadline. "
+                "Example: work-period 30m. This never changes Task DUE."
+            ),
+        )
 
     local_background_command = bool(argv and str(argv[0]).strip().casefold() == "background")
     if app.extensions is not None:
@@ -373,8 +504,18 @@ def run_cli(argv: Sequence[str] | None = None, *, app: Any = None) -> int:
 
     _prepare(app, argv)
     if argv:
-        # One-shot commands remain one-shot; monitor mode is an interactive-client UX.
-        return base.run_one_shot(app, argv)
+        # Preserve ordinary one-shot output. Only start/resume with a trailing
+        # duration needs the monitor wrapper so allocation happens after lifecycle.
+        parsed = base.ParsedCommand(
+            raw=" ".join(str(item) for item in argv),
+            name=str(argv[0]).strip(),
+            args=tuple(str(item) for item in argv[1:]),
+        )
+        effective, seconds = _split_lifecycle_duration(parsed)
+        if seconds is None:
+            return base.run_one_shot(app, argv)
+        code, _ = _execute_visible(app, parsed, paginate=False)
+        return code
     with completion_session(app):
         return run_monitor_repl(app)
 
