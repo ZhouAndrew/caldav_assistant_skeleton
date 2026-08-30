@@ -174,8 +174,9 @@ def render_help_root(entries: Iterable[Any]) -> str:
         [
             "",
             "Open a category:  help work",
-            "Explain an action: help pause",
+            "Detailed effects: help <command> — meaning, data writes, side effects, verification",
             "Show all actions:  help all",
+            "Inspect history:     history",
             "Number-based guide: menu",
         ]
     )
