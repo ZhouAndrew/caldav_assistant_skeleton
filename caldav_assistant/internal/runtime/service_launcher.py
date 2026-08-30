@@ -39,7 +39,7 @@ class ServiceLauncher:
         command = [
             self.python,
             "-m",
-            "caldav_assistant.internal.runtime.observable_service",
+            "caldav_assistant.internal.runtime.versioned_observable_service",
         ]
         log = self._open_log()
         kwargs: dict[str, Any] = {
