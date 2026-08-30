@@ -5,7 +5,25 @@ from typing import Any
 class _RemoteAPI:
     prefix = ""
     def __init__(self, runtime: Any) -> None: self.runtime = runtime
-    def _call(self, name: str, **payload: Any): return self.runtime.call(f"{self.prefix}.{name}", **payload)
+    def _call(self, name: str, **payload: Any):
+        method = f"{self.prefix}.{name}"
+        try:
+            return self.runtime.call(method, **payload)
+        except RuntimeError as exc:
+            # After an in-place source update the already-running background process
+            # can still hold an older RuntimeDispatcher allow-list in memory.  That
+            # should not make a newly-updated CLI fail until the user remembers a
+            # manual `background restart`.  Restart exactly once, then retry through
+            # the normal RuntimeClient path.  A genuine current-code route defect is
+            # still surfaced by the second call rather than being hidden.
+            marker = f"IPC method is not allowed: {method}"
+            if marker not in str(exc):
+                raise
+            restart = getattr(self.runtime, "restart", None)
+            if not callable(restart):
+                raise
+            restart()
+            return self.runtime.call(method, **payload)
 
 class RemoteTasksAPI(_RemoteAPI):
     prefix="tasks"

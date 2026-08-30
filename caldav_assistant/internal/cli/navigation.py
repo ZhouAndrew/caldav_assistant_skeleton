@@ -5,6 +5,11 @@ entry points; ``menu`` simply dispatches to those same CommandService handlers.
 Activity queries use the public Activity namespace.  Reading the real WordPress daily
 post uses a deliberately private CLI observability method so the frozen public v1
 WordPress API does not need to grow transport-specific query semantics.
+
+Navigation is intentionally *not* a second CLI mode.  At every navigation level a
+user may type any ordinary command.  Production StdConsoleIO pushes that raw line
+back to the normal REPL, so aliases, numbered references, parsing, rendering and
+error handling stay exactly the same as at the top-level ``>`` prompt.
 """
 from __future__ import annotations
 
@@ -17,6 +22,9 @@ from ...api.v1.errors import ValidationError
 
 class NavigationActions:
     """Small human-facing bricks for history queries and nested menus."""
+
+    _BACK = frozenset({"0", "back", "b", "q", "quit", "cancel", "c"})
+    _HELP = frozenset({"?", "help", "h"})
 
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx
@@ -38,11 +46,73 @@ class NavigationActions:
             raise ValidationError(f"{label} must not be empty")
         return value
 
+    @staticmethod
+    def _exact_label(items: tuple[str, ...], raw: str) -> str | None:
+        needle = raw.strip().casefold()
+        matches = [item for item in items if item.strip().casefold() == needle]
+        return matches[0] if len(matches) == 1 else None
+
     def _choose(self, title: str, items: tuple[str, ...]) -> str | None:
-        choose = getattr(self.ctx.ui, "choose", None)
-        if not callable(choose):
-            raise ValidationError(f"{title} requires interactive UI")
-        return choose(title, items)
+        """Choose one navigation item without trapping ordinary CLI commands.
+
+        PromptKit/Menu remains the generic frozen chooser for Task/Event selections.
+        Navigation needs one extra CLI-specific property: unmatched text is not an
+        "invalid choice"; it may be a perfectly valid direct command.  When the
+        production IO supports ``push_line``, release that text back to the REPL and
+        exit the menu.  Small test/extension UIs without pushback retain the previous
+        PromptKit ``choose`` behavior.
+        """
+        ui = getattr(self.ctx, "ui", None)
+        io = getattr(ui, "io", None)
+        reader = getattr(io, "read", None)
+        writer = getattr(io, "write", None)
+        push_line = getattr(io, "push_line", None)
+
+        if not (callable(reader) and callable(writer) and callable(push_line)):
+            choose = getattr(ui, "choose", None)
+            if not callable(choose):
+                raise ValidationError(f"{title} requires interactive UI")
+            return choose(title, items)
+
+        values = tuple(str(item) for item in items)
+        while True:
+            writer(title)
+            for index, label in enumerate(values, 1):
+                writer(f"{index}. {label}")
+            writer("0. Back")
+            writer("Tip: type any normal CLI command here to run it and leave the menu.")
+            raw = str(reader("> ") or "").strip()
+            token = raw.casefold()
+
+            if token in self._BACK:
+                return None
+            if token in self._HELP:
+                writer(
+                    "Choose by number or exact label. 0/back returns. "
+                    "Any other command line is handed to the normal CLI."
+                )
+                continue
+
+            exact = self._exact_label(values, raw)
+            if exact is not None:
+                return exact
+
+            try:
+                index = int(raw)
+            except ValueError:
+                index = -1
+            if 1 <= index <= len(values):
+                return values[index - 1]
+            if raw.isascii() and raw.isdigit():
+                writer(
+                    f"Choose 1-{len(values)}, 0 to go back, or type a normal CLI command."
+                )
+                continue
+
+            if not raw:
+                continue
+            push_line(raw)
+            return None
 
     def _run(self, name: str, *args: Any) -> Any:
         """Dispatch through the same registry used by direct CLI commands."""
@@ -290,7 +360,7 @@ def register_navigation_cli_commands(commands: Any, ctx: Any) -> NavigationActio
             "menu",
             actions.menu,
             ("m",),
-            "Open the optional multi-level menu; all direct commands remain available.",
+            "Open optional navigation; numbers and ordinary CLI commands work side by side.",
         ),
     )
     existing = set(commands.names(include_aliases=True))
