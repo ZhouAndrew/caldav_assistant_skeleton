@@ -4,8 +4,9 @@
 This is deliberately a human-path acceptance, not a mocked benchmark. It creates
 separate Task/Event/Work collections plus decoy collections, writes production
 Settings, launches the installed executable in a PTY, measures healthy startup to the
-usable console, then leaves the History menu unanswered for several seconds and
-proves that human think-time is not reported as background work.
+usable console, exercises the guided-menu Upcoming path twice, then leaves the History
+menu unanswered for several seconds and proves that human think-time is not reported
+as background work.
 """
 from __future__ import annotations
 
@@ -239,6 +240,27 @@ def main() -> int:
                 f"<= {STARTUP_BUDGET_SECONDS:.1f}s"
             )
 
+            # First menu consumes the welcome snapshot. Back out, then enter a second
+            # time so the exact user path from the field report performs a fresh live
+            # read before the menu is built. Selecting Upcoming must reuse that same
+            # coherent snapshot instead of immediately issuing a duplicate request.
+            child.sendline("")
+            _expect(child, "What do you want to do\?", "first guided menu opened")
+            child.sendline("0")
+            child.expect(r"> ")
+
+            child.sendline("")
+            _expect(
+                child,
+                "Refreshing current work, Tasks and Events",
+                "second guided menu performed one visible live read",
+            )
+            _expect(child, "What do you want to do\?", "second guided menu opened")
+            child.sendline("Upcoming — next 24h")
+            _expect(child, "Upcoming · next 24h", "guided Upcoming displayed")
+            child.expect(r"> ")
+            print("PASS: guided Upcoming returned to the console without a second live read")
+
             child.sendline("history")
             _expect(child, "Working: history", "History command entered")
             _expect(child, "History", "History menu displayed")
@@ -264,6 +286,18 @@ def main() -> int:
                 raise AssertionError("Role-selected Task was not shown during startup")
             if "Latency acceptance Event" not in startup_text:
                 raise AssertionError("Role-selected Event was not shown during startup")
+
+            second_menu_marker = "Refreshing current work, Tasks and Events"
+            upcoming_marker = "Upcoming · next 24h"
+            if second_menu_marker not in after_console or upcoming_marker not in after_console:
+                raise AssertionError("Guided Upcoming interaction markers missing from transcript")
+            guided_section = after_console.split(second_menu_marker, 1)[1].split(upcoming_marker, 1)[0]
+            if "Refreshing Upcoming" in guided_section:
+                raise AssertionError(
+                    "Selecting Upcoming performed the duplicate live refresh that caused the field timeout"
+                )
+            if "Traceback (most recent call last)" in after_console:
+                raise AssertionError("Interactive CLI leaked a traceback during the human path")
 
             marker = "Working: history"
             end_marker = "Menu/selection finished"
