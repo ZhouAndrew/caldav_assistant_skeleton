@@ -35,6 +35,11 @@ jobs:
         run: |
           set -o pipefail
           python scripts/acceptance_reminder_alert_settings_real.py 2>&1 | tee reminder-alert-settings-acceptance-${{ matrix.python-version }}.log
+      - name: Real persistent terminal bell acceptance
+        shell: bash
+        run: |
+          set -o pipefail
+          python scripts/acceptance_persistent_terminal_bell_real.py 2>&1 | tee persistent-terminal-bell-acceptance-${{ matrix.python-version }}.log
       - name: Real compact WordPress worklog acceptance
         shell: bash
         run: |
@@ -67,6 +72,7 @@ jobs:
             conversation-acceptance-${{ matrix.python-version }}.log
             conversation-transcript-${{ matrix.python-version }}.log
             reminder-alert-settings-acceptance-${{ matrix.python-version }}.log
+            persistent-terminal-bell-acceptance-${{ matrix.python-version }}.log
             wordpress-worklog-acceptance-${{ matrix.python-version }}.log
             latency-acceptance-${{ matrix.python-version }}.log
             latency-transcript-${{ matrix.python-version }}.log
