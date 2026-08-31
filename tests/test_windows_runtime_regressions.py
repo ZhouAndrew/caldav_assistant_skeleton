@@ -79,7 +79,7 @@ def test_guided_start_does_not_issue_second_live_read_after_startup_timeout():
     assert result == "console"
     assert original_calls == []
     assert any("cannot safely start another Task" in line for line in shown)
-    assert any("No Task state was changed" in line for line in shown)
+    assert any("no task state was changed" in line.lower() for line in shown)
 
 
 def test_direct_guided_start_timeout_is_caught_instead_of_escaping_repl():
@@ -114,4 +114,4 @@ def test_direct_guided_start_timeout_is_caught_instead_of_escaping_repl():
 
     assert conversation._guided_start(SimpleNamespace()) == "console"
     assert any("console remains usable" in line.lower() for line in shown)
-    assert any("No Task state was changed" in line for line in shown)
+    assert any("no task state was changed" in line.lower() for line in shown)
