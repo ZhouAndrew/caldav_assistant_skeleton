@@ -71,18 +71,13 @@ class CalDAVWorkTaskService(TaskService):
             return super().start(task)
 
         obj = self.get(task)
-        task_id = self._require_id(obj)
+        self._require_id(obj)
         if obj.completed or obj.status in {"COMPLETED", "CANCELLED"}:
             raise ValidationError("A completed or cancelled Task cannot be started")
 
-        current_id = self._session_current_id()
-        if current_id == task_id:
-            raise ValidationError("This Task is already the current work")
-        if current_id:
-            raise ValidationError(
-                "Another Task is currently being worked on; pause or complete it before starting a different Task"
-            )
-
+        # WorkLogService.start_segment performs the authoritative open-interval
+        # check itself. The old code first asked Session for current_task_id and then
+        # start_segment immediately repeated the same CalDAV Work read.
         segment = self.worklog.start_segment(obj)
         try:
             result = self._update(
@@ -115,12 +110,13 @@ class CalDAVWorkTaskService(TaskService):
             return super().pause(task)
 
         obj = self.get(task)
-        task_id = self._require_id(obj)
+        self._require_id(obj)
         if obj.status != "IN-PROCESS":
             raise ValidationError("A planned Task is not running and cannot be paused")
-        if self._session_current_id() != task_id:
-            raise ValidationError("Only the Task you are working on now can be paused")
 
+        # close_segment validates that this exact Task owns the authoritative open
+        # interval. Do not read current_task_id first and then read the same interval
+        # again just to close it.
         self.worklog.close_segment(obj, required=True)
         self._record(
             "task_paused",
@@ -136,23 +132,18 @@ class CalDAVWorkTaskService(TaskService):
             return super().resume(task)
 
         obj = self.get(task)
-        task_id = self._require_id(obj)
+        self._require_id(obj)
         if obj.completed or obj.status in {"COMPLETED", "CANCELLED"}:
             raise ValidationError("A completed or cancelled Task cannot be resumed")
         if obj.status != "IN-PROCESS":
             raise ValidationError("Only an in-progress Task can be resumed")
 
-        current_id = self._session_current_id()
-        if current_id:
-            if current_id == task_id:
-                raise ValidationError("This Task is already the current work")
-            raise ValidationError(
-                "Another Task is currently being worked on; pause or complete it before resuming this Task"
-            )
-        if task_id not in self._session_paused_ids():
+        # A closed prior segment is the proof that this Assistant previously paused
+        # the Task. The old _session_paused_ids path listed every IN-PROCESS Task and
+        # then re-scanned Work history once per Task before start_segment scanned the
+        # open intervals yet again.
+        if not self.worklog.segments_for(obj):
             raise ValidationError("Only a Task you previously paused can be resumed")
-        if self.worklog.open_for(obj) is not None:
-            raise ValidationError("This Task already has an open CalDAV work interval")
 
         self.worklog.start_segment(obj)
         self._record(
@@ -170,15 +161,17 @@ class CalDAVWorkTaskService(TaskService):
 
         obj = self.get(task)
         task_id = self._require_id(obj)
-        current_id = self._session_current_id()
-        paused_ids = self._session_paused_ids()
-        work_session_before = (
-            "current"
-            if current_id == task_id
-            else "paused"
-            if task_id in paused_ids
-            else "none"
-        )
+        current_id = self.worklog.current_task_id()
+        if current_id == task_id:
+            work_session_before = "current"
+        else:
+            # Only this Task's history is relevant. Avoid constructing the global
+            # paused set, which previously listed all IN-PROCESS Tasks and scanned
+            # Work history separately for every candidate.
+            try:
+                work_session_before = "paused" if self.worklog.segments_for(obj) else "none"
+            except Exception:
+                work_session_before = "none"
 
         closed = None
         completed_at = self.worklog.now()
