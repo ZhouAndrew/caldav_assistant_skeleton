@@ -15,6 +15,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from caldav_assistant.api import Event
 from caldav_assistant.api.v1.hooks import HookEvent, on
 from caldav_assistant.easy import tasks
 from caldav_assistant.internal.runtime.current_context import get_current_context
@@ -41,8 +42,33 @@ def _task_for(uid: str) -> Any:
     return None
 
 
-def _segment_start(task: Any, end: datetime) -> datetime | None:
-    """Recover the current interval start from persisted Activity Journal history."""
+def _caldav_segment(task: Any, activity_end: datetime) -> tuple[datetime, datetime] | None:
+    """Prefer the real closed Work VEVENT that the pause operation just persisted."""
+    try:
+        ctx = get_current_context()
+        session = getattr(ctx, "session", None)
+        worklog = getattr(session, "worklog", None)
+        reader = getattr(worklog, "segments_for", None)
+        if not callable(reader):
+            return None
+        closed = [
+            item
+            for item in (reader(task) or ())
+            if isinstance(item, Event)
+            and isinstance(item.start, datetime)
+            and isinstance(item.end, datetime)
+            and item.start <= item.end <= activity_end
+        ]
+    except Exception:
+        return None
+    if not closed:
+        return None
+    item = max(closed, key=lambda value: value.end)
+    return item.start, item.end
+
+
+def _activity_segment(task: Any, end: datetime) -> tuple[datetime, datetime] | None:
+    """Recover a closed interval from Activity Journal when no Work VEVENT exists."""
     try:
         ctx = get_current_context()
         items = list(ctx.activity.for_task(task) or ())
@@ -69,7 +95,11 @@ def _segment_start(task: Any, end: datetime) -> datetime | None:
             # at exactly `end` is the interval we are rendering, not an earlier one.
             if timestamp < end:
                 start = None
-    return start
+    return None if start is None else (start, end)
+
+
+def _closed_segment(task: Any, end: datetime) -> tuple[datetime, datetime] | None:
+    return _caldav_segment(task, end) or _activity_segment(task, end)
 
 
 def _queue(text: str) -> Any:
@@ -88,17 +118,18 @@ def _queue(text: str) -> Any:
 @on("task.paused")
 def log_closed_work_segment(event: HookEvent) -> Any:
     activity = _activity(event)
-    end = getattr(activity, "timestamp", None)
+    activity_end = getattr(activity, "timestamp", None)
     uid = str(getattr(activity, "object_id", "") or "").strip()
-    if not isinstance(end, datetime) or not uid:
+    if not isinstance(activity_end, datetime) or not uid:
         return None
 
     task = _task_for(uid)
     if task is None:
         return None
-    start = _segment_start(task, end)
-    if start is None:
+    interval = _closed_segment(task, activity_end)
+    if interval is None:
         return None
+    start, end = interval
 
     ctx = get_current_context()
     text = WorkLogFormatter(ctx.settings).render_segment(
