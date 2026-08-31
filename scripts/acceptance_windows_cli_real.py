@@ -266,7 +266,8 @@ def main() -> int:
             print(f"PASS: production settings written under {home}")
 
             today = _run(executable, root, env, "today")
-            _require(today, "Command result", "installed one-shot today completed")
+            _require(today, TASK_SUMMARY, "installed one-shot today shows the real Task")
+            _require(today, EVENT_SUMMARY, "installed one-shot today shows the real Event")
 
             tasks = _run(executable, root, env, "tasks")
             _require(tasks, TASK_SUMMARY, "real Task visible through installed CLI")
@@ -300,7 +301,8 @@ def main() -> int:
 
             status = _run(executable, root, env, "background", "status")
             _require(status, "running", "background service is actually running")
-            _run(executable, root, env, "background", "stop")
+            stopped = _run(executable, root, env, "background", "stop")
+            _require(stopped, "stopped", "background stop waits for actual process teardown")
             print("PASS: real background Assistant stopped cleanly")
             print("REAL WINDOWS INSTALLED CLI ACCEPTANCE: PASS")
             return 0
