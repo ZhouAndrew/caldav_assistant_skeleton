@@ -101,7 +101,11 @@ def run_cli(argv: Sequence[str] | None = None, *, app: Any = None) -> int:
     # Client diagnostics are a protected built-in rather than an optional Extension:
     # if an Extension is broken or disabled, `demo` / `doctor` must still be available
     # to identify the failing layer. Registration still goes through CommandRegistry.
-    register_feature_demo_command(app.commands, app.ctx)
+    # Narrow entrypoint/runtime test doubles are allowed to omit CommandService.
+    commands = getattr(app, "commands", None)
+    ctx = getattr(app, "ctx", None)
+    if commands is not None and ctx is not None:
+        register_feature_demo_command(commands, ctx)
     return monitor_app.run_cli(argv, app=app)
 
 
