@@ -159,18 +159,18 @@ def _execute_shell_on_main(module: Any, app: Any, parsed: Any, *, paginate: bool
         app,
         "Choose an item; waiting for your input is not operation latency.",
     )
-    code, should_exit, result = module._run_command_without_render(app, effective)
-    if result is not None:
-        module.base._render_result(app, result, paginate=paginate)
+    outcome = module.base.execute_command(app, effective)
+    if outcome.result is not None:
+        module.base._render_result(app, outcome.result, paginate=paginate)
 
     # Deliberately do not print elapsed seconds here: this interval includes the
     # human's menu think-time and calling it operation latency would recreate the
     # original misleading behavior in a different form.
-    if code == 0:
+    if outcome.exit_code == 0:
         conversation._show(app, "✓ Menu/selection finished.")
     else:
         conversation._show(app, "✗ Menu/selection did not fully succeed.")
-    return code, should_exit
+    return outcome.exit_code, outcome.should_exit
 
 
 def install(module: Any) -> None:
