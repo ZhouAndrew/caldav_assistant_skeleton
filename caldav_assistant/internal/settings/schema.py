@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+from string import Formatter
 from typing import Any, Callable
 
 from ...api.v1.errors import NotFoundError, ValidationError
@@ -113,6 +114,39 @@ def _extension_map(value: Any) -> dict[str, bool]:
     return result
 
 
+def _worklog_style(value: Any) -> str:
+    clean = _text(value, label="WordPress work-log style").casefold()
+    allowed = {"off", "compact", "detailed", "custom"}
+    if clean not in allowed:
+        raise ValidationError("WordPress work-log style must be off, compact, detailed, or custom")
+    return clean
+
+
+def _worklog_template(value: Any) -> str:
+    clean = _text(value, label="WordPress work-log template")
+    allowed = {
+        "start",
+        "end",
+        "task",
+        "uid",
+        "duration",
+        "duration_minutes",
+        "status",
+        "start_iso",
+        "end_iso",
+    }
+    try:
+        fields = [name for _, name, _, _ in Formatter().parse(clean) if name]
+    except ValueError as exc:
+        raise ValidationError("WordPress work-log template has invalid braces") from exc
+    unknown = {name for name in fields if name not in allowed}
+    if unknown:
+        raise ValidationError(
+            "Unknown WordPress work-log template field(s): " + ", ".join(sorted(unknown))
+        )
+    return clean
+
+
 @dataclass(frozen=True, slots=True)
 class SettingSpec:
     key: str
@@ -184,6 +218,8 @@ DEFAULT_SETTINGS_SCHEMA = SettingsSchema([
     SettingSpec(NOTIFICATIONS_ENABLED, "Notifications", "Notifications", "bool", True, validator=lambda v: _boolean(v, label="Notifications")),
     SettingSpec(WORDPRESS_ENABLED, "WordPress", "WordPress", "bool", True, validator=lambda v: _boolean(v, label="WordPress")),
     SettingSpec(WORDPRESS_PATH, "WordPress path", "WordPress", "text", None, validator=_optional_path),
+    SettingSpec(WORDPRESS_WORKLOG_STYLE, "Work-log style", "WordPress", "choice", "compact", choices=("off", "compact", "detailed", "custom"), validator=_worklog_style),
+    SettingSpec(WORDPRESS_WORKLOG_TEMPLATE, "Custom work-log template", "WordPress", "text", "{start}-{end} {task}", validator=_worklog_template),
     SettingSpec(COMMAND_LANGUAGE, "Command language", "Commands", "choice", "en", choices=("en",), validator=_command_language),
     SettingSpec(EXTENSIONS_ENABLED, "Extensions", "Extensions", "mapping", {}, validator=_extension_map),
     SettingSpec(

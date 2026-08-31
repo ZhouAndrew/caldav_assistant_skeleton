@@ -18,3 +18,11 @@ def test_categories_shape():assert DEFAULT_SETTINGS_SCHEMA.categories()==("Langu
 def test_upcoming_window_is_public_and_validated():
     public=make();assert public.get(AGENDA_UPCOMING_HOURS)==24;assert public.set(AGENDA_UPCOMING_HOURS,"36")==36
     with pytest.raises(ValidationError):public.set(AGENDA_UPCOMING_HOURS,0)
+def test_wordpress_worklog_defaults_to_compact_and_is_user_customizable():
+    public=make()
+    assert public.get(WORDPRESS_WORKLOG_STYLE)=="compact"
+    assert public.get(WORDPRESS_WORKLOG_TEMPLATE)=="{start}-{end} {task}"
+    assert public.set(WORDPRESS_WORKLOG_STYLE,"CUSTOM")=="custom"
+    assert public.set(WORDPRESS_WORKLOG_TEMPLATE,"{task} {duration_minutes}m")=="{task} {duration_minutes}m"
+    with pytest.raises(ValidationError):public.set(WORDPRESS_WORKLOG_STYLE,"noisy")
+    with pytest.raises(ValidationError):public.set(WORDPRESS_WORKLOG_TEMPLATE,"{unknown}")
