@@ -48,6 +48,7 @@ from caldav_assistant.internal.storage.sqlite import (
 
 TASK_UID = "accept-compact-wordpress-worklog"
 TASK_NAME = "Anki acceptance"
+CUSTOM_TEMPLATE = "{task} | {duration_minutes}m | {start}>{end}"
 
 
 def _free_port() -> int:
@@ -121,15 +122,6 @@ def _configure(home: Path, base_url: str, calendar_url: str) -> None:
     settings.set(
         EXTENSIONS_ENABLED,
         {"software_intro": False, "wordpress_work_session_log": True},
-    )
-
-
-def _set_custom_style(home: Path) -> None:
-    settings = SettingsService(SQLiteKeyValueRepository(_state(home), "settings"))
-    settings.set(WORDPRESS_WORKLOG_STYLE, "custom")
-    settings.set(
-        WORDPRESS_WORKLOG_TEMPLATE,
-        "{task} | {duration_minutes}m | {start}>{end}",
     )
 
 
@@ -247,7 +239,28 @@ def main() -> int:
                 )
             _assert_default_compact(compact_logs[0])
 
-            _set_custom_style(home)
+            style_result = _run_cli(
+                executable,
+                env,
+                "settings",
+                "set",
+                WORDPRESS_WORKLOG_STYLE,
+                "custom",
+            )
+            if f"{WORDPRESS_WORKLOG_STYLE} = custom" not in style_result:
+                raise AssertionError("Installed CLI did not confirm custom worklog style")
+            template_result = _run_cli(
+                executable,
+                env,
+                "settings",
+                "set",
+                WORDPRESS_WORKLOG_TEMPLATE,
+                CUSTOM_TEMPLATE,
+            )
+            if CUSTOM_TEMPLATE not in template_result:
+                raise AssertionError("Installed CLI did not confirm custom worklog template")
+            print("PASS: per-user worklog customization is reachable through the real Settings CLI")
+
             _run_cli(executable, env, "resume")
             time.sleep(0.2)
             _run_cli(executable, env, "pause")
