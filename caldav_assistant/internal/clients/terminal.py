@@ -26,7 +26,12 @@ class TerminalBellProfile:
 
 
 class _BellAwareTextStream:
-    """Transparent stream wrapper that expands one BEL into a configured pattern."""
+    """Transparent stream wrapper that turns one BEL into a persistent reminder alarm.
+
+    ``repeat_count`` is the number of rings in one burst. Bursts repeat until the
+    human presses Ctrl-C. The Ctrl-C is consumed here: acknowledging the alarm must
+    not accidentally pause, complete, or otherwise mutate the current Task.
+    """
 
     def __init__(
         self,
@@ -46,35 +51,52 @@ class _BellAwareTextStream:
         except Exception:
             return default
 
-    def _ring_once_logically(self) -> None:
+    def _ring_once_logically(self) -> int:
+        """Ring in configured bursts until Ctrl-C acknowledges this reminder."""
         terminal_bell_enabled = bool(
             self._read_setting(self._profile.enabled, True)
         )
         if not terminal_bell_enabled:
-            return
+            return 0
 
         try:
-            terminal_bell_repeat_count = max(
+            rings_per_burst = max(
                 1,
-                int(self._read_setting(self._profile.repeat_count, 1)),
+                int(self._read_setting(self._profile.repeat_count, 3)),
             )
         except (TypeError, ValueError):
-            terminal_bell_repeat_count = 1
+            rings_per_burst = 3
         try:
-            terminal_bell_interval_ms = max(
-                0,
-                int(self._read_setting(self._profile.interval_ms, 0)),
+            pause_between_rings_ms = max(
+                100,
+                int(self._read_setting(self._profile.interval_ms, 400)),
             )
         except (TypeError, ValueError):
-            terminal_bell_interval_ms = 0
+            pause_between_rings_ms = 400
 
-        interval_seconds = terminal_bell_interval_ms / 1000.0
-        for ring_number in range(terminal_bell_repeat_count):
-            self._stream.write("\a")
+        pause_between_rings_seconds = pause_between_rings_ms / 1000.0
+        pause_between_bursts_seconds = max(
+            0.8,
+            pause_between_rings_seconds * 2.0,
+        )
+        rings_sounded = 0
+
+        self._stream.write("\n🔔 Reminder alarm — press Ctrl-C to stop the ringing.\n")
+        self._stream.flush()
+        try:
+            while True:
+                for ring_number in range(rings_per_burst):
+                    self._stream.write("\a")
+                    self._stream.flush()
+                    rings_sounded += 1
+                    is_last_ring_in_burst = ring_number + 1 >= rings_per_burst
+                    if not is_last_ring_in_burst:
+                        self._sleep_fn(pause_between_rings_seconds)
+                self._sleep_fn(pause_between_bursts_seconds)
+        except KeyboardInterrupt:
+            self._stream.write("\n✓ Reminder alarm stopped. Task/Event state was not changed.\n")
             self._stream.flush()
-            is_last_ring = ring_number + 1 >= terminal_bell_repeat_count
-            if not is_last_ring and interval_seconds > 0:
-                self._sleep_fn(interval_seconds)
+            return rings_sounded
 
     def write(self, value: str) -> int:
         text = str(value)
@@ -110,10 +132,11 @@ class StdConsoleIO:
     worker-hosted prompt produced endless fake ``Still working`` heartbeats while the
     user was simply deciding what to choose.
 
-    A ``TerminalBellProfile`` may be injected by the composition root.  The rest of
-    the CLI continues to emit one ordinary ``\\a`` for one logical alert; this adapter
-    turns it into the user's configured number of spaced rings.  Adjacent BEL bytes
-    are deliberately avoided because terminal emulators commonly coalesce them.
+    A ``TerminalBellProfile`` may be injected by the composition root. The rest of
+    the CLI emits one ordinary ``\\a`` for one logical reminder. This adapter turns
+    that logical alert into repeated, human-configured bell bursts and keeps repeating
+    them until Ctrl-C acknowledges the reminder. Acknowledgement is presentation-only
+    and deliberately does not become a Task/Event lifecycle command.
     """
 
     def __init__(
