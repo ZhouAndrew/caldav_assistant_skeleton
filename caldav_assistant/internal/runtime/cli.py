@@ -100,7 +100,7 @@ class BackgroundActions:
         """
         before = self.runtime.status()
         pid = self._running_pid(before)
-        changed = bool(self.runtime.stop(timeout=timeout))
+        changed = bool(self.runtime.stop())
         if pid is not None and not self._process_waiter(pid, timeout=timeout):
             raise UnavailableError(
                 "Background service endpoint stopped but process did not exit in time"
