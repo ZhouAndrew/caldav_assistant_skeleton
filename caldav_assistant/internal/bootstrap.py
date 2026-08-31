@@ -18,6 +18,7 @@ from .caldav.library_adapter import LibraryCalDAVAdapter
 from .caldav.setup import CalDAVSetupService
 from .cli.actions import BuiltinActions, register_cli_builtin_commands
 from .cli.io import StdConsoleIO
+from .clients.terminal import TerminalBellProfile
 from .commands import CommandRegistry, CommandService
 from .commands.decorators import bind_command_registry
 from .discovery import ServerDiscovery
@@ -67,6 +68,9 @@ from .settings.keys import (
     EXPERIMENTAL_FAST_QUERY_CACHE,
     EXTENSIONS_ENABLED,
     NOTIFICATION_SOUND_ENABLED,
+    TERMINAL_BELL_ENABLED,
+    TERMINAL_BELL_INTERVAL_MS,
+    TERMINAL_BELL_REPEAT_COUNT,
     WORDPRESS_PATH,
 )
 from .storage.sqlite import (
@@ -395,7 +399,12 @@ def build_cli_application() -> CLIApplication:
     settings = RemoteSettingsAPI(runtime)
     session = RemoteSessionAPI(runtime)
     temporal = TemporalService(TemporalParser())
-    io = StdConsoleIO()
+    terminal_bell_profile = TerminalBellProfile(
+        enabled=lambda: bool(settings.get(TERMINAL_BELL_ENABLED, True)),
+        repeat_count=lambda: int(settings.get(TERMINAL_BELL_REPEAT_COUNT, 3)),
+        interval_ms=lambda: int(settings.get(TERMINAL_BELL_INTERVAL_MS, 400)),
+    )
+    io = StdConsoleIO(terminal_bell_profile=terminal_bell_profile)
     locale = LocaleService(settings)
     menu = Menu(io, locale=locale)
     prompts = PromptKit(
