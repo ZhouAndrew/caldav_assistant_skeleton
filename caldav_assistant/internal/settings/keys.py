@@ -7,6 +7,10 @@ CALDAV_WORKLOG_COLLECTION_URL = "caldav.worklog_collection_url"
 UI_LOCALE = "ui.locale"
 COMMAND_LANGUAGE = "commands.language"
 NOTIFICATIONS_ENABLED = "notifications.enabled"
+NOTIFICATION_SOUND_ENABLED = "notifications.sound_enabled"
+TERMINAL_BELL_ENABLED = "notifications.terminal_bell_enabled"
+TERMINAL_BELL_REPEAT_COUNT = "notifications.terminal_bell_repeat_count"
+TERMINAL_BELL_INTERVAL_MS = "notifications.terminal_bell_interval_ms"
 WORDPRESS_ENABLED = "wordpress.enabled"
 WORDPRESS_PATH = "wordpress.path"
 WORDPRESS_WORKLOG_STYLE = "wordpress.worklog.style"
@@ -24,6 +28,10 @@ __all__ = [
     "UI_LOCALE",
     "COMMAND_LANGUAGE",
     "NOTIFICATIONS_ENABLED",
+    "NOTIFICATION_SOUND_ENABLED",
+    "TERMINAL_BELL_ENABLED",
+    "TERMINAL_BELL_REPEAT_COUNT",
+    "TERMINAL_BELL_INTERVAL_MS",
     "WORDPRESS_ENABLED",
     "WORDPRESS_PATH",
     "WORDPRESS_WORKLOG_STYLE",

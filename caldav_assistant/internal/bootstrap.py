@@ -18,6 +18,7 @@ from .caldav.library_adapter import LibraryCalDAVAdapter
 from .caldav.setup import CalDAVSetupService
 from .cli.actions import BuiltinActions, register_cli_builtin_commands
 from .cli.io import StdConsoleIO
+from .clients.terminal import TerminalBellProfile
 from .commands import CommandRegistry, CommandService
 from .commands.decorators import bind_command_registry
 from .discovery import ServerDiscovery
@@ -66,6 +67,10 @@ from .settings.keys import (
     CALDAV_WORKLOG_COLLECTION_URL,
     EXPERIMENTAL_FAST_QUERY_CACHE,
     EXTENSIONS_ENABLED,
+    NOTIFICATION_SOUND_ENABLED,
+    TERMINAL_BELL_ENABLED,
+    TERMINAL_BELL_INTERVAL_MS,
+    TERMINAL_BELL_REPEAT_COUNT,
     WORDPRESS_PATH,
 )
 from .storage.sqlite import (
@@ -155,14 +160,18 @@ def _build_extension_manager(
     )
 
 
-def _notification_adapter_for_platform():
+def _notification_adapter_for_platform(
+    *,
+    sound_enabled: bool | Any = True,
+):
     import sys
 
+    adapter_options = {"sound_enabled": sound_enabled}
     if sys.platform.startswith("win"):
-        return WindowsNotificationAdapter()
+        return WindowsNotificationAdapter(**adapter_options)
     if sys.platform == "darwin":
-        return MacOSNotificationAdapter()
-    return LinuxNotificationAdapter()
+        return MacOSNotificationAdapter(**adapter_options)
+    return LinuxNotificationAdapter(**adapter_options)
 
 
 def _ipc_endpoint() -> str:
@@ -295,7 +304,13 @@ def build_service_application() -> ServiceApplication:
         assistant_state,
         session=session,
     )
-    notifications = NotificationService(_notification_adapter_for_platform())
+    notifications = NotificationService(
+        _notification_adapter_for_platform(
+            sound_enabled=lambda: bool(
+                settings_service.get(NOTIFICATION_SOUND_ENABLED, True)
+            )
+        )
+    )
     reminders = ReminderService(
         ReminderEngine(),
         notifications,
@@ -384,7 +399,12 @@ def build_cli_application() -> CLIApplication:
     settings = RemoteSettingsAPI(runtime)
     session = RemoteSessionAPI(runtime)
     temporal = TemporalService(TemporalParser())
-    io = StdConsoleIO()
+    terminal_bell_profile = TerminalBellProfile(
+        enabled=lambda: bool(settings.get(TERMINAL_BELL_ENABLED, True)),
+        repeat_count=lambda: int(settings.get(TERMINAL_BELL_REPEAT_COUNT, 3)),
+        interval_ms=lambda: int(settings.get(TERMINAL_BELL_INTERVAL_MS, 400)),
+    )
+    io = StdConsoleIO(terminal_bell_profile=terminal_bell_profile)
     locale = LocaleService(settings)
     menu = Menu(io, locale=locale)
     prompts = PromptKit(

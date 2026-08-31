@@ -43,24 +43,34 @@ class _CommandNotificationAdapter:
         runner: Callable[..., Any] | None = None,
         which: Callable[[str], str | None] | None = None,
         timeout: float = 10.0,
+        sound_enabled: bool | Callable[[], bool] = True,
     ) -> None:
         self._runner = runner or subprocess.run
         self._which = which or shutil.which
         self._timeout = timeout
+        self._sound_enabled = sound_enabled
+
+    def _notification_sound_enabled(self) -> bool:
+        configured_value = (
+            self._sound_enabled()
+            if callable(self._sound_enabled)
+            else self._sound_enabled
+        )
+        return bool(configured_value)
 
     def _find_executable(self) -> str:
-        for name in self.executable_names:
-            path = self._which(name)
-            if path:
-                return path
-        names = ", ".join(self.executable_names)
+        for executable_name in self.executable_names:
+            executable_path = self._which(executable_name)
+            if executable_path:
+                return executable_path
+        executable_choices = ", ".join(self.executable_names)
         raise UnavailableError(
-            f"System notification command is unavailable: {names}"
+            f"System notification command is unavailable: {executable_choices}"
         )
 
     def _run(self, command: list[str]) -> None:
         try:
-            result = self._runner(
+            completed_process = self._runner(
                 command,
                 capture_output=True,
                 text=True,
@@ -72,12 +82,14 @@ class _CommandNotificationAdapter:
                 f"System notification failed: {exc}"
             ) from exc
 
-        returncode = int(getattr(result, "returncode", 0) or 0)
-        if returncode != 0:
-            stderr = str(getattr(result, "stderr", "") or "").strip()
-            detail = stderr or f"exit status {returncode}"
+        exit_code = int(getattr(completed_process, "returncode", 0) or 0)
+        if exit_code != 0:
+            standard_error = str(
+                getattr(completed_process, "stderr", "") or ""
+            ).strip()
+            failure_detail = standard_error or f"exit status {exit_code}"
             raise UnavailableError(
-                f"System notification failed: {detail}"
+                f"System notification failed: {failure_detail}"
             )
 
 
@@ -93,11 +105,17 @@ class LinuxNotificationAdapter(_CommandNotificationAdapter):
         actions: Any = None,
     ) -> None:
         _reject_unfrozen_actions(actions)
-        executable = self._find_executable()
+        notify_send_path = self._find_executable()
+        sound_hint = (
+            "--hint=string:sound-name:alarm-clock-elapsed"
+            if self._notification_sound_enabled()
+            else "--hint=boolean:suppress-sound:true"
+        )
         self._run(
             [
-                executable,
+                notify_send_path,
                 "--app-name=CalDAV Assistant",
+                sound_hint,
                 title,
                 body,
             ]
@@ -109,7 +127,13 @@ class MacOSNotificationAdapter(_CommandNotificationAdapter):
 
     executable_names = ("osascript",)
 
-    _SCRIPT = """on run argv
+    _SCRIPT_WITH_SOUND = """on run argv
+set notificationTitle to item 1 of argv
+set notificationBody to item 2 of argv
+display notification notificationBody with title notificationTitle sound name "Glass"
+end run"""
+
+    _SCRIPT_SILENT = """on run argv
 set notificationTitle to item 1 of argv
 set notificationBody to item 2 of argv
 display notification notificationBody with title notificationTitle
@@ -122,12 +146,17 @@ end run"""
         actions: Any = None,
     ) -> None:
         _reject_unfrozen_actions(actions)
-        executable = self._find_executable()
+        osascript_path = self._find_executable()
+        notification_script = (
+            self._SCRIPT_WITH_SOUND
+            if self._notification_sound_enabled()
+            else self._SCRIPT_SILENT
+        )
         self._run(
             [
-                executable,
+                osascript_path,
                 "-e",
-                self._SCRIPT,
+                notification_script,
                 "--",
                 title,
                 body,
@@ -140,7 +169,7 @@ class WindowsNotificationAdapter(_CommandNotificationAdapter):
 
     executable_names = ("powershell.exe", "powershell", "pwsh.exe", "pwsh")
 
-    _SCRIPT = r"""
+    _SCRIPT_WITH_SOUND = r"""
 param([string]$Title, [string]$Body)
 
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
@@ -150,7 +179,26 @@ param([string]$Title, [string]$Body)
 $escapedTitle = [System.Security.SecurityElement]::Escape($Title)
 $escapedBody = [System.Security.SecurityElement]::Escape($Body)
 
-$xmlText = "<toast><visual><binding template='ToastGeneric'><text>$escapedTitle</text><text>$escapedBody</text></binding></visual></toast>"
+$xmlText = "<toast><visual><binding template='ToastGeneric'><text>$escapedTitle</text><text>$escapedBody</text></binding></visual><audio src='ms-winsoundevent:Notification.Reminder' loop='false'/></toast>"
+$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+$xml.LoadXml($xmlText)
+
+$toast = New-Object Windows.UI.Notifications.ToastNotification $xml
+$notifier = [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("CalDAV Assistant")
+$notifier.Show($toast)
+""".strip()
+
+    _SCRIPT_SILENT = r"""
+param([string]$Title, [string]$Body)
+
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+[Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+
+$escapedTitle = [System.Security.SecurityElement]::Escape($Title)
+$escapedBody = [System.Security.SecurityElement]::Escape($Body)
+
+$xmlText = "<toast><visual><binding template='ToastGeneric'><text>$escapedTitle</text><text>$escapedBody</text></binding></visual><audio silent='true'/></toast>"
 $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
 $xml.LoadXml($xmlText)
 
@@ -166,16 +214,21 @@ $notifier.Show($toast)
         actions: Any = None,
     ) -> None:
         _reject_unfrozen_actions(actions)
-        executable = self._find_executable()
+        powershell_path = self._find_executable()
+        notification_script = (
+            self._SCRIPT_WITH_SOUND
+            if self._notification_sound_enabled()
+            else self._SCRIPT_SILENT
+        )
         self._run(
             [
-                executable,
+                powershell_path,
                 "-NoProfile",
                 "-NonInteractive",
                 "-ExecutionPolicy",
                 "Bypass",
                 "-Command",
-                self._SCRIPT,
+                notification_script,
                 title,
                 body,
             ]
