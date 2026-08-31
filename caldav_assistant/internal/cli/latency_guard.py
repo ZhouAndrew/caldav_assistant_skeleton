@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 import math
-from time import monotonic
 from typing import Any
 
 from ...api.v1.errors import UnavailableError
@@ -142,18 +141,19 @@ def _execute_shell_on_main(module: Any, app: Any, parsed: Any, *, paginate: bool
     conversation._show(app, f"Working: {original.raw}")
     conversation._show(
         app,
-        "Choose an item; waiting for your input is not counted as operation latency.",
+        "Choose an item; waiting for your input is not operation latency.",
     )
-    started = monotonic()
     code, should_exit, result = module._run_command_without_render(app, effective)
     if result is not None:
         module.base._render_result(app, result, paginate=paginate)
 
-    elapsed = monotonic() - started
+    # Deliberately do not print elapsed seconds here: this interval includes the
+    # human's menu think-time and calling it operation latency would recreate the
+    # original misleading behavior in a different form.
     if code == 0:
-        conversation._show(app, f"✓ Menu/selection finished ({elapsed:.1f}s)")
+        conversation._show(app, "✓ Menu/selection finished.")
     else:
-        conversation._show(app, f"✗ Menu/selection did not fully succeed ({elapsed:.1f}s)")
+        conversation._show(app, "✗ Menu/selection did not fully succeed.")
     return code, should_exit
 
 
