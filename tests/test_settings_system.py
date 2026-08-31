@@ -9,6 +9,18 @@ class Repo:
 def make():return PublicSettingsAPI(SettingsService(Repo()))
 def test_defaults_and_validation():
     public=make();assert public.get(UI_LOCALE)=="en";assert public.set(UI_LOCALE,"zh-cn")=="zh-CN";assert public.get(NOTIFICATIONS_ENABLED) is True;assert public.set(NOTIFICATIONS_ENABLED,"off") is False
+def test_reminder_alert_defaults_are_readable_and_validated():
+    public=make()
+    assert public.get(NOTIFICATION_SOUND_ENABLED) is True
+    assert public.get(TERMINAL_BELL_ENABLED) is True
+    assert public.get(TERMINAL_BELL_REPEAT_COUNT)==3
+    assert public.get(TERMINAL_BELL_INTERVAL_MS)==400
+    assert public.set(TERMINAL_BELL_REPEAT_COUNT,"5")==5
+    assert public.set(TERMINAL_BELL_INTERVAL_MS,"650")==650
+    with pytest.raises(ValidationError):public.set(TERMINAL_BELL_REPEAT_COUNT,0)
+    with pytest.raises(ValidationError):public.set(TERMINAL_BELL_REPEAT_COUNT,11)
+    with pytest.raises(ValidationError):public.set(TERMINAL_BELL_INTERVAL_MS,99)
+    with pytest.raises(ValidationError):public.set(TERMINAL_BELL_INTERVAL_MS,2001)
 def test_credentials_are_write_only():
     public=make();public.set(CALDAV_CREDENTIALS,{"username":"a","password":"b"})
     with pytest.raises(ValidationError):public.get(CALDAV_CREDENTIALS)
