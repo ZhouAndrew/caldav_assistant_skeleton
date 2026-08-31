@@ -95,6 +95,11 @@ def dt(hour, minute=0):
     return datetime(2026, 8, 29, hour, minute, tzinfo=timezone.utc)
 
 
+def local_clock(value: datetime) -> str:
+    local = value.astimezone()
+    return f"{local.hour}:{local.minute:02d}"
+
+
 def test_queue_log_writes_only_outbox_until_background_flush():
     adapter = WordPressAdapter()
     outbox = Outbox()
@@ -150,7 +155,7 @@ def test_completion_logs_only_the_final_segment_closed_by_done():
     logger.queue_for(task)
 
     assert wp.calls == [
-        ("11:00-12:00 Report", {"_show_clock": False}),
+        (f"{local_clock(dt(11, 0))}-{local_clock(dt(12, 0))} Report", {"_show_clock": False}),
     ]
 
 

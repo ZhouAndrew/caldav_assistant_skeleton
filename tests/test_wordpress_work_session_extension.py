@@ -99,6 +99,11 @@ class SequenceClock:
         return self.values.pop(0)
 
 
+def _local_clock(value: datetime) -> str:
+    local = value.astimezone()
+    return f"{local.hour}:{local.minute:02d}"
+
+
 def _bundled_extensions_dir() -> Path:
     import caldav_assistant
 
@@ -144,14 +149,13 @@ def test_default_worklog_writes_one_line_only_when_segment_closes():
     )
     adapter = FakeTaskAdapter(task)
     repo = FakeActivityRepo()
+    t0 = datetime(2026, 8, 31, 5, 0, tzinfo=timezone.utc)
+    t1 = datetime(2026, 8, 31, 5, 10, tzinfo=timezone.utc)
+    t2 = datetime(2026, 8, 31, 5, 20, tzinfo=timezone.utc)
+    t3 = datetime(2026, 8, 31, 5, 30, tzinfo=timezone.utc)
     activity = ActivityService(
         repo,
-        clock=SequenceClock(
-            datetime(2026, 8, 31, 5, 0, tzinfo=timezone.utc),
-            datetime(2026, 8, 31, 5, 10, tzinfo=timezone.utc),
-            datetime(2026, 8, 31, 5, 20, tzinfo=timezone.utc),
-            datetime(2026, 8, 31, 5, 30, tzinfo=timezone.utc),
-        ),
+        clock=SequenceClock(t0, t1, t2, t3),
     )
     tasks = TaskService(adapter, activity=activity)
     wordpress = FakeWordPress()
@@ -164,7 +168,7 @@ def test_default_worklog_writes_one_line_only_when_segment_closes():
 
         assert tasks.pause(task).success is True
         assert wordpress.calls == [
-            ("5:00-5:10 Anki", {"_show_clock": False}),
+            (f"{_local_clock(t0)}-{_local_clock(t1)} Anki", {"_show_clock": False}),
         ]
 
         assert tasks.resume(task).success is True
@@ -172,7 +176,7 @@ def test_default_worklog_writes_one_line_only_when_segment_closes():
 
         assert tasks.pause(task).success is True
         assert wordpress.calls[-1] == (
-            "5:20-5:30 Anki",
+            f"{_local_clock(t2)}-{_local_clock(t3)} Anki",
             {"_show_clock": False},
         )
 
@@ -194,12 +198,11 @@ def test_default_worklog_writes_one_line_only_when_segment_closes():
 def test_worklog_format_is_customizable_per_user_settings():
     task = Task(id="t1", summary="Anki")
     repo = FakeActivityRepo()
+    t0 = datetime(2026, 8, 31, 5, 0, tzinfo=timezone.utc)
+    t1 = datetime(2026, 8, 31, 5, 10, tzinfo=timezone.utc)
     activity = ActivityService(
         repo,
-        clock=SequenceClock(
-            datetime(2026, 8, 31, 5, 0, tzinfo=timezone.utc),
-            datetime(2026, 8, 31, 5, 10, tzinfo=timezone.utc),
-        ),
+        clock=SequenceClock(t0, t1),
     )
     tasks = TaskService(FakeTaskAdapter(task), activity=activity)
     wordpress = FakeWordPress()
@@ -216,7 +219,10 @@ def test_worklog_format_is_customizable_per_user_settings():
         tasks.pause(task)
 
         assert wordpress.calls == [
-            ("Anki | 10 min | 5:00->5:10", {"_show_clock": False}),
+            (
+                f"Anki | 10 min | {_local_clock(t0)}->{_local_clock(t1)}",
+                {"_show_clock": False},
+            ),
         ]
     finally:
         _cleanup_extension_runtime()

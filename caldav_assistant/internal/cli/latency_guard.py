@@ -182,6 +182,7 @@ def install(module: Any) -> None:
     original_execute = module._execute_user
     original_home_menu = conversation._home_menu
     original_visible_call = conversation._visible_call
+    original_guided_start = getattr(conversation, "_guided_start", None)
     module._execute_user_unbounded = original_execute
 
     # A menu is a view over one coherent point-in-time snapshot. The old path read a
@@ -223,6 +224,30 @@ def install(module: Any) -> None:
         menu_state["snapshot"] = refreshed
         return refreshed
 
+    def guarded_guided_start(app: Any, task: Any = None):
+        snapshot = menu_state["snapshot"]
+        # After startup already proved live state unavailable, do not immediately
+        # issue a second long session.current_task IPC call from the guided menu. We
+        # cannot safely assume "no current Task" from an unavailable snapshot, so the
+        # correct degraded behavior is to keep the console alive and change nothing.
+        if snapshot is not None and getattr(snapshot, "warning", None) is not None:
+            conversation._show(
+                app,
+                "Current Task state is unavailable, so the Assistant cannot safely "
+                "start another Task from this menu yet. No Task state was changed.",
+            )
+            return "console"
+        try:
+            assert callable(original_guided_start)
+            return original_guided_start(app, task)
+        except (UnavailableError, RuntimeError) as exc:
+            conversation._show(
+                app,
+                "Live current-work state became unavailable while starting. "
+                f"The console remains usable; no Task state was changed. {type(exc).__name__}: {exc}",
+            )
+            return "console"
+
     def guarded_home_menu(app: Any, snapshot: Any):
         prepared = snapshot
         if prepared is None:
@@ -254,6 +279,8 @@ def install(module: Any) -> None:
     module._read_snapshot = guarded_read_snapshot
     module._execute_user = guarded_execute_user
     conversation._visible_call = guarded_visible_call
+    if callable(original_guided_start):
+        conversation._guided_start = guarded_guided_start
     conversation._home_menu = guarded_home_menu
     module._latency_guards_installed = True
 

@@ -84,3 +84,23 @@ jobs:
             feature-demo-acceptance-${{ matrix.python-version }}.log
             waiting-mode-acceptance-${{ matrix.python-version }}.log
             waiting-mode-transcript-${{ matrix.python-version }}.log
+
+  windows-pytest:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest "radicale==3.5.4"
+      - name: Test
+        shell: pwsh
+        run: python -m pytest -q

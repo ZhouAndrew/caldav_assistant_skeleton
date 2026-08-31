@@ -7,6 +7,7 @@ import pytest
 
 from caldav_assistant.api import Reminder, Task
 from caldav_assistant.api.v1.errors import ValidationError
+import caldav_assistant.internal.bootstrap as bootstrap
 from caldav_assistant.internal.bootstrap import build_service_application
 from caldav_assistant.internal.cli import monitor_app
 from caldav_assistant.internal.runtime.observable_service import ObservableAssistantService
@@ -214,9 +215,11 @@ def test_observable_delivery_uses_work_period_semantic_source_and_task_id():
 
 
 def test_production_bootstrap_exposes_work_period_runtime_routes(tmp_path, monkeypatch):
-    home = tmp_path / "home"
-    home.mkdir()
-    monkeypatch.setenv("HOME", str(home))
+    # Path.home() follows USERPROFILE rather than HOME on Windows. Patch the
+    # composition-root state directory directly so this production-bootstrap test
+    # never reads a developer's real persisted reminders/work-period state.
+    state_dir = tmp_path / ".caldav-assistant"
+    monkeypatch.setattr(bootstrap, "_state_dir", lambda: state_dir)
 
     app = build_service_application()
     dispatcher = app.background.dispatcher
