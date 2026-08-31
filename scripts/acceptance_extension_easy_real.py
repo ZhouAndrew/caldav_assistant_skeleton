@@ -40,7 +40,13 @@ def _configure(home: Path) -> None:
     )
 
 
-def _run(executable: str, root: Path, env: dict[str, str], *args: str) -> tuple[int, str]:
+def _run(
+    executable: str,
+    root: Path,
+    env: dict[str, str],
+    *args: str,
+    allow_diagnostic_traceback: bool = False,
+) -> tuple[int, str]:
     completed = subprocess.run(
         [executable, *args],
         cwd=root,
@@ -53,7 +59,10 @@ def _run(executable: str, root: Path, env: dict[str, str], *args: str) -> tuple[
     output = completed.stdout or ""
     print("$ " + " ".join(["caldav-assistant", *args]))
     print(output.rstrip())
-    if "Traceback (most recent call last)" in output:
+    if (
+        not allow_diagnostic_traceback
+        and "Traceback (most recent call last)" in output
+    ):
         raise AssertionError(f"User-visible traceback from {' '.join(args)}:\n{output}")
     return completed.returncode, output
 
@@ -137,8 +146,20 @@ def main() -> int:
         _contains(output, "error", "broken extension is visibly marked error")
         _contains(output, "RuntimeError", "broken extension error type is visible")
 
-        code, output = _run(executable, root, env, "extension", "errors", BROKEN)
+        # `extension errors` is the one place where a stored traceback is explicitly
+        # requested by the user. That diagnostic traceback is useful evidence, not
+        # an unhandled crash. All ordinary commands above/below still forbid one.
+        code, output = _run(
+            executable,
+            root,
+            env,
+            "extension",
+            "errors",
+            BROKEN,
+            allow_diagnostic_traceback=True,
+        )
         _must_succeed(code, output, "extension diagnostics remain usable after failed import")
+        _contains(output, "Traceback:", "explicit diagnostics include the stored traceback")
         _contains(output, "deliberate extension acceptance failure", "diagnostics retain the real failure")
 
         code, output = _run(executable, root, env, "extensions")
