@@ -99,7 +99,12 @@ class CollectionRoutingCalDAVAdapter:
             return self.adapter.list_tasks(**filters)
         try:
             result = []
-            for resource in calendar.get_todos(include_completed=True):
+            # Agenda/Next explicitly request completed=False.  python-caldav can
+            # translate that to a server-side pending-VTODO REPORT, which avoids
+            # downloading an ever-growing completed-task history just to discard it
+            # locally.  Other callers keep the old include-completed semantics.
+            include_completed = filters.get("completed") is not False
+            for resource in calendar.get_todos(include_completed=include_completed):
                 task = mapper(resource, calendar)
                 if _matches(task, filters):
                     result.append(task)
