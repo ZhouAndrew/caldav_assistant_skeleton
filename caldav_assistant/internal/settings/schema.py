@@ -220,10 +220,11 @@ DEFAULT_SETTINGS_SCHEMA = SettingsSchema([
     SettingSpec(TERMINAL_BELL_ENABLED, "Terminal bell", "Notifications", "bool", True, validator=lambda v: _boolean(v, label="Terminal bell")),
     SettingSpec(
         TERMINAL_BELL_REPEAT_COUNT,
-        "Terminal bell repeats",
+        "Terminal bell rings per reminder",
         "Notifications",
-        "text",
+        "choice",
         3,
+        choices=("1", "2", "3", "4", "5", "8", "10"),
         validator=lambda v: _integer_range(
             v,
             label="Terminal bell repeat count",
@@ -233,10 +234,11 @@ DEFAULT_SETTINGS_SCHEMA = SettingsSchema([
     ),
     SettingSpec(
         TERMINAL_BELL_INTERVAL_MS,
-        "Gap between terminal bells (ms)",
+        "Pause between bell rings (ms)",
         "Notifications",
-        "text",
+        "choice",
         400,
+        choices=("100", "200", "300", "400", "500", "750", "1000", "1500", "2000"),
         validator=lambda v: _integer_range(
             v,
             label="Terminal bell interval",
