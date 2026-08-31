@@ -71,7 +71,15 @@ class CalDAVSessionService:
             return None
         if not items:
             return None
-        latest = max(items, key=lambda item: getattr(item, "timestamp", 0))
+        # Activity repositories return journal rows in chronological insertion order.
+        # Windows clocks can legitimately give start/pause (or resume/complete) the
+        # exact same timestamp.  Timestamp-only max() then kept the first row and
+        # made a just-paused Task still look current.  Preserve chronological ordering
+        # while using the later journal row as the deterministic tie-breaker.
+        _, latest = max(
+            enumerate(items),
+            key=lambda pair: (getattr(pair[1], "timestamp", 0), pair[0]),
+        )
         return str(getattr(latest, "action", "") or "") or None
 
     @staticmethod
@@ -256,6 +264,3 @@ class CalDAVSessionService:
 
     def forget(self, task: Any) -> None:
         return None
-
-
-__all__ = ["CalDAVSessionService"]
