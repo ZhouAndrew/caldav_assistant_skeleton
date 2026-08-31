@@ -86,34 +86,43 @@ class WorkLogService:
             and event.end is None
         )
 
-    def _all_work_events(self) -> list[Event]:
+    def _work_events_with_category(self, category: str) -> list[Event]:
         target = self._collection_url(required=False)
         if target is None:
             return []
 
         # Production collection routing provides this internal scoped-read brick.
-        # It keeps Work history authoritative in CalDAV while avoiding a traversal
-        # of every human Event collection just to locate Assistant-owned Work VEVENTs.
+        # In particular, asking for OPEN_CATEGORY lets python-caldav/Radicale filter
+        # on the server, so finding the current Task does not download years of
+        # already-closed Work intervals.
         scoped = getattr(self.adapter, "list_events_in_collection", None)
         if callable(scoped):
-            items = scoped(target, category=self.CATEGORY)
+            items = scoped(target, category=category)
         else:
             # Adapter-replacement compatibility: an implementation that only
             # satisfies the generic CalDAV contract still works, just without the
             # collection-role acceleration.
-            items = self.adapter.list_events(category=self.CATEGORY)
+            items = self.adapter.list_events(category=category)
 
         return [
             item
             for item in items
             if isinstance(item, Event)
             and self._is_work_event(item)
+            and category in set(item.categories or ())
             and str(getattr(item, "_caldav_collection_url", "") or "").rstrip("/")
             == target.rstrip("/")
         ]
 
+    def _all_work_events(self) -> list[Event]:
+        return self._work_events_with_category(self.CATEGORY)
+
     def open_events(self) -> list[Event]:
-        return [event for event in self._all_work_events() if self._is_open(event)]
+        return [
+            event
+            for event in self._work_events_with_category(self.OPEN_CATEGORY)
+            if self._is_open(event)
+        ]
 
     def current_task_id(self) -> str | None:
         open_items = self.open_events()
@@ -169,7 +178,11 @@ class WorkLogService:
             task_id=task_id,
             collection_url=target,
         )
-        created = self.adapter.create_event(event)
+        scoped_create = getattr(self.adapter, "create_event_in_collection", None)
+        if callable(scoped_create):
+            created = scoped_create(target, event)
+        else:
+            created = self.adapter.create_event(event)
         if not isinstance(created, Event):
             raise TypeError("CalDAVAdapter must return Event for work-log creation")
         emit_progress(
@@ -190,6 +203,7 @@ class WorkLogService:
             return None
         task_id = str(getattr(task, "id", task) or "").strip()
         closed_at = self.now()
+        target = self._collection_url(required=True)
         emit_progress(
             "worklog.close",
             "Closing current CalDAV Work interval...",
@@ -197,13 +211,15 @@ class WorkLogService:
             task_id=task_id,
             event_id=event.id,
         )
-        updated = self.adapter.update_event(
-            event.id,
-            {
-                "end": closed_at,
-                "categories": [self.CATEGORY],
-            },
-        )
+        changes = {
+            "end": closed_at,
+            "categories": [self.CATEGORY],
+        }
+        scoped_update = getattr(self.adapter, "update_event_in_collection", None)
+        if callable(scoped_update):
+            updated = scoped_update(target, event.id, changes)
+        else:
+            updated = self.adapter.update_event(event.id, changes)
         if not isinstance(updated, Event):
             raise TypeError("CalDAVAdapter must return Event for work-log update")
         emit_progress(
@@ -217,20 +233,28 @@ class WorkLogService:
         return updated
 
     def reopen_segment(self, event: Event) -> Event:
-        updated = self.adapter.update_event(
-            event.id,
-            {
-                "end": None,
-                "categories": [self.CATEGORY, self.OPEN_CATEGORY],
-            },
-        )
+        target = self._collection_url(required=True)
+        changes = {
+            "end": None,
+            "categories": [self.CATEGORY, self.OPEN_CATEGORY],
+        }
+        scoped_update = getattr(self.adapter, "update_event_in_collection", None)
+        if callable(scoped_update):
+            updated = scoped_update(target, event.id, changes)
+        else:
+            updated = self.adapter.update_event(event.id, changes)
         if not isinstance(updated, Event):
             raise TypeError("CalDAVAdapter must return Event for work-log update")
         return updated
 
     def discard_segment(self, event: Event) -> None:
+        target = self._collection_url(required=True)
+        scoped_delete = getattr(self.adapter, "delete_event_in_collection", None)
         try:
-            self.adapter.delete_event(event.id)
+            if callable(scoped_delete):
+                scoped_delete(target, event.id)
+            else:
+                self.adapter.delete_event(event.id)
         except NotFoundError:
             return
 
