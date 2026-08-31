@@ -10,6 +10,7 @@ from ..runtime.build_identity import RUNTIME_BUILD_IDENTITY
 # routing the installed interactive client through the zero-learning conversation UI
 # with factual live Core progress.
 from . import conversation_live as monitor_app
+from .feature_demo import register_feature_demo_command
 from .latency_guard import install as install_latency_guards
 
 
@@ -96,6 +97,15 @@ def run_cli(argv: Sequence[str] | None = None, *, app: Any = None) -> int:
     if not _is_background_admin(argv):
         ensure_current_background(app)
         install_latency_guards(monitor_app)
+
+    # Client diagnostics are a protected built-in rather than an optional Extension:
+    # if an Extension is broken or disabled, `demo` / `doctor` must still be available
+    # to identify the failing layer. Registration still goes through CommandRegistry.
+    # Narrow entrypoint/runtime test doubles are allowed to omit CommandService.
+    commands = getattr(app, "commands", None)
+    ctx = getattr(app, "ctx", None)
+    if commands is not None and ctx is not None:
+        register_feature_demo_command(commands, ctx)
     return monitor_app.run_cli(argv, app=app)
 
 
