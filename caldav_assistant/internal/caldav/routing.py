@@ -179,40 +179,11 @@ class CollectionRoutingCalDAVAdapter:
             raise _app_error(exc) from exc
 
     def create_task(self, task: Task) -> Task:
+        # Task creation keeps the mature LibraryCalDAVAdapter serializer/validation
+        # path. The selected collection is attached so the concrete adapter still
+        # writes to the configured role.
         wanted = getattr(task, "_caldav_collection_url", None) or self.task_collection_url()
-        calendar = self._selected_calendar(wanted)
-        mapper = getattr(self.adapter, "_to_task", None)
-        if calendar is None or not callable(mapper) or not callable(getattr(calendar, "add_todo", None)):
-            return self.adapter.create_task(self._copy_with_collection(task, wanted))
-        try:
-            kwargs: dict[str, Any] = {"summary": task.summary}
-            values = {
-                "uid": task.id or None,
-                "description": task.description or None,
-                "dtstart": task.start,
-                "due": task.due,
-                "status": task.status or None,
-                "priority": task.priority,
-                "categories": task.categories or None,
-            }
-            kwargs.update({key: value for key, value in values.items() if value is not None})
-            resource = calendar.add_todo(**kwargs)
-            if task.completed or task.completed_at is not None:
-                editor = getattr(self.adapter, "_edit_task", None)
-                if not callable(editor):
-                    return self.adapter.create_task(self._copy_with_collection(task, wanted))
-                editor(
-                    resource,
-                    {
-                        "completed": True,
-                        "completed_at": task.completed_at,
-                        "status": "COMPLETED",
-                    },
-                )
-                resource.save()
-            return mapper(resource, calendar)
-        except Exception as exc:
-            raise _app_error(exc) from exc
+        return self.adapter.create_task(self._copy_with_collection(task, wanted))
 
     def create_event_in_collection(self, collection_url: str, event: Event) -> Event:
         calendar = self._selected_calendar(collection_url)
