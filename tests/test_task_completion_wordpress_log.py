@@ -122,7 +122,7 @@ def test_queue_log_writes_only_outbox_until_background_flush():
     assert metadata == captured
 
 
-def test_completion_log_contains_caldav_work_segments_and_human_timeline():
+def test_completion_logs_only_the_final_segment_closed_by_done():
     segments = [
         Event(id="w1", summary="Work — Report", start=dt(10, 0), end=dt(10, 30)),
         Event(id="w2", summary="Work — Report", start=dt(11, 0), end=dt(12, 0)),
@@ -149,14 +149,37 @@ def test_completion_log_contains_caldav_work_segments_and_human_timeline():
 
     logger.queue_for(task)
 
-    text, metadata = wp.calls[0]
-    assert metadata["title"] == "Completed — Report"
-    assert "Started work" in text
-    assert "Paused work" in text
-    assert "Resumed work" in text
-    assert "30m 0s" in text
-    assert "1h 0m 0s" in text
-    assert "Total active time: 1h 30m 0s" in text
+    assert wp.calls == [
+        ("11:00-12:00 Report", {"_show_clock": False}),
+    ]
+
+
+def test_completion_of_already_paused_task_does_not_duplicate_previous_segment():
+    segments = [
+        Event(id="w1", summary="Work — Report", start=dt(10, 0), end=dt(10, 30)),
+    ]
+    worklog = WorkLogSource(segments)
+
+    class WP:
+        def __init__(self):
+            self.calls = []
+
+        def queue_log(self, text, **metadata):
+            self.calls.append((text, metadata))
+            return True
+
+    wp = WP()
+    logger = TaskCompletionLogService(worklog, wp)
+    task = Task(
+        id="t1",
+        summary="Report",
+        status="COMPLETED",
+        completed=True,
+        completed_at=dt(11, 0),
+    )
+
+    assert logger.queue_for(task) is None
+    assert wp.calls == []
 
 
 def test_completion_log_queue_failure_never_rolls_back_completed_task():
@@ -180,6 +203,4 @@ def test_completion_log_queue_failure_never_rolls_back_completed_task():
     assert result.success is True
     assert result.affected.status == "COMPLETED"
     assert adapter.task.status == "COMPLETED"
-    # No special local history event is created merely because the optional
-    # WordPress summary could not be queued.
     assert "task_completion_log_queue_failed" not in [item[0] for item in activity.records]
