@@ -264,3 +264,6 @@ class CalDAVSessionService:
 
     def forget(self, task: Any) -> None:
         return None
+
+
+__all__ = ["CalDAVSessionService"]
