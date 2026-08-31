@@ -10,6 +10,7 @@ from ..runtime.build_identity import RUNTIME_BUILD_IDENTITY
 # routing the installed interactive client through the zero-learning conversation UI
 # with factual live Core progress.
 from . import conversation_live as monitor_app
+from .latency_guard import install as install_latency_guards
 
 
 def _show(app: Any, text: str) -> None:
@@ -94,6 +95,7 @@ def run_cli(argv: Sequence[str] | None = None, *, app: Any = None) -> int:
     # and explicit restart already performs the lifecycle transition itself.
     if not _is_background_admin(argv):
         ensure_current_background(app)
+        install_latency_guards(monitor_app)
     return monitor_app.run_cli(argv, app=app)
 
 

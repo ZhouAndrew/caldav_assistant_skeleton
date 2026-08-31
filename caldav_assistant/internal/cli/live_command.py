@@ -57,6 +57,15 @@ def _tag_runtime_call(runtime: Any, operation_id: str):
     return original
 
 
+def _waiting_for_human(app: Any) -> bool:
+    """Return terminal presentation state without interpreting any prompt."""
+    io = getattr(app, "io", None)
+    try:
+        return bool(getattr(io, "waiting_for_input", False))
+    except Exception:
+        return False
+
+
 def run_with_live_progress(
     app: Any,
     operation: Callable[[], Any],
@@ -74,6 +83,12 @@ def run_with_live_progress(
     If the application has no runtime event feed (for example a deliberately small
     unit-test context), execution falls back to the original synchronous behavior.
     Progress-feed failure never changes the authoritative operation result.
+
+    A command handler may briefly enter PromptKit. While the terminal says it is
+    waiting for human input, this observer is silent: choosing from a menu is not
+    Core work and must never produce ``Still working`` heartbeats. Interactive shell
+    commands are additionally kept on the main thread by the conversation client;
+    this guard protects prompt-capable action bricks too.
 
     Once the operation worker has started, Ctrl-C cannot safely mean "cancel" because
     Local IPC has no transactional cancellation contract. The main thread therefore
@@ -121,29 +136,37 @@ def run_with_live_progress(
             except Empty:
                 pass
 
-            try:
-                for event in _events(app, cursor):
-                    cursor = max(cursor, int(event.get("seq", cursor) or cursor))
-                    if event.get("kind") == "operation_progress":
-                        if event.get("operation_id") == operation_id:
-                            on_progress(event)
-                        continue
-                    if callable(on_delivery):
-                        on_delivery(event)
-            except Exception:
-                # Observability is secondary. It must never cancel or rewrite the
-                # authoritative Core operation already in flight.
-                pass
-
             elapsed = monotonic() - started
-            if (
-                outcome is None
-                and callable(on_heartbeat)
-                and elapsed >= next_heartbeat
-            ):
-                on_heartbeat(elapsed)
-                while next_heartbeat <= elapsed:
-                    next_heartbeat += heartbeat_step
+            waiting_for_human = outcome is None and _waiting_for_human(app)
+
+            if waiting_for_human:
+                # Human think-time is not operation latency. Also move the next
+                # heartbeat into the future so answering a prompt does not instantly
+                # print an accumulated 140-second "Still working" line.
+                next_heartbeat = max(next_heartbeat, elapsed + heartbeat_step)
+            else:
+                try:
+                    for event in _events(app, cursor):
+                        cursor = max(cursor, int(event.get("seq", cursor) or cursor))
+                        if event.get("kind") == "operation_progress":
+                            if event.get("operation_id") == operation_id:
+                                on_progress(event)
+                            continue
+                        if callable(on_delivery):
+                            on_delivery(event)
+                except Exception:
+                    # Observability is secondary. It must never cancel or rewrite the
+                    # authoritative Core operation already in flight.
+                    pass
+
+                if (
+                    outcome is None
+                    and callable(on_heartbeat)
+                    and elapsed >= next_heartbeat
+                ):
+                    on_heartbeat(elapsed)
+                    while next_heartbeat <= elapsed:
+                        next_heartbeat += heartbeat_step
 
             if outcome is None:
                 sleep(max(0.05, float(poll_interval)))

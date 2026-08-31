@@ -35,6 +35,13 @@ jobs:
         run: |
           set -o pipefail
           python scripts/acceptance_wordpress_worklog_real.py 2>&1 | tee wordpress-worklog-acceptance-${{ matrix.python-version }}.log
+      - name: Real installed CLI latency acceptance
+        shell: bash
+        env:
+          CALDAV_ASSISTANT_LATENCY_TRANSCRIPT: latency-transcript-${{ matrix.python-version }}.log
+        run: |
+          set -o pipefail
+          python scripts/acceptance_latency_real.py 2>&1 | tee latency-acceptance-${{ matrix.python-version }}.log
       - name: Real Waiting Mode Ctrl-C acceptance
         shell: bash
         env:
@@ -55,5 +62,7 @@ jobs:
             conversation-acceptance-${{ matrix.python-version }}.log
             conversation-transcript-${{ matrix.python-version }}.log
             wordpress-worklog-acceptance-${{ matrix.python-version }}.log
+            latency-acceptance-${{ matrix.python-version }}.log
+            latency-transcript-${{ matrix.python-version }}.log
             waiting-mode-acceptance-${{ matrix.python-version }}.log
             waiting-mode-transcript-${{ matrix.python-version }}.log

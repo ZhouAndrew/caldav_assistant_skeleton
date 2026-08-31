@@ -90,13 +90,26 @@ class WorkLogService:
         target = self._collection_url(required=False)
         if target is None:
             return []
-        items = self.adapter.list_events(category=self.CATEGORY)
+
+        # Production collection routing provides this internal scoped-read brick.
+        # It keeps Work history authoritative in CalDAV while avoiding a traversal
+        # of every human Event collection just to locate Assistant-owned Work VEVENTs.
+        scoped = getattr(self.adapter, "list_events_in_collection", None)
+        if callable(scoped):
+            items = scoped(target, category=self.CATEGORY)
+        else:
+            # Adapter-replacement compatibility: an implementation that only
+            # satisfies the generic CalDAV contract still works, just without the
+            # collection-role acceleration.
+            items = self.adapter.list_events(category=self.CATEGORY)
+
         return [
             item
             for item in items
             if isinstance(item, Event)
             and self._is_work_event(item)
-            and str(getattr(item, "_caldav_collection_url", "") or "") == target
+            and str(getattr(item, "_caldav_collection_url", "") or "").rstrip("/")
+            == target.rstrip("/")
         ]
 
     def open_events(self) -> list[Event]:

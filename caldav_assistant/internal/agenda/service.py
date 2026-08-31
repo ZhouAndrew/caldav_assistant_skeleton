@@ -83,8 +83,14 @@ class AgendaService:
         agenda = self.engine.candidates(tasks, events)
         values = dict(options)
         values.setdefault("now", datetime.now().astimezone())
-        values.setdefault("current_task_uid", self._current_task_uid())
-        values.setdefault("skipped_uids", self._paused_task_uids())
+        # Do not use ``dict.setdefault(key, expensive_call())`` here: Python evaluates
+        # the default argument even when the caller already supplied the key.  That
+        # bug made startup re-read current/paused CalDAV Work state after it had
+        # already been resolved from the same snapshot.
+        if "current_task_uid" not in values:
+            values["current_task_uid"] = self._current_task_uid()
+        if "skipped_uids" not in values:
+            values["skipped_uids"] = self._paused_task_uids()
         return self.next_engine.choose(agenda, kind=kind, **values)
 
     def next(self, kind=None, **options):
@@ -95,22 +101,58 @@ class AgendaService:
         return self._choose_next(tasks, events, kind=kind, **options)
 
     def startup_snapshot(self, days=1, kind="task"):
-        """Return startup Agenda + recommendation from one Task/Event read.
+        """Return startup current work + Agenda + recommendation from one source set.
 
-        The zero-learning CLI needs both Upcoming and Recommended. Calling ``range``
-        and then ``next`` used to perform two complete CalDAV Task/Event traversals,
-        which made startup roughly twice as slow on real collections. This internal
-        composition reuses the same source objects without changing Agenda/Next rules.
+        Task/Event objects are fetched once.  When the production Session service
+        provides ``startup_snapshot``, current/paused work is derived from those Task
+        objects and one WorkLog read, then passed directly into NextEngine.  This
+        removes the old current -> range -> next -> paused chain of repeated CalDAV
+        traversals without introducing a cache or changing the source of truth.
         """
         tasks, events = self._sources()
+
+        session_snapshot = None
+        if self.session is not None:
+            snapshot = getattr(self.session, "startup_snapshot", None)
+            if callable(snapshot):
+                session_snapshot = snapshot(tasks)
+
+        if isinstance(session_snapshot, dict):
+            current_uid = session_snapshot.get("current_task_id")
+            paused_uids = tuple(session_snapshot.get("paused_task_ids") or ())
+            current_task = session_snapshot.get("current_task")
+        else:
+            current_uid = self._current_task_uid()
+            paused_uids = self._paused_task_uids()
+            current_task = None
+            if current_uid:
+                current_task = next(
+                    (
+                        task
+                        for task in tasks
+                        if str(getattr(task, "id", "") or "") == str(current_uid)
+                    ),
+                    None,
+                )
+
         agenda = self.engine.build(
             tasks,
             events,
             days=days,
             user_state=self.state,
         )
-        recommendation = self._choose_next(tasks, events, kind=kind)
-        return {"agenda": agenda, "recommendation": recommendation}
+        recommendation = self._choose_next(
+            tasks,
+            events,
+            kind=kind,
+            current_task_uid=current_uid,
+            skipped_uids=paused_uids,
+        )
+        return {
+            "agenda": agenda,
+            "recommendation": recommendation,
+            "current_task": current_task,
+        }
 
     def overdue(self):
         return self.tasks.list(overdue=True)
