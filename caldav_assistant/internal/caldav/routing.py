@@ -1,14 +1,15 @@
 """Apply user-selected CalDAV collection roles to normal Task/Event traffic.
 
 Collection roles are not only creation hints. Once the user has selected the Task,
-Event and Work-log collections, ordinary reads should not rediscover and traverse
-every compatible collection on every CLI command. CalDAV remains authoritative:
-this wrapper only narrows the authoritative read to an explicitly configured
-collection and reuses the already-discovered collection objects in this process.
+Event and Work-log collections, ordinary reads and writes should not rediscover and
+traverse every compatible collection on every CLI command. CalDAV remains
+authoritative: this wrapper only narrows the authoritative operation to an explicitly
+configured collection and reuses the already-discovered collection objects in this
+process.
 
-The concrete python-caldav adapter exposes internal collection/mapping bricks. This
-wrapper uses them opportunistically and falls back to the generic adapter contract
-when a replacement adapter does not provide those bricks, preserving adapter
+The concrete python-caldav adapter exposes internal collection/mapping/editing bricks.
+This wrapper uses them opportunistically and falls back to the generic adapter
+contract when a replacement adapter does not provide those bricks, preserving adapter
 replaceability.
 """
 from __future__ import annotations
@@ -92,6 +93,15 @@ class CollectionRoutingCalDAVAdapter:
             raise NotFoundError(f"Configured CalDAV collection is not unique: {wanted}")
         return matches[0]
 
+    @staticmethod
+    def _simple_category(filters: dict[str, Any]) -> str | None:
+        """Return one category suitable for a server-side CalDAV REPORT filter."""
+        for key in ("category", "categories"):
+            value = filters.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
     def list_tasks_in_collection(self, collection_url: str, **filters: Any):
         calendar = self._selected_calendar(collection_url)
         mapper = getattr(self.adapter, "_to_task", None)
@@ -113,8 +123,20 @@ class CollectionRoutingCalDAVAdapter:
         if calendar is None or not callable(mapper):
             return self.adapter.list_events(**filters)
         try:
+            # WorkLog commonly asks for CALDAV-ASSISTANT-WORK-OPEN. python-caldav's
+            # Calendar.search can translate this to a server-side CalDAV REPORT, so
+            # a years-old Work collection no longer has to be downloaded in full to
+            # discover the one open interval. Local matching remains the correctness
+            # backstop for every requested filter.
+            category = self._simple_category(filters)
+            search = getattr(calendar, "search", None)
+            if category is not None and callable(search):
+                resources = search(event=True, category=category)
+            else:
+                resources = calendar.get_events()
+
             result = []
-            for resource in calendar.get_events():
+            for resource in resources:
                 event = mapper(resource, calendar)
                 if _matches(event, filters):
                     result.append(event)
@@ -157,14 +179,130 @@ class CollectionRoutingCalDAVAdapter:
             raise _app_error(exc) from exc
 
     def create_task(self, task: Task) -> Task:
+        # Task creation keeps the mature LibraryCalDAVAdapter serializer/validation
+        # path. The selected collection is attached so the concrete adapter still
+        # writes to the configured role.
         wanted = getattr(task, "_caldav_collection_url", None) or self.task_collection_url()
         return self.adapter.create_task(self._copy_with_collection(task, wanted))
+
+    def create_event_in_collection(self, collection_url: str, event: Event) -> Event:
+        calendar = self._selected_calendar(collection_url)
+        mapper = getattr(self.adapter, "_to_event", None)
+        if calendar is None or not callable(mapper) or not callable(getattr(calendar, "add_event", None)):
+            return self.adapter.create_event(self._copy_with_collection(event, collection_url))
+        try:
+            kwargs: dict[str, Any] = {"summary": event.summary}
+            values = {
+                "uid": event.id or None,
+                "dtstart": event.start,
+                "dtend": event.end,
+                "location": event.location or None,
+                "description": event.description or None,
+                "categories": event.categories or None,
+            }
+            kwargs.update({key: value for key, value in values.items() if value is not None})
+            return mapper(calendar.add_event(**kwargs), calendar)
+        except Exception as exc:
+            raise _app_error(exc) from exc
 
     def create_event(self, event: Event) -> Event:
         # Explicit object routing (used by WorkLogService) always wins over the
         # default human Event collection.
         wanted = getattr(event, "_caldav_collection_url", None) or self.event_collection_url()
-        return self.adapter.create_event(self._copy_with_collection(event, wanted))
+        if _url(wanted):
+            return self.create_event_in_collection(str(wanted), event)
+        return self.adapter.create_event(event)
+
+    def _update_task_in_collection(
+        self,
+        collection_url: str,
+        task_id: str,
+        changes: dict[str, Any],
+        *,
+        etag: str | None = None,
+    ) -> Task:
+        calendar = self._selected_calendar(collection_url)
+        mapper = getattr(self.adapter, "_to_task", None)
+        editor = getattr(self.adapter, "_edit_task", None)
+        check_etag = getattr(self.adapter, "_check_etag", None)
+        if calendar is None or not all(callable(value) for value in (mapper, editor, check_etag)):
+            return self.adapter.update_task(task_id, changes, etag=etag)
+        try:
+            resource = calendar.get_todo_by_uid(task_id)
+            check_etag(resource, etag)
+            if changes:
+                editor(resource, changes)
+                resource.save()
+            return mapper(resource, calendar)
+        except Exception as exc:
+            raise _app_error(exc) from exc
+
+    def update_task(
+        self,
+        task_id: str,
+        changes: dict[str, Any],
+        *,
+        etag: str | None = None,
+    ) -> Task:
+        wanted = self.task_collection_url()
+        if not _url(wanted):
+            return self.adapter.update_task(task_id, changes, etag=etag)
+        return self._update_task_in_collection(str(wanted), task_id, changes, etag=etag)
+
+    def update_event_in_collection(
+        self,
+        collection_url: str,
+        event_id: str,
+        changes: dict[str, Any],
+        *,
+        etag: str | None = None,
+    ) -> Event:
+        calendar = self._selected_calendar(collection_url)
+        mapper = getattr(self.adapter, "_to_event", None)
+        editor = getattr(self.adapter, "_edit_event", None)
+        check_etag = getattr(self.adapter, "_check_etag", None)
+        if calendar is None or not all(callable(value) for value in (mapper, editor, check_etag)):
+            return self.adapter.update_event(event_id, changes, etag=etag)
+        try:
+            resource = calendar.get_event_by_uid(event_id)
+            check_etag(resource, etag)
+            if changes:
+                editor(resource, changes)
+                resource.save()
+            return mapper(resource, calendar)
+        except Exception as exc:
+            raise _app_error(exc) from exc
+
+    def update_event(
+        self,
+        event_id: str,
+        changes: dict[str, Any],
+        *,
+        etag: str | None = None,
+    ) -> Event:
+        wanted = self.event_collection_url()
+        if not _url(wanted):
+            return self.adapter.update_event(event_id, changes, etag=etag)
+        return self.update_event_in_collection(str(wanted), event_id, changes, etag=etag)
+
+    def delete_event_in_collection(
+        self,
+        collection_url: str,
+        event_id: str,
+        *,
+        etag: str | None = None,
+    ) -> None:
+        calendar = self._selected_calendar(collection_url)
+        check_etag = getattr(self.adapter, "_check_etag", None)
+        if calendar is None or not callable(check_etag):
+            self.adapter.delete_event(event_id, etag=etag)
+            return
+        try:
+            resource = calendar.get_event_by_uid(event_id)
+            check_etag(resource, etag)
+            resource.delete()
+        except Exception as exc:
+            raise _app_error(exc) from exc
 
 
 __all__ = ["CollectionRoutingCalDAVAdapter"]
