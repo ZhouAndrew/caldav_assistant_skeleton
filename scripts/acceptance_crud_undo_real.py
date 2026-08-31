@@ -18,7 +18,7 @@ Covered human paths:
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from pathlib import Path
 import os
 import shutil
@@ -170,7 +170,11 @@ def _assert_date_only(component, field: str, expected: date) -> None:
 
 
 def _console(child: pexpect.spawn, label: str) -> None:
-    _expect(child, "Console ready", label)
+    # `Console ready` is a one-time entry banner. Ordinary completed commands end
+    # with a truthful operation summary and then the plain `> ` prompt.
+    child.expect(r"Operation finished")
+    child.expect(r"> ")
+    print(f"PASS: {label}")
 
 
 def main() -> int:
@@ -242,9 +246,8 @@ def main() -> int:
             )
             child.logfile = transcript
             _expect(child, "CalDAV Assistant", "installed executable launched")
-            _console(child, "empty real calendar reached usable console")
+            _expect(child, "Console ready", "empty real calendar reached usable console")
 
-            # Empty-state human paths.
             child.sendline("tasks")
             _expect(child, r"Tasks · 0", "empty Task list is explicit")
             _expect(child, r"\(none\)", "empty Task list does not pretend an item exists")
@@ -254,8 +257,6 @@ def main() -> int:
             _expect(child, r"\(none\)", "empty Event list does not pretend an item exists")
             _console(child, "empty Event list returns to console")
 
-            # Create Task through the real PromptKit/Menu path. On Aug 31, typing
-            # August5 must mean the next August 5 and must remain a DATE, not midnight.
             child.sendline(f"add task {TASK_TITLE}")
             _expect(child, "Task timing", "Task timing menu shown")
             child.sendline("2")
@@ -267,7 +268,6 @@ def main() -> int:
             created_task = _task_by_summary(calendar, TASK_TITLE)
             _assert_date_only(created_task, "DUE", expected_aug5)
 
-            # Numbered reference is actionable, not decorative.
             child.sendline("tasks")
             _expect(child, TASK_TITLE, "created Task appears in numbered list")
             _expect(child, "Numbers are active references", "numbered-reference contract is visible")
@@ -282,8 +282,6 @@ def main() -> int:
             _task_by_summary(calendar, TASK_EDITED)
             _assert_absent_task(calendar, TASK_TITLE)
 
-            # Refresh list, then prove invalid date text is recoverable in the same
-            # prompt and August5 still uses future context on ordinary `edit`.
             child.sendline("tasks")
             _expect(child, TASK_EDITED, "edited Task appears in list")
             _console(child, "refreshed Task list returns to console")
@@ -312,7 +310,6 @@ def main() -> int:
                 raise AssertionError(f"Expected real CalDAV PRIORITY 5, got {priority}")
             print("PASS: real CalDAV confirms Task PRIORITY = 5")
 
-            # Shared Menu help + Back must not accidentally mutate anything.
             child.sendline("tasks")
             _expect(child, TASK_EDITED, "Task available for menu control test")
             _console(child, "Task list returns before menu control test")
@@ -325,7 +322,6 @@ def main() -> int:
             _console(child, "Back leaves edit without mutation")
             _task_by_summary(calendar, TASK_EDITED)
 
-            # Delete cancellation then authoritative deletion + Undo restore.
             child.sendline("tasks")
             _expect(child, TASK_EDITED, "Task available for delete test")
             _console(child, "Task list returns before delete test")
@@ -347,7 +343,6 @@ def main() -> int:
             _assert_date_only(restored_task, "DUE", expected_aug5)
             print("PASS: persistent Undo restored the real VTODO")
 
-            # Event creation and edits use the same future-aware TemporalParser path.
             child.sendline(f"add event {EVENT_TITLE}")
             _expect(child, "Event time", "Event timing menu shown")
             child.sendline("1")
