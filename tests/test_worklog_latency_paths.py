@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from types import SimpleNamespace
 
 from caldav_assistant.api import Event, Task
 from caldav_assistant.internal.caldav.routing import CollectionRoutingCalDAVAdapter
@@ -55,7 +54,7 @@ class _SearchAdapter:
 
 
 def _open_event(event_id="w1", task_id="t1"):
-    return Event(
+    event = Event(
         id=event_id,
         summary="Work — Task",
         description=(
@@ -64,6 +63,11 @@ def _open_event(event_id="w1", task_id="t1"):
         ),
         categories=[WorkLogService.CATEGORY, WorkLogService.OPEN_CATEGORY],
     )
+    # Production LibraryCalDAVAdapter._to_event attaches the private collection
+    # routing metadata. The test double must do the same or WorkLog correctly rejects
+    # an event that cannot be proven to come from the configured Work collection.
+    setattr(event, "_caldav_collection_url", WORK_URL)
+    return event
 
 
 def test_open_work_lookup_uses_server_side_category_search():
