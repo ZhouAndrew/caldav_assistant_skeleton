@@ -6,9 +6,15 @@ from caldav_assistant.internal.clients.terminal import (
 )
 
 
-def test_one_logical_bell_becomes_three_spaced_terminal_rings():
+def test_one_logical_bell_repeats_bursts_until_ctrl_c():
     output = StringIO()
     sleep_calls = []
+
+    def interrupt_after_four_sleeps(seconds):
+        sleep_calls.append(seconds)
+        if len(sleep_calls) >= 4:
+            raise KeyboardInterrupt
+
     profile = TerminalBellProfile(
         enabled=lambda: True,
         repeat_count=lambda: 3,
@@ -17,13 +23,38 @@ def test_one_logical_bell_becomes_three_spaced_terminal_rings():
     console = StdConsoleIO(
         stdout=output,
         terminal_bell_profile=profile,
-        sleep_fn=sleep_calls.append,
+        sleep_fn=interrupt_after_four_sleeps,
     )
 
     console.stdout.write("\a")
 
-    assert output.getvalue() == "\a\a\a"
-    assert sleep_calls == [0.4, 0.4]
+    text = output.getvalue()
+    assert text.count("\a") == 4
+    assert "Reminder alarm — press Ctrl-C to stop" in text
+    assert "Reminder alarm stopped" in text
+    assert sleep_calls == [0.4, 0.4, 0.8, 0.4]
+
+
+def test_ctrl_c_acknowledges_alarm_without_escaping_to_task_control():
+    output = StringIO()
+    profile = TerminalBellProfile(
+        enabled=lambda: True,
+        repeat_count=lambda: 3,
+        interval_ms=lambda: 400,
+    )
+    console = StdConsoleIO(
+        stdout=output,
+        terminal_bell_profile=profile,
+        sleep_fn=lambda _seconds: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+
+    # No KeyboardInterrupt should escape: the first Ctrl-C belongs to the alarm.
+    console.stdout.write("\a")
+    console.stdout.write("after-alarm")
+
+    assert output.getvalue().count("\a") == 1
+    assert "Task/Event state was not changed" in output.getvalue()
+    assert output.getvalue().endswith("after-alarm")
 
 
 def test_terminal_bell_can_be_disabled_without_hiding_other_output():
@@ -51,6 +82,13 @@ def test_terminal_bell_profile_is_read_live_for_each_reminder():
         "repeat_count": 2,
         "interval_ms": 100,
     }
+    sleep_calls = []
+
+    def interrupt_on_burst_pause(seconds):
+        sleep_calls.append(seconds)
+        if seconds >= 0.8:
+            raise KeyboardInterrupt
+
     profile = TerminalBellProfile(
         enabled=lambda: settings["enabled"],
         repeat_count=lambda: settings["repeat_count"],
@@ -59,17 +97,17 @@ def test_terminal_bell_profile_is_read_live_for_each_reminder():
     console = StdConsoleIO(
         stdout=output,
         terminal_bell_profile=profile,
-        sleep_fn=lambda seconds: None,
+        sleep_fn=interrupt_on_burst_pause,
     )
 
     console.stdout.write("\a")
     settings["repeat_count"] = 4
     console.stdout.write("\a")
 
-    assert output.getvalue() == "\a" * 6
+    assert output.getvalue().count("\a") == 6
 
 
-def test_terminal_bell_setting_failure_falls_back_to_one_ring():
+def test_terminal_bell_setting_failure_uses_safe_persistent_defaults():
     output = StringIO()
 
     def broken_setting():
@@ -83,9 +121,10 @@ def test_terminal_bell_setting_failure_falls_back_to_one_ring():
     console = StdConsoleIO(
         stdout=output,
         terminal_bell_profile=profile,
-        sleep_fn=lambda seconds: None,
+        sleep_fn=lambda _seconds: (_ for _ in ()).throw(KeyboardInterrupt()),
     )
 
     console.stdout.write("\a")
 
-    assert output.getvalue() == "\a"
+    assert output.getvalue().count("\a") == 1
+    assert "Reminder alarm stopped" in output.getvalue()
