@@ -5,10 +5,11 @@ AutostartManager without exposing IPC or platform service mechanisms to Public A
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
-from ...api.v1.errors import ValidationError
+from ...api.v1.errors import UnavailableError, ValidationError
 from .autostart import AutostartManager
+from .process_lifecycle import wait_for_process_exit
 
 
 class BackgroundActions:
@@ -17,12 +18,14 @@ class BackgroundActions:
         runtime: Any,
         autostart: AutostartManager | Any | None = None,
         ui: Any = None,
+        process_waiter: Callable[..., bool] = wait_for_process_exit,
     ) -> None:
         if runtime is None:
             raise TypeError("runtime is required")
         self.runtime = runtime
         self.autostart = autostart or AutostartManager()
         self.ui = ui
+        self._process_waiter = process_waiter
 
     @staticmethod
     def _t(key: str, default: str, **values: Any) -> str:
@@ -76,6 +79,34 @@ class BackgroundActions:
             "background disable"
         )
 
+    @staticmethod
+    def _running_pid(status: dict[str, Any] | None) -> int | None:
+        if not isinstance(status, dict) or status.get("status") != "running":
+            return None
+        try:
+            pid = int(status.get("pid"))
+        except (TypeError, ValueError):
+            return None
+        return pid if pid > 0 else None
+
+    def _stop_and_wait(self, *, timeout: float = 5.0) -> bool:
+        """Stop Runtime and include process teardown in the CLI success boundary.
+
+        A separate one-shot command often attaches to a service launched by an older
+        foreground process.  In that case RuntimeClient does not own the Popen handle,
+        so endpoint disappearance alone cannot prove the Windows process has released
+        SQLite and other file handles.  Capture the authoritative service PID before
+        shutdown and wait a bounded time for that process to disappear.
+        """
+        before = self.runtime.status()
+        pid = self._running_pid(before)
+        changed = bool(self.runtime.stop())
+        if pid is not None and not self._process_waiter(pid, timeout=timeout):
+            raise UnavailableError(
+                "Background service endpoint stopped but process did not exit in time"
+            )
+        return changed
+
     def command(self, *parts: Any) -> str:
         if not all(isinstance(part, str) for part in parts):
             raise ValidationError("background arguments must be text")
@@ -88,18 +119,20 @@ class BackgroundActions:
         if action == "start":
             return self._render(self.runtime.ensure_running())
         if action == "stop":
-            self.runtime.stop()
+            self._stop_and_wait()
             return self._render()
         if action == "restart":
-            return self._render(self.runtime.restart())
+            self._stop_and_wait()
+            return self._render(self.runtime.ensure_running())
         if action in {"enable", "on"}:
             self.autostart.enable()
             return self._render(self.runtime.ensure_running())
         if action in {"disable", "off"}:
             self.autostart.disable(stop=True)
             # A manually launched instance is not necessarily owned by systemd/
-            # launchd/schtasks, so also request graceful IPC shutdown.
-            self.runtime.stop()
+            # launchd/schtasks, so also request graceful IPC shutdown and do not
+            # report stopped until that actual process has released its resources.
+            self._stop_and_wait()
             return self._render()
         if action in {"help", "?"}:
             return self.usage()
