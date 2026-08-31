@@ -52,6 +52,11 @@ jobs:
         run: |
           set -o pipefail
           python scripts/acceptance_latency_real.py 2>&1 | tee latency-acceptance-${{ matrix.python-version }}.log
+      - name: Real installed feature demo acceptance
+        shell: bash
+        run: |
+          set -o pipefail
+          python scripts/acceptance_feature_demo_real.py 2>&1 | tee feature-demo-acceptance-${{ matrix.python-version }}.log
       - name: Real Waiting Mode Ctrl-C acceptance
         shell: bash
         env:
@@ -76,5 +81,6 @@ jobs:
             wordpress-worklog-acceptance-${{ matrix.python-version }}.log
             latency-acceptance-${{ matrix.python-version }}.log
             latency-transcript-${{ matrix.python-version }}.log
+            feature-demo-acceptance-${{ matrix.python-version }}.log
             waiting-mode-acceptance-${{ matrix.python-version }}.log
             waiting-mode-transcript-${{ matrix.python-version }}.log
