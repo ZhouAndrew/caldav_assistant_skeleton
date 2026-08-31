@@ -2,7 +2,7 @@
 
 A work period is an operational promise such as "work on this Task for 30 minutes".
 It is deliberately NOT the Task's CalDAV DUE/DTSTART and it never completes or pauses
-the Task automatically.  Persistence reuses ReminderService explicit reminders, so a
+the Task automatically. Persistence reuses ReminderService explicit reminders, so a
 restart does not lose the deadline and no second Task/Event database is introduced.
 """
 from __future__ import annotations
@@ -125,6 +125,32 @@ class WorkPeriodService:
                 and getattr(item, "metadata", {}).get("task_id") == task_id
             ]
 
+    def _started_at(self, value: Any = None) -> datetime:
+        """Normalize an optional authoritative work-start timestamp.
+
+        ``allocate`` used to start its clock only after the whole Task lifecycle call
+        returned. A slow CalDAV write therefore silently stretched a requested 30s
+        work period. The CLI can now pass the Activity Journal's actual task_started /
+        task_resumed timestamp; callers that do not have one retain the old "now"
+        behavior.
+        """
+        if value is None:
+            return self._now()
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, str):
+            try:
+                parsed = datetime.fromisoformat(value)
+            except ValueError as exc:
+                raise ValidationError(
+                    "Work period started_at must be an ISO datetime"
+                ) from exc
+        else:
+            raise ValidationError("Work period started_at must be a datetime")
+        if parsed.tzinfo is None:
+            parsed = parsed.astimezone()
+        return parsed.astimezone(timezone.utc)
+
     def cancel_for(self, task: Any, *, reason: str = "cancelled", record: bool = True) -> list[Any]:
         task_id = self._task_id(task)
         cancelled: list[Any] = []
@@ -140,7 +166,12 @@ class WorkPeriodService:
             )
         return cancelled
 
-    def allocate(self, task_id: str | None = None, seconds: Any = None) -> dict[str, Any]:
+    def allocate(
+        self,
+        task_id: str | None = None,
+        seconds: Any = None,
+        started_at: Any = None,
+    ) -> dict[str, Any]:
         seconds_value = parse_work_duration(seconds)
         current_id = self._current_task_id()
         if current_id is None:
@@ -159,8 +190,8 @@ class WorkPeriodService:
         summary = str(getattr(task, "summary", "") or task_id).strip() or task_id
         self.cancel_for(task_id, reason="replaced", record=False)
 
-        started_at = self._now()
-        deadline = started_at + timedelta(seconds=seconds_value)
+        started_at_value = self._started_at(started_at)
+        deadline = started_at_value + timedelta(seconds=seconds_value)
         reminder = self.reminders.create(
             f"Work period finished — {summary}",
             deadline,
@@ -168,7 +199,7 @@ class WorkPeriodService:
             source=self.SOURCE,
             task_id=task_id,
             duration_seconds=seconds_value,
-            started_at=started_at.isoformat(),
+            started_at=started_at_value.isoformat(),
             deadline=deadline.isoformat(),
             body=(
                 f"The allocated {format_work_duration(seconds_value)} work period has ended. "
@@ -180,7 +211,7 @@ class WorkPeriodService:
                 "work_period_allocated",
                 task_id,
                 duration_seconds=seconds_value,
-                started_at=started_at.isoformat(),
+                started_at=started_at_value.isoformat(),
                 deadline=deadline.isoformat(),
                 reminder_id=str(getattr(reminder, "id", "") or ""),
                 storage="assistant_state/reminders.items.v1",
@@ -244,6 +275,7 @@ class WorkPeriodService:
             "deadline": deadline,
             "remaining_seconds": remaining,
             "duration_seconds": int(metadata.get("duration_seconds", 0) or 0),
+            "started_at": metadata.get("started_at"),
             "source": self.SOURCE,
             "storage": "assistant_state/reminders.items.v1",
             "task_due_changed": False,

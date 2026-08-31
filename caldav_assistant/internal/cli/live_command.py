@@ -1,18 +1,20 @@
 """Shared foreground runner for factual, request-scoped operation progress.
 
 The business operation still runs through the normal CommandService/Object API and
-Local IPC.  This helper only keeps the terminal responsive while that synchronous
-operation is in flight: it tags the request with an internal operation id and reads
-runtime progress events produced by the executing Core services.
+Local IPC. This helper keeps the terminal responsive while that synchronous operation
+is in flight: it tags the request with an internal operation id and reads runtime
+progress events produced by the executing Core services.
 
-No step is predicted here.  If Core never emits a milestone, this helper never
-claims that milestone happened.
+No step is predicted here. Heartbeats report only elapsed wall time. A Ctrl-C received
+while the authoritative operation is already in flight is handled on the main thread;
+it never pretends that a remote write was cancelled when no cancellation protocol
+exists.
 """
 from __future__ import annotations
 
 from queue import Empty, Queue
 from threading import Thread
-from time import sleep
+from time import monotonic, sleep
 from typing import Any, Callable
 from uuid import uuid4
 
@@ -61,13 +63,23 @@ def run_with_live_progress(
     *,
     on_progress: Callable[[dict[str, Any]], Any],
     on_delivery: Callable[[dict[str, Any]], Any] | None = None,
-    poll_interval: float = 0.05,
+    on_heartbeat: Callable[[float], Any] | None = None,
+    on_interrupt: Callable[[], Any] | None = None,
+    poll_interval: float = 0.25,
+    heartbeat_after: float = 2.0,
+    heartbeat_every: float = 3.0,
 ) -> Any:
     """Run one synchronous foreground operation while streaming real milestones.
 
     If the application has no runtime event feed (for example a deliberately small
     unit-test context), execution falls back to the original synchronous behavior.
     Progress-feed failure never changes the authoritative operation result.
+
+    Once the operation worker has started, Ctrl-C cannot safely mean "cancel" because
+    Local IPC has no transactional cancellation contract. The main thread therefore
+    reports the interrupt through ``on_interrupt`` and keeps observing until the Core
+    returns its authoritative success/failure result. This prevents both a traceback
+    and the much worse case where the UI says "cancelled" but a CalDAV write commits.
     """
     runtime = _runtime(app)
     if runtime is None or not callable(getattr(runtime, "call", None)):
@@ -97,29 +109,49 @@ def run_with_live_progress(
         daemon=True,
     ).start()
 
+    started = monotonic()
+    next_heartbeat = max(0.0, float(heartbeat_after))
+    heartbeat_step = max(0.1, float(heartbeat_every))
     outcome: tuple[bool, Any] | None = None
+
     while outcome is None:
         try:
-            outcome = result.get_nowait()
-        except Empty:
-            pass
+            try:
+                outcome = result.get_nowait()
+            except Empty:
+                pass
 
-        try:
-            for event in _events(app, cursor):
-                cursor = max(cursor, int(event.get("seq", cursor) or cursor))
-                if event.get("kind") == "operation_progress":
-                    if event.get("operation_id") == operation_id:
-                        on_progress(event)
-                    continue
-                if callable(on_delivery):
-                    on_delivery(event)
-        except Exception:
-            # Observability is secondary.  It must never cancel or rewrite the
-            # authoritative Core operation already in flight.
-            pass
+            try:
+                for event in _events(app, cursor):
+                    cursor = max(cursor, int(event.get("seq", cursor) or cursor))
+                    if event.get("kind") == "operation_progress":
+                        if event.get("operation_id") == operation_id:
+                            on_progress(event)
+                        continue
+                    if callable(on_delivery):
+                        on_delivery(event)
+            except Exception:
+                # Observability is secondary. It must never cancel or rewrite the
+                # authoritative Core operation already in flight.
+                pass
 
-        if outcome is None:
-            sleep(max(0.01, float(poll_interval)))
+            elapsed = monotonic() - started
+            if (
+                outcome is None
+                and callable(on_heartbeat)
+                and elapsed >= next_heartbeat
+            ):
+                on_heartbeat(elapsed)
+                while next_heartbeat <= elapsed:
+                    next_heartbeat += heartbeat_step
+
+            if outcome is None:
+                sleep(max(0.05, float(poll_interval)))
+        except KeyboardInterrupt:
+            if callable(on_interrupt):
+                on_interrupt()
+                continue
+            raise
 
     # Drain events published just before the final IPC response reached the client.
     try:
