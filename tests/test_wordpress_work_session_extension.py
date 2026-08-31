@@ -4,7 +4,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-from caldav_assistant.api import ActionResult, Task
+from caldav_assistant.api import ActionResult, Activity, Task
 from caldav_assistant.api.v1.hooks import _bind_hook_registrar
 from caldav_assistant.internal.activity import ActivityService
 from caldav_assistant.internal.bootstrap import _DEFAULT_ENABLED_EXTENSIONS
@@ -13,6 +13,10 @@ from caldav_assistant.internal.extensions import ExtensionManager, HookRegistry
 from caldav_assistant.internal.runtime.current_context import (
     bind_current_context,
     clear_current_context,
+)
+from caldav_assistant.internal.settings.keys import (
+    WORDPRESS_WORKLOG_STYLE,
+    WORDPRESS_WORKLOG_TEMPLATE,
 )
 from caldav_assistant.internal.tasks.service import TaskService
 
@@ -36,11 +40,17 @@ class FakeActivityRepo:
     def record(self, timestamp, action, object_id, metadata):
         self.rows.append((timestamp, action, object_id, metadata))
 
+    def _activities(self):
+        return [
+            Activity(timestamp=timestamp, action=action, object_id=object_id, metadata=metadata)
+            for timestamp, action, object_id, metadata in self.rows
+        ]
+
     def between(self, start, end):
-        return []
+        return [item for item in self._activities() if start <= item.timestamp < end]
 
     def for_object(self, object_id):
-        return []
+        return [item for item in self._activities() if item.object_id == object_id]
 
 
 class FakeTaskAdapter:
@@ -70,11 +80,23 @@ class FakeWordPress:
         self.fail = fail
         self.calls = []
 
-    def log(self, text, **metadata):
+    def queue_log(self, text, **metadata):
         self.calls.append((text, metadata))
         if self.fail:
             raise RuntimeError("wordpress unavailable")
-        return ActionResult(True, message="saved")
+        return ActionResult(True, message="queued")
+
+    def log(self, text, **metadata):
+        return self.queue_log(text, **metadata)
+
+
+class SequenceClock:
+    def __init__(self, *values):
+        self.values = list(values)
+
+    def __call__(self):
+        assert self.values, "test clock exhausted"
+        return self.values.pop(0)
 
 
 def _bundled_extensions_dir() -> Path:
@@ -83,11 +105,16 @@ def _bundled_extensions_dir() -> Path:
     return Path(caldav_assistant.__file__).resolve().parent / "builtin_extensions"
 
 
-def _load_extension(tasks, wordpress):
+def _load_extension(tasks, activity, wordpress, settings=None):
     commands = CommandService(CommandRegistry())
     hooks = HookRegistry()
-    settings = FakeSettings()
-    ctx = SimpleNamespace(tasks=tasks, wordpress=wordpress)
+    settings = settings or FakeSettings()
+    ctx = SimpleNamespace(
+        tasks=tasks,
+        activity=activity,
+        wordpress=wordpress,
+        settings=settings,
+    )
 
     bind_current_context(ctx)
     _bind_hook_registrar(hooks)
@@ -99,7 +126,7 @@ def _load_extension(tasks, wordpress):
     )
     record = manager.load("wordpress_work_session_log")
     assert record.status == "loaded"
-    return manager, hooks
+    return manager, hooks, settings
 
 
 def _cleanup_extension_runtime():
@@ -107,7 +134,7 @@ def _cleanup_extension_runtime():
     clear_current_context()
 
 
-def test_start_pause_resume_logs_all_work_transitions_to_wordpress_via_extension():
+def test_default_worklog_writes_one_line_only_when_segment_closes():
     task = Task(
         id="t1",
         summary="Anki",
@@ -119,55 +146,117 @@ def test_start_pause_resume_logs_all_work_transitions_to_wordpress_via_extension
     repo = FakeActivityRepo()
     activity = ActivityService(
         repo,
-        clock=lambda: datetime(2026, 8, 29, 14, 31, tzinfo=timezone.utc),
+        clock=SequenceClock(
+            datetime(2026, 8, 31, 5, 0, tzinfo=timezone.utc),
+            datetime(2026, 8, 31, 5, 10, tzinfo=timezone.utc),
+            datetime(2026, 8, 31, 5, 20, tzinfo=timezone.utc),
+            datetime(2026, 8, 31, 5, 30, tzinfo=timezone.utc),
+        ),
     )
     tasks = TaskService(adapter, activity=activity)
     wordpress = FakeWordPress()
 
     try:
-        _load_extension(tasks, wordpress)
+        _load_extension(tasks, activity, wordpress)
 
-        started = tasks.start(task)
-        paused = tasks.pause(task)
-        resumed = tasks.resume(task)
+        assert tasks.start(task).success is True
+        assert wordpress.calls == []
 
-        assert started.success is True
-        assert paused.success is True
-        assert resumed.success is True
+        assert tasks.pause(task).success is True
+        assert wordpress.calls == [
+            ("5:00-5:10 Anki", {"_show_clock": False}),
+        ]
+
+        assert tasks.resume(task).success is True
+        assert len(wordpress.calls) == 1
+
+        assert tasks.pause(task).success is True
+        assert wordpress.calls[-1] == (
+            "5:20-5:30 Anki",
+            {"_show_clock": False},
+        )
+
+        # Detailed facts are still preserved locally rather than dumped into WP.
         assert [row[1] for row in repo.rows] == [
             "task_started",
             "task_paused",
             "task_resumed",
+            "task_paused",
         ]
-        assert len(wordpress.calls) == 3
+        text = "\n".join(call[0] for call in wordpress.calls)
+        assert "Task UID" not in text
+        assert "Planned start" not in text
+        assert "Priority" not in text
+    finally:
+        _cleanup_extension_runtime()
 
-        started_text, started_meta = wordpress.calls[0]
-        paused_text, paused_meta = wordpress.calls[1]
-        resumed_text, resumed_meta = wordpress.calls[2]
-        assert started_meta["title"] == "Started — Anki"
-        assert paused_meta["title"] == "Paused — Anki"
-        assert resumed_meta["title"] == "Resumed — Anki"
-        for text in (started_text, paused_text, resumed_text):
-            assert "Task: Anki" in text
-            assert "Task UID: t1" in text
-            assert "Actual time: 2026-08-29T14:31:00" in text
-            assert "Planned start: 2026-05-18" in text
-            assert "Due: 2026-05-19" in text
-            assert "Priority: 4" in text
+
+def test_worklog_format_is_customizable_per_user_settings():
+    task = Task(id="t1", summary="Anki")
+    repo = FakeActivityRepo()
+    activity = ActivityService(
+        repo,
+        clock=SequenceClock(
+            datetime(2026, 8, 31, 5, 0, tzinfo=timezone.utc),
+            datetime(2026, 8, 31, 5, 10, tzinfo=timezone.utc),
+        ),
+    )
+    tasks = TaskService(FakeTaskAdapter(task), activity=activity)
+    wordpress = FakeWordPress()
+    settings = FakeSettings()
+    settings.set(WORDPRESS_WORKLOG_STYLE, "custom")
+    settings.set(
+        WORDPRESS_WORKLOG_TEMPLATE,
+        "{task} | {duration_minutes} min | {start}->{end}",
+    )
+
+    try:
+        _load_extension(tasks, activity, wordpress, settings)
+        tasks.start(task)
+        tasks.pause(task)
+
+        assert wordpress.calls == [
+            ("Anki | 10 min | 5:00->5:10", {"_show_clock": False}),
+        ]
+    finally:
+        _cleanup_extension_runtime()
+
+
+def test_worklog_can_be_disabled_without_disabling_activity_history():
+    task = Task(id="t1", summary="Report")
+    repo = FakeActivityRepo()
+    activity = ActivityService(
+        repo,
+        clock=SequenceClock(
+            datetime(2026, 8, 31, 5, 0, tzinfo=timezone.utc),
+            datetime(2026, 8, 31, 5, 10, tzinfo=timezone.utc),
+        ),
+    )
+    tasks = TaskService(FakeTaskAdapter(task), activity=activity)
+    wordpress = FakeWordPress()
+    settings = FakeSettings()
+    settings.set(WORDPRESS_WORKLOG_STYLE, "off")
+
+    try:
+        _load_extension(tasks, activity, wordpress, settings)
+        tasks.start(task)
+        tasks.pause(task)
+
+        assert wordpress.calls == []
+        assert [row[1] for row in repo.rows] == ["task_started", "task_paused"]
     finally:
         _cleanup_extension_runtime()
 
 
 def test_disabling_extension_stops_wordpress_side_effect():
     task = Task(id="t1", summary="Report")
-    adapter = FakeTaskAdapter(task)
     repo = FakeActivityRepo()
     activity = ActivityService(repo)
-    tasks = TaskService(adapter, activity=activity)
+    tasks = TaskService(FakeTaskAdapter(task), activity=activity)
     wordpress = FakeWordPress()
 
     try:
-        manager, _ = _load_extension(tasks, wordpress)
+        manager, _, _ = _load_extension(tasks, activity, wordpress)
         manager.disable("wordpress_work_session_log")
 
         result = tasks.start(task)
@@ -179,25 +268,30 @@ def test_disabling_extension_stops_wordpress_side_effect():
         _cleanup_extension_runtime()
 
 
-def test_wordpress_extension_failure_never_rolls_back_successful_start():
+def test_wordpress_extension_failure_never_rolls_back_successful_pause():
     task = Task(id="t1", summary="Physics")
-    adapter = FakeTaskAdapter(task)
     repo = FakeActivityRepo()
-    activity = ActivityService(repo)
-    tasks = TaskService(adapter, activity=activity)
+    activity = ActivityService(
+        repo,
+        clock=SequenceClock(
+            datetime(2026, 8, 31, 5, 0, tzinfo=timezone.utc),
+            datetime(2026, 8, 31, 5, 10, tzinfo=timezone.utc),
+        ),
+    )
+    tasks = TaskService(FakeTaskAdapter(task), activity=activity)
     wordpress = FakeWordPress(fail=True)
 
     try:
-        _, hooks = _load_extension(tasks, wordpress)
-
-        result = tasks.start(task)
+        _, hooks, _ = _load_extension(tasks, activity, wordpress)
+        tasks.start(task)
+        result = tasks.pause(task)
 
         assert result.success is True
         assert task.status == "IN-PROCESS"
-        assert [row[1] for row in repo.rows] == ["task_started"]
+        assert [row[1] for row in repo.rows] == ["task_started", "task_paused"]
         failures = hooks.failures()
         assert len(failures) == 1
-        assert failures[0].event == "task.started"
+        assert failures[0].event == "task.paused"
         assert failures[0].owner == "wordpress_work_session_log"
         assert failures[0].error_type == "RuntimeError"
     finally:

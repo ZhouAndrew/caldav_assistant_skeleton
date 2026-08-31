@@ -149,6 +149,7 @@ class WPCLIAdapter:
         at: datetime,
         entry_title: str | None = None,
         request_id: Any = None,
+        show_clock: bool = True,
     ) -> str:
         safe_text = escape(str(text), quote=False).replace("\n", "<br>")
         clock_text = at.strftime("%H:%M")
@@ -156,8 +157,10 @@ class WPCLIAdapter:
             visible = f"{clock_text} <strong>{escape(str(entry_title), quote=False)}</strong>"
             if safe_text:
                 visible += f"<br>{safe_text}"
-        else:
+        elif show_clock:
             visible = f"{clock_text} {safe_text}".rstrip()
+        else:
+            visible = safe_text
 
         marker = cls._log_marker(request_id)
         block = f"<!-- wp:paragraph -->\n<p>{visible}</p>\n<!-- /wp:paragraph -->"
@@ -260,6 +263,7 @@ class WPCLIAdapter:
         daily_title = self._daily_title(now)
         entry_title = metadata.pop("title", None)
         request_id = metadata.pop("_request_id", None)
+        show_clock = bool(metadata.pop("_show_clock", True))
         post_status = metadata.pop("post_status", metadata.pop("status", "draft"))
         post_type = str(metadata.pop("post_type", "post") or "post")
 
@@ -268,6 +272,7 @@ class WPCLIAdapter:
             at=now,
             entry_title=str(entry_title).strip() if entry_title else None,
             request_id=request_id,
+            show_clock=show_clock,
         )
         marker = self._log_marker(request_id)
         post_id = self._find_daily_post(now, post_type=post_type)

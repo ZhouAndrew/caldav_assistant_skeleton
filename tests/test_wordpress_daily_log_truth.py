@@ -45,3 +45,18 @@ def test_read_daily_log_returns_exact_remote_title_not_a_normalized_reconstructi
         "content": actual_content,
     }
     assert runner.calls[1][0] == ["wp", "post", "get", "91", "--field=post_content"]
+
+
+def test_worklog_entry_can_render_exact_human_line_without_logged_at_clock():
+    rendered = WPCLIAdapter._render_log_entry(
+        "5:00-5:10 Anki",
+        at=datetime(2026, 8, 31, 5, 10, tzinfo=timezone.utc),
+        show_clock=False,
+    )
+
+    assert rendered == (
+        "<!-- wp:paragraph -->\n"
+        "<p>5:00-5:10 Anki</p>\n"
+        "<!-- /wp:paragraph -->"
+    )
+    assert "05:10 5:00" not in rendered
