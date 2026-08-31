@@ -1,11 +1,14 @@
 """Real-use latency guards for the installed terminal client.
 
 This module contains presentation/runtime composition only. It does not cache Task or
-Event truth and does not change mutation timeouts. Its two responsibilities are:
+Event truth and does not change mutation timeouts. Its responsibilities are:
 
 * bound the non-mutating startup snapshot so a sick CalDAV read cannot hold the
-  terminal for the RuntimeClient's general 30-second mutation-safe timeout; and
-* keep modal shell menus on the main thread, where terminal input and Ctrl-C belong.
+  terminal for the RuntimeClient's general 30-second mutation-safe timeout;
+* keep modal shell menus on the main thread, where terminal input and Ctrl-C belong;
+  and
+* make one guided-menu visit use one live snapshot, while a failed read degrades to a
+  clearly marked unavailable snapshot instead of terminating the whole CLI.
 
 Normal Task/Event operations continue through the same CommandService/Core/Local IPC
 path. CalDAV remains authoritative.
@@ -27,6 +30,8 @@ from ..runtime.ipc import (
 
 STARTUP_READ_TIMEOUT_SECONDS = 8.0
 _MAIN_THREAD_SHELLS = frozenset({"history", "menu", "settings"})
+_UPCOMING_REFRESH_LABEL = "Refreshing Upcoming…"
+_HOME_REFRESH_LABEL = "Refreshing current work, Tasks and Events…"
 
 
 def _bounded_read_call(app: Any, method: str, **payload: Any) -> Any:
@@ -115,6 +120,17 @@ def _read_snapshot(module: Any, app: Any) -> Any:
     )
 
 
+def _unavailable_snapshot(conversation: Any, app: Any, exc: Exception) -> Any:
+    """Create presentation-only degraded state after a live read failed."""
+    return conversation.StartupSnapshot(
+        window_hours=conversation._window_hours(app),
+        warning=(
+            "Live Task/Event data is temporarily unavailable; no Task/Event state "
+            f"was changed. {type(exc).__name__}: {exc}"
+        ),
+    )
+
+
 def _canonical_shell(app: Any, parsed: Any) -> str | None:
     """Identify commands whose no-argument body is itself a modal terminal shell."""
     if tuple(getattr(parsed, "args", ()) or ()):
@@ -162,11 +178,73 @@ def install(module: Any) -> None:
     if bool(getattr(module, "_latency_guards_installed", False)):
         return
 
+    conversation = module.conversation
     original_execute = module._execute_user
+    original_home_menu = conversation._home_menu
+    original_visible_call = conversation._visible_call
     module._execute_user_unbounded = original_execute
 
+    # A menu is a view over one coherent point-in-time snapshot. The old path read a
+    # snapshot to decide which menu labels to show and then performed the same live
+    # CalDAV read again when the human selected Upcoming. Besides doubling latency,
+    # the second read could hit the 8s budget and tear down the entire REPL. Keep the
+    # one snapshot only for the lifetime of this menu call; it is not a Task cache or
+    # a source of truth and is discarded as soon as the user leaves the menu.
+    menu_state: dict[str, Any] = {"snapshot": None}
+
     def guarded_read_snapshot(app: Any) -> Any:
+        snapshot = menu_state["snapshot"]
+        if snapshot is not None and getattr(snapshot, "warning", None) is None:
+            return snapshot
         return _read_snapshot(module, app)
+
+    def guarded_visible_call(app: Any, label: str, fn: Any, *args: Any, **kwargs: Any):
+        snapshot = menu_state["snapshot"]
+        if label != _UPCOMING_REFRESH_LABEL or snapshot is None:
+            return original_visible_call(app, label, fn, *args, **kwargs)
+
+        # A healthy menu snapshot is already the exact data Upcoming needs. Do not
+        # issue a duplicate CalDAV request after the human makes a selection.
+        if getattr(snapshot, "warning", None) is None:
+            return snapshot
+
+        # If the menu was built while CalDAV was unavailable, selecting Upcoming is
+        # a useful explicit retry. A repeated timeout still stays inside the CLI and
+        # returns the clearly marked degraded snapshot instead of a traceback.
+        try:
+            refreshed = original_visible_call(app, label, fn, *args, **kwargs)
+        except (UnavailableError, RuntimeError) as exc:
+            conversation._show(
+                app,
+                "Live refresh is still unavailable. The console remains usable; "
+                "showing the last available menu snapshot.",
+            )
+            return _unavailable_snapshot(conversation, app, exc)
+        menu_state["snapshot"] = refreshed
+        return refreshed
+
+    def guarded_home_menu(app: Any, snapshot: Any):
+        prepared = snapshot
+        if prepared is None:
+            try:
+                prepared = original_visible_call(
+                    app,
+                    _HOME_REFRESH_LABEL,
+                    lambda: _read_snapshot(module, app),
+                )
+            except (UnavailableError, RuntimeError) as exc:
+                prepared = _unavailable_snapshot(conversation, app, exc)
+                conversation._show(
+                    app,
+                    "Live Task/Event data is temporarily unavailable. "
+                    "The console is still usable; no Task/Event state was changed.",
+                )
+
+        menu_state["snapshot"] = prepared
+        try:
+            return original_home_menu(app, prepared)
+        finally:
+            menu_state["snapshot"] = None
 
     def guarded_execute_user(app: Any, parsed: Any, *, paginate: bool = True):
         if _canonical_shell(app, parsed) is not None:
@@ -175,6 +253,8 @@ def install(module: Any) -> None:
 
     module._read_snapshot = guarded_read_snapshot
     module._execute_user = guarded_execute_user
+    conversation._visible_call = guarded_visible_call
+    conversation._home_menu = guarded_home_menu
     module._latency_guards_installed = True
 
 
