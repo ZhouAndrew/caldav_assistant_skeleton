@@ -23,8 +23,21 @@ class WorkLogFormatter:
     def __init__(self, settings: Any = None) -> None:
         self.settings = settings
 
+    def _settings_source(self) -> Any:
+        if self.settings is not None:
+            return self.settings
+        try:
+            # Completion logging is assembled before AssistantContext exists.  A
+            # lazy lookup keeps that constructor simple while still honoring the
+            # active user's validated Settings at render time.
+            from ..runtime.current_context import get_current_context
+
+            return get_current_context().settings
+        except Exception:
+            return None
+
     def _setting(self, key: str, default: Any) -> Any:
-        getter = getattr(self.settings, "get", None)
+        getter = getattr(self._settings_source(), "get", None)
         if not callable(getter):
             return default
         try:
