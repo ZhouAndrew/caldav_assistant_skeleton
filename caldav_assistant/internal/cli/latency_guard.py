@@ -182,7 +182,7 @@ def install(module: Any) -> None:
     original_execute = module._execute_user
     original_home_menu = conversation._home_menu
     original_visible_call = conversation._visible_call
-    original_guided_start = conversation._guided_start
+    original_guided_start = getattr(conversation, "_guided_start", None)
     module._execute_user_unbounded = original_execute
 
     # A menu is a view over one coherent point-in-time snapshot. The old path read a
@@ -238,6 +238,7 @@ def install(module: Any) -> None:
             )
             return "console"
         try:
+            assert callable(original_guided_start)
             return original_guided_start(app, task)
         except (UnavailableError, RuntimeError) as exc:
             conversation._show(
@@ -278,7 +279,8 @@ def install(module: Any) -> None:
     module._read_snapshot = guarded_read_snapshot
     module._execute_user = guarded_execute_user
     conversation._visible_call = guarded_visible_call
-    conversation._guided_start = guarded_guided_start
+    if callable(original_guided_start):
+        conversation._guided_start = guarded_guided_start
     conversation._home_menu = guarded_home_menu
     module._latency_guards_installed = True
 
