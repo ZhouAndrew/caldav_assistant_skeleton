@@ -35,6 +35,11 @@ jobs:
         run: |
           set -o pipefail
           python scripts/acceptance_crud_undo_real.py 2>&1 | tee crud-undo-acceptance-${{ matrix.python-version }}.log
+      - name: Real Extension Easy API human-path acceptance
+        shell: bash
+        run: |
+          set -o pipefail
+          python scripts/acceptance_extension_easy_real.py 2>&1 | tee extension-easy-acceptance-${{ matrix.python-version }}.log
       - name: Real reminder alert settings acceptance
         shell: bash
         run: |
@@ -82,6 +87,7 @@ jobs:
             conversation-acceptance-${{ matrix.python-version }}.log
             conversation-transcript-${{ matrix.python-version }}.log
             crud-undo-acceptance-${{ matrix.python-version }}.log
+            extension-easy-acceptance-${{ matrix.python-version }}.log
             reminder-alert-settings-acceptance-${{ matrix.python-version }}.log
             persistent-terminal-bell-acceptance-${{ matrix.python-version }}.log
             wordpress-worklog-acceptance-${{ matrix.python-version }}.log
