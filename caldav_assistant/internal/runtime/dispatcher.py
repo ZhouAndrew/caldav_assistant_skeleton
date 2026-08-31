@@ -58,6 +58,12 @@ class RuntimeDispatcher:
             "settings.list": ctx.settings.list,
         }
 
+        # Startup needs Upcoming + Recommended from the same source read. Keep this
+        # as an internal runtime route rather than widening the frozen Public API.
+        startup_snapshot = getattr(ctx.agenda, "startup_snapshot", None)
+        if callable(startup_snapshot):
+            self._routes["agenda.startup_snapshot"] = startup_snapshot
+
         # CLI-only observability intentionally stays outside the frozen public
         # WordPressAPI. Small test contexts can omit it without becoming invalid.
         daily_log = getattr(ctx.wordpress, "_daily_log", None)
