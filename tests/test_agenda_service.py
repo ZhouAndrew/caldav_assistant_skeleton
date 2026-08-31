@@ -34,6 +34,25 @@ class Next:
         return "next-item"
 
 
+class SnapshotSession:
+    def __init__(self):
+        self.calls = []
+
+    def startup_snapshot(self, tasks):
+        self.calls.append(list(tasks))
+        return {
+            "current_task_id": "task-current",
+            "current_task": None,
+            "paused_task_ids": ("task-paused",),
+        }
+
+    def current_task_id(self):
+        raise AssertionError("next() must reuse startup_snapshot instead of re-reading current work")
+
+    def paused_task_ids(self):
+        raise AssertionError("next() must reuse startup_snapshot instead of re-reading paused work")
+
+
 def test_today_is_projected_by_agenda_engine_not_forwarded_as_caldav_filter():
     tasks = Query(["task"])
     events = Query(["event"])
@@ -42,7 +61,7 @@ def test_today_is_projected_by_agenda_engine_not_forwarded_as_caldav_filter():
     service = AgendaService(tasks, events, engine, Next(), state)
 
     assert service.today() == "agenda"
-    assert tasks.calls == [{}]
+    assert tasks.calls == [{"completed": False}]
     assert events.calls == [{}]
     assert engine.calls == [(["task"], ["event"], {"days": 1, "user_state": state})]
 
@@ -67,6 +86,8 @@ def test_next_builds_candidate_agenda_and_uses_human_work_context():
 
     now = datetime.now().astimezone()
     assert service.next(kind="task", now=now) == "next-item"
+    assert tasks.calls == [{"completed": False}]
+    assert events.calls == [{}]
     assert engine.candidate_calls == [(["task"], ["event"])]
     assert next_engine.calls == [
         (
@@ -79,3 +100,27 @@ def test_next_builds_candidate_agenda_and_uses_human_work_context():
             },
         )
     ]
+
+
+def test_next_reuses_one_session_snapshot_from_already_fetched_tasks():
+    from datetime import datetime
+
+    tasks = Query(["task"])
+    events = Query([])
+    session = SnapshotSession()
+    next_engine = Next()
+    service = AgendaService(
+        tasks,
+        events,
+        Engine(),
+        next_engine,
+        {},
+        session=session,
+    )
+
+    now = datetime.now().astimezone()
+    assert service.next(kind="task", now=now) == "next-item"
+    assert tasks.calls == [{"completed": False}]
+    assert session.calls == [["task"]]
+    assert next_engine.calls[0][1]["current_task_uid"] == "task-current"
+    assert next_engine.calls[0][1]["skipped_uids"] == ("task-paused",)
