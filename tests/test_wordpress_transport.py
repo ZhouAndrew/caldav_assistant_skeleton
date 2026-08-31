@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 from caldav_assistant.internal.wordpress.transports import WPCLIAdapter
@@ -24,8 +25,9 @@ def response(stdout="", *, returncode=0, stderr=""):
 
 def test_create_post_calls_wp_cli_and_returns_id():
     runner = Runner([response("42\n")])
+    wordpress_path = "/var/www/html/wordpress"
     adapter = WPCLIAdapter(
-        "/var/www/html/wordpress",
+        wordpress_path,
         executable="/usr/local/bin/wp",
         runner=runner,
     )
@@ -36,7 +38,7 @@ def test_create_post_calls_wp_cli_and_returns_id():
     command = runner.calls[0][0]
     assert command[:4] == [
         "/usr/local/bin/wp",
-        "--path=/var/www/html/wordpress",
+        f"--path={Path(wordpress_path).expanduser()}",
         "post",
         "create",
     ]
