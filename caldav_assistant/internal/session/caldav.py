@@ -9,7 +9,7 @@ paused a Task; external CalDAV clients may legitimately use that standard status
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Iterable
 
 from ...api.v1.errors import AmbiguousError
 
@@ -40,6 +40,13 @@ class CalDAVSessionService:
         except Exception:
             return False
 
+    @staticmethod
+    def _is_in_progress(task: Any) -> bool:
+        return (
+            str(getattr(task, "status", "") or "") == "IN-PROCESS"
+            and not bool(getattr(task, "completed", False))
+        )
+
     def _in_progress_tasks(self) -> list[Any]:
         if self.tasks is None:
             return []
@@ -66,6 +73,94 @@ class CalDAVSessionService:
             return None
         latest = max(items, key=lambda item: getattr(item, "timestamp", 0))
         return str(getattr(latest, "action", "") or "") or None
+
+    @staticmethod
+    def _task_by_id(tasks: Iterable[Any], task_id: str | None) -> Any:
+        if not task_id:
+            return None
+        wanted = str(task_id)
+        for task in tasks:
+            if str(getattr(task, "id", "") or "") == wanted:
+                if bool(getattr(task, "completed", False)):
+                    return None
+                if str(getattr(task, "status", "") or "") == "CANCELLED":
+                    return None
+                return task
+        return None
+
+    def startup_snapshot(self, tasks: Iterable[Any]) -> dict[str, Any]:
+        """Resolve current/paused state from an already-read Task set.
+
+        Startup used to ask ``current_task_id()``, ``paused_task_ids()`` and then
+        ``tasks.get()`` independently.  With a CalDAV Work collection that caused
+        repeated full Work VEVENT scans plus another Task traversal.  This internal
+        composition reads the Work facts once and reuses the Tasks already fetched
+        for Agenda.  No state is cached or promoted to a second source of truth.
+        """
+        task_values = list(tasks or ())
+        in_progress = [task for task in task_values if self._is_in_progress(task)]
+
+        if self._worklog_configured():
+            reader = getattr(self.worklog, "_all_work_events", None)
+            if not callable(reader):
+                current_id = self.current_task_id()
+                paused_ids = self.paused_task_ids()
+            else:
+                work_events = list(reader() or ())
+                is_open = getattr(self.worklog, "_is_open", None)
+                task_id_from_event = getattr(self.worklog, "_task_id_from_event", None)
+                if not callable(is_open) or not callable(task_id_from_event):
+                    current_id = self.current_task_id()
+                    paused_ids = self.paused_task_ids()
+                else:
+                    open_items = [event for event in work_events if is_open(event)]
+                    current_ids = {
+                        task_id_from_event(item)
+                        for item in open_items
+                        if task_id_from_event(item) is not None
+                    }
+                    if len(open_items) > 1 or len(current_ids) > 1:
+                        raise AmbiguousError(
+                            "More than one open CalDAV work interval exists; "
+                            "close the extra interval before starting another Task."
+                        )
+                    current_id = next(iter(current_ids)) if current_ids else None
+                    worked_ids = {
+                        task_id_from_event(item)
+                        for item in work_events
+                        if task_id_from_event(item) is not None
+                    }
+                    paused_ids = tuple(
+                        task_id
+                        for task in in_progress
+                        for task_id in [str(getattr(task, "id", "") or "").strip()]
+                        if task_id and task_id != current_id and task_id in worked_ids
+                    )
+        else:
+            current: list[str] = []
+            paused: list[str] = []
+            for task in in_progress:
+                task_id = str(getattr(task, "id", "") or "").strip()
+                if not task_id:
+                    continue
+                action = self._latest_activity_action(task)
+                if action in _CURRENT_ACTIONS:
+                    current.append(task_id)
+                elif action == _PAUSED_ACTION:
+                    paused.append(task_id)
+            if len(current) > 1:
+                raise AmbiguousError(
+                    "More than one Task is marked current by the Activity Journal; "
+                    "pause or complete the extra Task before continuing."
+                )
+            current_id = current[0] if current else None
+            paused_ids = tuple(paused)
+
+        return {
+            "current_task_id": current_id,
+            "current_task": self._task_by_id(task_values, current_id),
+            "paused_task_ids": tuple(dict.fromkeys(paused_ids)),
+        }
 
     def current_task_id(self) -> str | None:
         if self._worklog_configured():
