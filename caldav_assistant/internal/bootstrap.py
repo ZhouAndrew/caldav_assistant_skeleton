@@ -66,6 +66,7 @@ from .settings.keys import (
     CALDAV_WORKLOG_COLLECTION_URL,
     EXPERIMENTAL_FAST_QUERY_CACHE,
     EXTENSIONS_ENABLED,
+    NOTIFICATION_SOUND_ENABLED,
     WORDPRESS_PATH,
 )
 from .storage.sqlite import (
@@ -155,14 +156,18 @@ def _build_extension_manager(
     )
 
 
-def _notification_adapter_for_platform():
+def _notification_adapter_for_platform(
+    *,
+    sound_enabled: bool | Any = True,
+):
     import sys
 
+    adapter_options = {"sound_enabled": sound_enabled}
     if sys.platform.startswith("win"):
-        return WindowsNotificationAdapter()
+        return WindowsNotificationAdapter(**adapter_options)
     if sys.platform == "darwin":
-        return MacOSNotificationAdapter()
-    return LinuxNotificationAdapter()
+        return MacOSNotificationAdapter(**adapter_options)
+    return LinuxNotificationAdapter(**adapter_options)
 
 
 def _ipc_endpoint() -> str:
@@ -295,7 +300,13 @@ def build_service_application() -> ServiceApplication:
         assistant_state,
         session=session,
     )
-    notifications = NotificationService(_notification_adapter_for_platform())
+    notifications = NotificationService(
+        _notification_adapter_for_platform(
+            sound_enabled=lambda: bool(
+                settings_service.get(NOTIFICATION_SOUND_ENABLED, True)
+            )
+        )
+    )
     reminders = ReminderService(
         ReminderEngine(),
         notifications,
