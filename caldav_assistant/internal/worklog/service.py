@@ -112,6 +112,22 @@ class WorkLogService:
             == target.rstrip("/")
         ]
 
+    def _update_work_event(self, event_id: str, changes: dict[str, Any]) -> Event:
+        """Write directly to the configured Work collection when routing supports it."""
+        target = self._collection_url(required=True)
+        scoped = getattr(self.adapter, "update_event_in_collection", None)
+        if callable(scoped):
+            return scoped(str(target), event_id, changes)
+        return self.adapter.update_event(event_id, changes)
+
+    def _delete_work_event(self, event_id: str) -> None:
+        target = self._collection_url(required=True)
+        scoped = getattr(self.adapter, "delete_event_in_collection", None)
+        if callable(scoped):
+            scoped(str(target), event_id)
+            return
+        self.adapter.delete_event(event_id)
+
     def open_events(self) -> list[Event]:
         return [event for event in self._all_work_events() if self._is_open(event)]
 
@@ -197,7 +213,7 @@ class WorkLogService:
             task_id=task_id,
             event_id=event.id,
         )
-        updated = self.adapter.update_event(
+        updated = self._update_work_event(
             event.id,
             {
                 "end": closed_at,
@@ -217,7 +233,7 @@ class WorkLogService:
         return updated
 
     def reopen_segment(self, event: Event) -> Event:
-        updated = self.adapter.update_event(
+        updated = self._update_work_event(
             event.id,
             {
                 "end": None,
@@ -230,7 +246,7 @@ class WorkLogService:
 
     def discard_segment(self, event: Event) -> None:
         try:
-            self.adapter.delete_event(event.id)
+            self._delete_work_event(event.id)
         except NotFoundError:
             return
 
