@@ -47,6 +47,21 @@ class ParsedCommand:
     args: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class CommandOutcome:
+    """One canonical command result before presentation.
+
+    Keeping execution and rendering separate lets the ordinary CLI render
+    immediately while live-progress clients can drain factual Core milestones first.
+    Error text is still emitted at the same point as before; only successful result
+    presentation may be deferred.
+    """
+
+    exit_code: int
+    should_exit: bool = False
+    result: Any = None
+
+
 def _t(app: Any, key: str, default: str, **values: Any) -> str:
     translate = getattr(app.ctx.ui, "t", None)
     if callable(translate):
@@ -298,15 +313,21 @@ def _render_result(app: Any, result: Any, *, paginate: bool = False) -> None:
     _ui_show(app, result)
 
 
-def _execute(app: Any, parsed: ParsedCommand, *, paginate: bool = False) -> tuple[int, bool]:
+def execute_command(app: Any, parsed: ParsedCommand) -> CommandOutcome:
+    """Execute one canonical command without rendering its successful result.
+
+    Command resolution, numbered-reference handling and error semantics live here so
+    every terminal composition uses exactly the same execution path. Callers that do
+    not need deferred presentation should continue using ``_execute``.
+    """
     try:
         entry = app.commands.resolve(parsed.name)
     except NotFoundError:
         _error(app, _unsupported_command_message(app, parsed.name))
-        return 2, False
+        return CommandOutcome(2)
     except CalDAVAssistantError as exc:
         _error(app, f"{type(exc).__name__}: {exc}")
-        return 2, False
+        return CommandOutcome(2)
 
     if parsed.name.casefold() != entry.name.casefold():
         _ui_show(
@@ -319,30 +340,36 @@ def _execute(app: Any, parsed: ParsedCommand, *, paginate: bool = False) -> tupl
         result = app.commands.run(entry.name, *args)
     except KeyboardInterrupt:
         _error(app, _t(app, "cli.cancelled", "Cancelled."))
-        return 130, False
+        return CommandOutcome(130)
     except EOFError:
-        return 0, True
+        return CommandOutcome(0, should_exit=True)
     except NotFoundError as exc:
         if entry.name.casefold() == "help" and parsed.args:
             target = " ".join(parsed.args).strip()
             _error(app, _unsupported_command_message(app, target))
         else:
             _error(app, f"{type(exc).__name__}: {exc}")
-        return 2, False
+        return CommandOutcome(2)
     except CalDAVAssistantError as exc:
         _error(app, f"{type(exc).__name__}: {exc}")
-        return 2, False
+        return CommandOutcome(2)
     except (TypeError, ValueError) as exc:
         _error(app, _t(app, "cli.invalid_input", "Invalid input: {error}", error=exc))
-        return 2, False
+        return CommandOutcome(2)
     except Exception as exc:
         _error(app, f"{type(exc).__name__}: {exc}")
-        return 1, False
+        return CommandOutcome(1)
 
     if result is EXIT_REPL:
-        return 0, True
-    _render_result(app, result, paginate=paginate)
-    return 0, False
+        return CommandOutcome(0, should_exit=True)
+    return CommandOutcome(0, result=result)
+
+
+def _execute(app: Any, parsed: ParsedCommand, *, paginate: bool = False) -> tuple[int, bool]:
+    outcome = execute_command(app, parsed)
+    if outcome.result is not None:
+        _render_result(app, outcome.result, paginate=paginate)
+    return outcome.exit_code, outcome.should_exit
 
 
 def run_one_shot(app: Any, argv: Sequence[str]) -> int:
@@ -491,6 +518,8 @@ def main() -> int:
 
 __all__ = [
     "ParsedCommand",
+    "CommandOutcome",
+    "execute_command",
     "parse_command_line",
     "run_one_shot",
     "run_repl",

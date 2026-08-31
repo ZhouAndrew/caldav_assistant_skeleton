@@ -21,11 +21,9 @@ import math
 from time import monotonic, sleep
 from typing import Any, Sequence
 
-from ...api.v1.errors import CalDAVAssistantError, NotFoundError
 from . import app as base
 from . import conversation_app as conversation
 from . import monitor_app as legacy
-from .actions import EXIT_REPL
 from .live_command import run_with_live_progress
 
 
@@ -162,64 +160,6 @@ def _show_welcome(app: Any) -> conversation.StartupSnapshot:
     return snapshot
 
 
-def _run_command_without_render(
-    app: Any,
-    parsed: base.ParsedCommand,
-) -> tuple[int, bool, Any]:
-    """Run the normal CommandService path but postpone result presentation."""
-    try:
-        entry = app.commands.resolve(parsed.name)
-    except NotFoundError:
-        base._error(app, base._unsupported_command_message(app, parsed.name))
-        return 2, False, None
-    except CalDAVAssistantError as exc:
-        base._error(app, f"{type(exc).__name__}: {exc}")
-        return 2, False, None
-
-    if parsed.name.casefold() != entry.name.casefold():
-        base._ui_show(
-            app,
-            base._t(
-                app,
-                "cli.command_resolution",
-                "Command → {command}",
-                command=entry.name,
-            ),
-        )
-
-    try:
-        args = base._resolve_numbered_reference(app, entry.name, parsed.args)
-        result = app.commands.run(entry.name, *args)
-    except KeyboardInterrupt:
-        base._error(app, base._t(app, "cli.cancelled", "Cancelled."))
-        return 130, False, None
-    except EOFError:
-        return 0, True, None
-    except NotFoundError as exc:
-        if entry.name.casefold() == "help" and parsed.args:
-            target = " ".join(parsed.args).strip()
-            base._error(app, base._unsupported_command_message(app, target))
-        else:
-            base._error(app, f"{type(exc).__name__}: {exc}")
-        return 2, False, None
-    except CalDAVAssistantError as exc:
-        base._error(app, f"{type(exc).__name__}: {exc}")
-        return 2, False, None
-    except (TypeError, ValueError) as exc:
-        base._error(
-            app,
-            base._t(app, "cli.invalid_input", "Invalid input: {error}", error=exc),
-        )
-        return 2, False, None
-    except Exception as exc:
-        base._error(app, f"{type(exc).__name__}: {exc}")
-        return 1, False, None
-
-    if result is EXIT_REPL:
-        return 0, True, None
-    return 0, False, result
-
-
 def _execute_user(
     app: Any,
     parsed: base.ParsedCommand,
@@ -239,8 +179,8 @@ def _execute_user(
 
     delivery_target = legacy._monitor_target(app)
 
-    def execute_core() -> tuple[int, bool, Any]:
-        return _run_command_without_render(app, effective)
+    def execute_core() -> base.CommandOutcome:
+        return base.execute_command(app, effective)
 
     def on_delivery(event: dict[str, Any]) -> None:
         target = delivery_target or legacy._monitor_target(app)
@@ -258,7 +198,7 @@ def _execute_user(
             "The Assistant will not claim a CalDAV write was cancelled unless Core confirms it.",
         )
 
-    code, should_exit, result = run_with_live_progress(
+    outcome = run_with_live_progress(
         app,
         execute_core,
         on_progress=lambda event: _show_progress(app, event),
@@ -268,6 +208,9 @@ def _execute_user(
         ),
         on_interrupt=on_interrupt,
     )
+    code = outcome.exit_code
+    should_exit = outcome.should_exit
+    result = outcome.result
 
     # Every service-side milestone emitted before the IPC result has been drained.
     # Only now may the final result/What-changed presentation be shown.

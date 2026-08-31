@@ -373,11 +373,17 @@ def test_modal_shell_execution_runs_on_the_calling_main_thread():
     shown = []
     rendered = []
 
+    def execute_command(app, parsed):
+        seen.append(get_ident())
+        return SimpleNamespace(exit_code=0, should_exit=False, result="ok")
+
     module = SimpleNamespace(
         conversation=SimpleNamespace(_show=lambda app, text: shown.append(text)),
         legacy=SimpleNamespace(_split_lifecycle_duration=lambda parsed: (parsed, None)),
-        base=SimpleNamespace(_render_result=lambda app, result, paginate=True: rendered.append(result)),
-        _run_command_without_render=lambda app, parsed: (seen.append(get_ident()) or (0, False, "ok")),
+        base=SimpleNamespace(
+            execute_command=execute_command,
+            _render_result=lambda app, result, paginate=True: rendered.append(result),
+        ),
         _execute_user_unbounded=lambda app, parsed, paginate=True: pytest.fail("unexpected worker path"),
     )
     parsed = SimpleNamespace(raw="history", name="history", args=())
