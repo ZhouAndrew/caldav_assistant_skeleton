@@ -104,3 +104,6 @@ jobs:
       - name: Test
         shell: pwsh
         run: python -m pytest -q
+      - name: Real installed Windows CLI acceptance
+        shell: pwsh
+        run: python scripts/acceptance_windows_cli_real.py
