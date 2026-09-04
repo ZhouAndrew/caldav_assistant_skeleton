@@ -12,6 +12,7 @@ ordinary user extensions.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import importlib
 import importlib.util
 from pathlib import Path
 import re
@@ -335,6 +336,43 @@ class ExtensionManager:
             )
         return importlib.util.spec_from_file_location(module_name, record.path)
 
+    @staticmethod
+    def _purge_bytecode_cache(record: ExtensionRecord) -> None:
+        """Best-effort removal of stale extension bytecode before every load.
+
+        CPython timestamp-based ``.pyc`` validation historically uses source mtime
+        and file size. A user can therefore edit ``V1`` to same-sized ``V2`` within
+        the same filesystem timestamp tick and an immediate reload may execute the
+        old bytecode. Extension reload is an explicit freshness operation, so its
+        load path must prefer current source over that cache optimization.
+        """
+        importlib.invalidate_caches()
+
+        if record.path.is_dir():
+            try:
+                cache_dirs = sorted(
+                    record.path.rglob("__pycache__"),
+                    key=lambda item: len(item.parts),
+                    reverse=True,
+                )
+            except OSError:
+                cache_dirs = []
+            for cache_dir in cache_dirs:
+                try:
+                    shutil.rmtree(cache_dir)
+                except OSError:
+                    continue
+            return
+
+        try:
+            cache_path = Path(importlib.util.cache_from_source(str(record.path)))
+        except (NotImplementedError, ValueError):
+            return
+        try:
+            cache_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
     def load(self, name: str) -> ExtensionRecord:
         record = self.get(name)
         if record.status == "loaded":
@@ -346,8 +384,10 @@ class ExtensionManager:
             record.traceback = None
             return record
 
-        # Clear residue from an earlier failed attempt.
+        # Clear residue from an earlier failed attempt and force explicit extension
+        # loads/reloads to observe current source rather than timestamp-stale bytecode.
         self._teardown(record)
+        self._purge_bytecode_cache(record)
         before = self.commands.list()
         self._generation += 1
         safe_name = re.sub(r"[^A-Za-z0-9_]", "_", record.name)
