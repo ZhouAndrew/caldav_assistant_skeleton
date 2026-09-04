@@ -1,11 +1,6 @@
-"""Structural typing contracts for the stable v1 Object API.
+"""Public Object API contracts.
 
-These Protocols describe the public namespaces exposed by :class:`AssistantContext`.
-They are intentionally interface-only: production services and CLI Runtime proxies
-satisfy them structurally without importing or subclassing these types.
-
-The main consumer is editor/static-analysis tooling (VS Code/Pylance, pyright, mypy)
-for extension authors.  Runtime business behaviour remains owned by Core services.
+Read this file to learn ``AssistantContext``. Implementations stay internal.
 """
 from __future__ import annotations
 
@@ -16,6 +11,7 @@ from .models import ActionResult, Activity, Agenda, AgendaItem, Event, Reminder,
 
 
 class TasksAPI(Protocol):
+    """Tasks: list/find/get/create/update/start/pause/resume/complete/delete."""
     def list(self, **filters: Any) -> list[Task]: ...
     def find(self, query: str, **filters: Any) -> Task: ...
     def get(self, task: Task | str) -> Task: ...
@@ -29,6 +25,7 @@ class TasksAPI(Protocol):
 
 
 class EventsAPI(Protocol):
+    """Events: list/find/get/create/update/delete. Events are not completable Tasks."""
     def list(self, **filters: Any) -> list[Event]: ...
     def find(self, query: str, **filters: Any) -> Event: ...
     def get(self, event: Event | str) -> Event: ...
@@ -38,6 +35,7 @@ class EventsAPI(Protocol):
 
 
 class AgendaAPI(Protocol):
+    """Combined Task/Event agenda views."""
     def today(self) -> Agenda: ...
     def range(self, days: int = 1, **filters: Any) -> Agenda: ...
     def next(self, kind: str | None = None, **options: Any) -> AgendaItem | None: ...
@@ -45,6 +43,7 @@ class AgendaAPI(Protocol):
 
 
 class RemindersAPI(Protocol):
+    """Reminder operations."""
     def list(self, **filters: Any) -> list[Reminder]: ...
     def create(self, title: str, when: Any, **options: Any) -> Reminder: ...
     def snooze(self, reminder: Reminder | str, until: Any) -> Any: ...
@@ -52,10 +51,12 @@ class RemindersAPI(Protocol):
 
 
 class NotificationsAPI(Protocol):
+    """Platform-independent notifications."""
     def send(self, title: str, body: str = "", actions: Any = None) -> Any: ...
 
 
 class WordPressAPI(Protocol):
+    """Long-term WordPress logs/posts."""
     def log(self, text: str, **metadata: Any) -> Any: ...
     def create_post(self, title: str, content: str = "", **metadata: Any) -> Any: ...
     def update_post(self, post_id: Any, **changes: Any) -> Any: ...
@@ -63,6 +64,7 @@ class WordPressAPI(Protocol):
 
 
 class UIAPI(Protocol):
+    """Shared display and prompt building blocks."""
     def show(self, value: Any) -> None: ...
     def t(self, key: str, default: str | None = None, **values: Any) -> str: ...
     def ask_text(self, prompt: str = "Text?", **options: Any) -> str | None: ...
@@ -77,36 +79,28 @@ class UIAPI(Protocol):
 
 
 class TemporalAPI(Protocol):
+    """Human-friendly date/time parsing; e.g. ``August5`` or ``tomorrow 17:00``."""
     def parse_date(self, text: str, *, bias: str = "any") -> date: ...
     def parse_datetime(self, text: str, *, bias: str = "any") -> datetime: ...
     def parse_time(self, text: str) -> time: ...
 
 
 class CommandsAPI(Protocol):
+    """Shared command registry."""
     def run(self, name: str, *args: Any, **kwargs: Any) -> Any: ...
-    def register_extension(
-        self,
-        name: str,
-        handler: Callable[..., Any],
-        *,
-        extension: str | None = None,
-        **options: Any,
-    ) -> Any: ...
+    def register_extension(self, name: str, handler: Callable[..., Any], *, extension: str | None = None, **options: Any) -> Any: ...
     def names(self, *, include_aliases: bool = False) -> tuple[str, ...]: ...
 
 
 class ActivityAPI(Protocol):
+    """Lightweight Activity Journal."""
     def today(self) -> list[Activity]: ...
     def for_task(self, task: Task | str) -> list[Activity]: ...
-    def record(
-        self,
-        action: str,
-        object_id: str | None = None,
-        **metadata: Any,
-    ) -> Activity: ...
+    def record(self, action: str, object_id: str | None = None, **metadata: Any) -> Activity: ...
 
 
 class SettingsAPI(Protocol):
+    """Validated public settings."""
     def get(self, key: str, default: Any = None) -> Any: ...
     def set(self, key: str, value: Any) -> Any: ...
     def reset(self, key: str) -> Any: ...
@@ -115,9 +109,9 @@ class SettingsAPI(Protocol):
 
 
 class SessionAPI(Protocol):
+    """Current CLI/work context."""
     last_items: list[Any]
     current_selection: Any
-
     def current_task_id(self) -> str | None: ...
     def current_task(self) -> Task | None: ...
     def paused_task_ids(self) -> tuple[str, ...]: ...
@@ -125,16 +119,7 @@ class SessionAPI(Protocol):
 
 
 __all__ = [
-    "TasksAPI",
-    "EventsAPI",
-    "AgendaAPI",
-    "RemindersAPI",
-    "NotificationsAPI",
-    "WordPressAPI",
-    "UIAPI",
-    "TemporalAPI",
-    "CommandsAPI",
-    "ActivityAPI",
-    "SettingsAPI",
-    "SessionAPI",
+    "TasksAPI", "EventsAPI", "AgendaAPI", "RemindersAPI", "NotificationsAPI",
+    "WordPressAPI", "UIAPI", "TemporalAPI", "CommandsAPI", "ActivityAPI",
+    "SettingsAPI", "SessionAPI",
 ]
