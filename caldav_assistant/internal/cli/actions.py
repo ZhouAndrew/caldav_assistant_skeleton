@@ -222,6 +222,16 @@ class BuiltinActions:
         if parts:
             raise ValidationError(f"{name} does not take arguments")
 
+    def _ask_future_date(self, prompt: str) -> Any:
+        """Use the frozen TemporalParser future context for scheduling edits."""
+        ask = getattr(self.ctx.ui, "ask_date", None)
+        if not callable(ask):
+            raise ValidationError(f"{prompt} requires date input support")
+        try:
+            return ask(prompt, bias="future")
+        except TypeError:
+            return ask(prompt)
+
     # ------------------------------------------------------------------
     # Query commands
     # ------------------------------------------------------------------
@@ -346,7 +356,7 @@ class BuiltinActions:
     # Edit command: scheduling/data editing, not work-session lifecycle
     # ------------------------------------------------------------------
     def _edit_due(self, task: Any) -> Any:
-        due = self.ctx.ui.ask_date("New due date")
+        due = self._ask_future_date("New due date")
         if due is None:
             return None
         self._explain_task_action("Edit", task, due=due)
@@ -407,7 +417,7 @@ class BuiltinActions:
             return None
 
         if due is None:
-            due = self.ctx.ui.ask_date("New due date")
+            due = self._ask_future_date("New due date")
         elif isinstance(due, str):
             due = self.ctx.time.parse_date(due, bias="future")
         if due is None:

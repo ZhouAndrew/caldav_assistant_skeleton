@@ -6,6 +6,49 @@ from caldav_assistant.internal.clients.terminal import (
 )
 
 
+class StrictAsciiStream(StringIO):
+    @property
+    def encoding(self):
+        return "ascii"
+
+    def write(self, value):
+        str(value).encode(self.encoding)
+        return super().write(value)
+
+
+def test_console_output_degrades_unencodable_presentation_glyphs_without_failing():
+    output = StrictAsciiStream()
+    errors = StrictAsciiStream()
+    console = StdConsoleIO(stdout=output, stderr=errors)
+
+    console.write("→ starting ✓")
+    console.error("✗ failed — details")
+
+    assert output.getvalue() == "? starting ?\n"
+    assert errors.getvalue() == "? failed ? details\n"
+
+
+def test_bell_messages_also_degrade_safely_on_legacy_encoding():
+    output = StrictAsciiStream()
+    profile = TerminalBellProfile(
+        enabled=lambda: True,
+        repeat_count=lambda: 1,
+        interval_ms=lambda: 100,
+    )
+    console = StdConsoleIO(
+        stdout=output,
+        terminal_bell_profile=profile,
+        sleep_fn=lambda _seconds: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
+
+    console.stdout.write("\a")
+
+    text = output.getvalue()
+    assert text.count("\a") == 1
+    assert "Reminder alarm" in text
+    assert "Task/Event state was not changed" in text
+
+
 def test_one_logical_bell_repeats_bursts_until_ctrl_c():
     output = StringIO()
     sleep_calls = []
