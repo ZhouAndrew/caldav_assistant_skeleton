@@ -173,7 +173,7 @@ def main() -> int:
         _, output = _run(executable, root, env, NAME)
         if "EASY API HUMAN PATH V2" in output:
             raise AssertionError("Disabled extension command remained executable")
-        _contains(output, "Unknown command", "disabled command is no longer in registry")
+        _contains(output, "Unsupported command", "disabled command is no longer in registry")
 
         code, output = _run(executable, root, env, "extension", "disable", BROKEN)
         _must_succeed(code, output, "broken extension can be disabled without crashing Core")
