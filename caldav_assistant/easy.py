@@ -1,23 +1,13 @@
-"""Scratch-like Easy Tools API.
+"""Scratch-like public API for simple extensions and scripts.
 
-MODULE CONTRACT
-- Imports: public AssistantContext/models/errors + tiny internal context/command binding.
-- Calls: public namespaces through the current ``AssistantContext`` only.
-- Provides: short synchronous blocks for simple extensions and scripts.
-- Must not: expose ctx, async/await, CalDAV XML, IPC, SQLite, or OS APIs.
-
-Easy API is the primary extension surface.  It may resolve human-friendly references,
-reuse PromptKit for ambiguity, and normalize human temporal text, but authoritative
-Task/Event behavior remains in the same Core services used by CLI/background.
-
-Important domain rule: Tasks are work that can be started/paused/resumed/completed.
-Events are scheduled occurrences and deliberately have no completion lifecycle.
+Normal use should require only this module. Runtime, IPC, CalDAV, storage and platform
+implementation details stay behind the current AssistantContext.
 """
 from __future__ import annotations
 
 from typing import Any, Iterable
 
-from .api import AssistantContext, Event, Task
+from .api import AgendaItem, AssistantContext, Event, Task
 from .api.v1.errors import AmbiguousError, NotFoundError, ValidationError
 from .internal.commands.decorators import command
 from .internal.runtime.current_context import get_current_context
@@ -49,15 +39,11 @@ def _choose_ambiguous(kind: str, query: str, items: Iterable[Any]) -> Any:
     chooser = getattr(_ctx().ui, "choose", None)
     if not callable(chooser):
         raise AmbiguousError(query)
-    return chooser(
-        f"Choose {kind}: {query}",
-        matches,
-        item_label=_summary,
-    )
+    return chooser(f"Choose {kind}: {query}", matches, item_label=_summary)
 
 
 def _resolve_task(task: Task | str) -> Task | None:
-    """Resolve a Task object, id, or human title without ever accepting Event."""
+    """Resolve a Task object, id, or title; never accept an Event."""
     if isinstance(task, Event):
         raise ValidationError(
             "Event has no Task work lifecycle; this Easy API action requires a Task"
@@ -69,15 +55,12 @@ def _resolve_task(task: Task | str) -> Task | None:
 
     query = task.strip()
     namespace = _ctx().tasks
-
-    # Preserve v1 compatibility for callers that already pass a Task id.
     getter = getattr(namespace, "get", None)
     if callable(getter):
         try:
             return getter(query)
         except NotFoundError:
             pass
-
     try:
         return namespace.find(query)
     except AmbiguousError:
@@ -85,7 +68,7 @@ def _resolve_task(task: Task | str) -> Task | None:
 
 
 def _resolve_event(event: Event | str) -> Event | None:
-    """Resolve an Event object, id, or human title without treating it as Task."""
+    """Resolve an Event object, id, or title; never treat it as a Task."""
     if isinstance(event, Task):
         raise ValidationError(
             "Task is not an Event; use the Task Easy API for work lifecycle actions"
@@ -103,15 +86,18 @@ def _resolve_event(event: Event | str) -> Event | None:
             return getter(query)
         except NotFoundError:
             pass
-
     try:
         return namespace.find(query)
     except AmbiguousError:
         return _choose_ambiguous("event", query, namespace.list())
 
 
+def _agenda_value(item: Any) -> Any:
+    """Unwrap the public AgendaItem contract, retaining old tiny-test compatibility."""
+    return item.value if isinstance(item, AgendaItem) else item
+
+
 def _parse_temporal_text(value: Any, *, bias: str = "future") -> Any:
-    """Keep date-only text as ``date``; use datetime only when text contains time."""
     if not isinstance(value, str):
         return value
     try:
@@ -133,73 +119,88 @@ def _normalize_temporal_fields(
     return normalized
 
 
-# ---- Display ------------------------------------------------------------
+# Display
 def show(value: Any) -> None:
+    """Display a value through the current Assistant UI."""
     _ctx().ui.show(value)
 
 
-# ---- Task query blocks --------------------------------------------------
+# Tasks
 def tasks(**filters: Any):
+    """List Tasks using optional public filters."""
     return _ctx().tasks.list(**filters)
 
 
 def today_tasks(**filters: Any):
+    """List Tasks relevant to today."""
     return _ctx().tasks.list(today=True, **filters)
 
 
 def overdue_tasks(**filters: Any):
+    """List overdue Tasks."""
     return _ctx().tasks.list(overdue=True, **filters)
 
 
 def next_task(**options: Any):
-    value = _ctx().agenda.next(kind="task", **options)
+    """Return the recommended next Task, or None."""
+    value = _agenda_value(_ctx().agenda.next(kind="task", **options))
     return value if isinstance(value, Task) else None
 
 
 def find_task(query: str, **filters: Any):
+    """Find one Task by id or human title query."""
     return _ctx().tasks.find(query, **filters)
 
 
-# ---- Event query blocks -------------------------------------------------
+# Events
 def events(**filters: Any):
+    """List Events using optional public filters."""
     return _ctx().events.list(**filters)
 
 
 def today_events(**filters: Any):
+    """List Events relevant to today."""
     return _ctx().events.list(today=True, **filters)
 
 
 def next_event(**options: Any):
-    value = _ctx().agenda.next(kind="event", **options)
+    """Return the recommended next Event, or None."""
+    value = _agenda_value(_ctx().agenda.next(kind="event", **options))
     return value if isinstance(value, Event) else None
 
 
 def find_event(query: str, **filters: Any):
+    """Find one Event by id or human title query."""
     return _ctx().events.find(query, **filters)
 
 
-# ---- Agenda blocks ------------------------------------------------------
+# Agenda
 def today():
+    """Return today's combined Task/Event Agenda."""
     return _ctx().agenda.today()
 
 
 def agenda(days: int = 1, **filters: Any):
+    """Return a combined Agenda for a day range."""
     if days == 1 and not filters:
         return _ctx().agenda.today()
     return _ctx().agenda.range(days=days, **filters)
 
 
 def next(**options: Any):
+    """Return the recommended next AgendaItem, or None."""
     return _ctx().agenda.next(**options)
 
 
-# ---- Task action blocks -------------------------------------------------
+# Task actions
 def add_task(summary: str, **fields: Any):
+    """Create a Task; human date text is accepted for start/due."""
     normalized = _normalize_temporal_fields(fields, ("start", "due"))
     return _ctx().tasks.create(summary, **normalized)
 
 
 def edit_task(task: Task | str, **changes: Any):
+    """Update a Task selected by object, id, or title."""
     target = _resolve_task(task)
     if target is None:
         return None
@@ -208,31 +209,31 @@ def edit_task(task: Task | str, **changes: Any):
 
 
 def start(task: Task | str):
+    """Start working on a Task now."""
     target = _resolve_task(task)
     return None if target is None else _ctx().tasks.start(target)
 
 
 def pause(task: Task | str):
+    """Pause the Task currently being worked on."""
     target = _resolve_task(task)
     return None if target is None else _ctx().tasks.pause(target)
 
 
 def resume(task: Task | str):
+    """Resume a previously paused Task."""
     target = _resolve_task(task)
     return None if target is None else _ctx().tasks.resume(target)
 
 
 def complete(task: Task | str):
+    """Mark a Task completed."""
     target = _resolve_task(task)
     return None if target is None else _ctx().tasks.complete(target)
 
 
 def remove(task: Task | Event | str):
-    """Remove a Task; an Event object is accepted for v1 convenience.
-
-    Bare text remains Task-first for compatibility.  Use ``remove_event(text)`` when
-    removing an Event by id/title so Task and Event namespaces stay unambiguous.
-    """
+    """Delete a Task; an explicit Event object is also accepted."""
     if isinstance(task, Event):
         return _ctx().events.delete(task)
     target = _resolve_task(task)
@@ -240,19 +241,22 @@ def remove(task: Task | Event | str):
 
 
 def set_due(task: Task | str, due: Any):
+    """Change a Task due date/time; human date text is accepted."""
     target = _resolve_task(task)
     if target is None:
         return None
     return _ctx().tasks.update(target, due=_parse_temporal_text(due, bias="future"))
 
 
-# ---- Event action blocks ------------------------------------------------
+# Event actions
 def add_event(summary: str, **fields: Any):
+    """Create an Event; human date text is accepted for start/end."""
     normalized = _normalize_temporal_fields(fields, ("start", "end"))
     return _ctx().events.create(summary, **normalized)
 
 
 def edit_event(event: Event | str, **changes: Any):
+    """Update an Event selected by object, id, or title."""
     target = _resolve_event(event)
     if target is None:
         return None
@@ -261,22 +265,24 @@ def edit_event(event: Event | str, **changes: Any):
 
 
 def remove_event(event: Event | str):
+    """Delete an Event selected by object, id, or title."""
     target = _resolve_event(event)
     return None if target is None else _ctx().events.delete(target)
 
 
-# ---- Time / prompt blocks -----------------------------------------------
+# Time and prompts
 def parse_date(text: str, *, bias: str = "any"):
+    """Parse human date text with the shared TemporalParser."""
     return _ctx().time.parse_date(text, bias=bias)
 
 
 def parse_datetime(text: str, *, bias: str = "any"):
+    """Parse human date/time text with the shared TemporalParser."""
     return _ctx().time.parse_datetime(text, bias=bias)
 
 
 def parse_time(text: str):
-    # Prefer a native public TemporalService brick when available while retaining
-    # compatibility with the existing parse_datetime-based implementation.
+    """Parse human time text with the shared TemporalParser."""
     parser = getattr(_ctx().time, "parse_time", None)
     if callable(parser):
         return parser(text)
@@ -284,23 +290,28 @@ def parse_time(text: str):
 
 
 def ask_date(prompt: str = "Date?"):
+    """Ask the user for a date."""
     return _ctx().ui.ask_date(prompt)
 
 
 def ask_time(prompt: str = "Time?"):
+    """Ask the user for a time."""
     return _ctx().ui.ask_time(prompt)
 
 
 def ask_datetime(prompt: str = "Date/time?"):
+    """Ask the user for a date and time."""
     return _ctx().ui.ask_datetime(prompt)
 
 
-# ---- Menu blocks --------------------------------------------------------
+# Menu blocks
 def choose(items: Any, title: str = "Choose", **options: Any):
+    """Ask the user to choose one item."""
     return _ctx().ui.choose(title, items, **options)
 
 
 def choose_many(items: Any, title: str = "Choose", **options: Any):
+    """Ask the user to choose multiple items."""
     chooser = getattr(_ctx().ui, "choose_many", None)
     if callable(chooser):
         return chooser(title, items, **options)
@@ -308,32 +319,39 @@ def choose_many(items: Any, title: str = "Choose", **options: Any):
 
 
 def confirm(text: str, **options: Any):
+    """Ask for yes/no confirmation."""
     return _ctx().ui.confirm(text, **options)
 
 
 def choose_task(**filters: Any):
+    """Ask the user to choose one Task."""
     return _ctx().ui.choose_task(**filters)
 
 
 def choose_event(**filters: Any):
+    """Ask the user to choose one Event."""
     return _ctx().ui.choose_event(**filters)
 
 
-# ---- Reminder / notification blocks ------------------------------------
+# Reminders and notifications
 def remind(title: str, when: Any, **options: Any):
+    """Create a reminder."""
     return _ctx().reminders.create(title, when, **options)
 
 
 def notify(title: str, body: str = "", actions: Any = None):
+    """Send a platform-independent notification."""
     return _ctx().notifications.send(title, body, actions)
 
 
 def snooze(reminder: Any, until: Any):
+    """Snooze an existing reminder."""
     return _ctx().reminders.snooze(reminder, until)
 
 
-# ---- WordPress block ----------------------------------------------------
+# Long-term log
 def write_log(text: str, **metadata: Any):
+    """Write or queue a long-term WordPress log."""
     return _ctx().wordpress.log(text, **metadata)
 
 
