@@ -90,4 +90,17 @@ def test_run_background_real_process_writes_the_reported_log(tmp_path):
         time.sleep(0.05)
 
     assert "caldav-background-ready" in text
-    log_path.unlink(missing_ok=True)
+
+    # Seeing the flushed line does not prove the detached child has exited. Windows
+    # correctly keeps the log locked until the child releases its inherited handle;
+    # POSIX permits unlinking an open file. Wait for the real cross-platform lifecycle
+    # instead of changing production logging semantics just to make this test portable.
+    deadline = time.monotonic() + 2.0
+    while True:
+        try:
+            log_path.unlink(missing_ok=True)
+            break
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.05)
