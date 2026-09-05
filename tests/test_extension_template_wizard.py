@@ -76,7 +76,7 @@ def test_extension_new_supports_small_runnable_easy_templates(tmp_path, template
     assert "caldav_assistant.internal" not in source
     for text in required:
         assert text in source
-    assert f"({template} template)" in result
+    assert "Created typed Easy API extension demo" in result
     assert "extension enable demo" in result
 
 
@@ -117,7 +117,7 @@ def test_settings_extension_creation_is_a_real_template_wizard(tmp_path):
     assert record.enabled is False
     assert "choose_task" in source
     assert "start(task)" in source
-    assert any("task template" in str(item) for item in ui.shown)
+    assert any("Created typed Easy API extension homework" in str(item) for item in ui.shown)
 
 
 def test_settings_extension_wizard_can_enable_immediately(tmp_path):
