@@ -89,10 +89,12 @@ from caldav_assistant.api.v1 import *
 
 程序同时支持 VTODO/Task 和 VEVENT/Event，但二者不是同一种东西：
 
-- **Task** 是要完成的工作，可以 `start()`、`pause()`、`resume()`、`complete()`；
+- **Task** 是要完成的工作，可以通过 `task.start_task()`、`task.pause()`、`task.resume()`、`task.complete()` 使用对象便捷方法；正式 namespace 也可用 `ctx.tasks.start(task)` 等动作；
 - **Event** 是某个时间发生的事情，可以创建、修改、删除，但没有“完成”生命周期；
 - `today()`、`agenda()`、`next()` 可以把 Task 与 Event 放在同一日程视图里；
 - Task 生命周期动作只接受 Task。Easy API 若收到 Event，会明确拒绝，而不会把 Event 当作 Task 修改。
+
+`task.start` 已冻结为 DTSTART-like 的计划开始时间属性，所以对象动作使用 `task.start_task()`，不能同时把 `task.start` 作为方法。
 
 因此：
 

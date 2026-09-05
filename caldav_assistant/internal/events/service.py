@@ -170,7 +170,12 @@ class EventService:
 
     def get(self, event: Event | str) -> Event:
         if isinstance(event, Event):
-            return self._bind(event)
+            # IPC intentionally strips process-local service bindings. Treat such
+            # objects as references/snapshots and re-read the authoritative CalDAV
+            # Event before validation, undo snapshots or mutation.
+            if getattr(event, "_service", None) is self:
+                return event
+            event = self._require_id(event)
         if not isinstance(event, str) or not event.strip():
             raise ValidationError("Event id must not be empty")
 

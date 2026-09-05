@@ -1,9 +1,7 @@
-"""Self-describing catalog for the stable Public Python API v1.
+"""Discover the real public Python API without duplicating its documentation.
 
-The catalog is deliberately built from the actual public modules and Protocols so
-documentation cannot silently claim that an interface exists when it is not exported.
-It never scans ``caldav_assistant.internal`` and therefore preserves the frozen
-Public/Internal compatibility boundary.
+The catalog inspects only exported Easy/Object/Full API surfaces. Public signatures
+and docstrings are the source of truth; internal implementation modules are ignored.
 """
 from __future__ import annotations
 
@@ -69,92 +67,6 @@ _LAYER_ALIASES = {
     "v1": "full",
 }
 
-_EASY_SUMMARIES = {
-    "show": "Display a value through the current Assistant UI.",
-    "tasks": "List tasks using optional public Task filters.",
-    "today_tasks": "List tasks relevant to today.",
-    "overdue_tasks": "List overdue tasks.",
-    "next_task": "Return the recommended next Task, if one exists.",
-    "find_task": "Find one Task by id/title-like query.",
-    "events": "List events using optional public Event filters.",
-    "today_events": "List events relevant to today.",
-    "next_event": "Return the recommended next Event, if one exists.",
-    "find_event": "Find one Event by id/title-like query.",
-    "today": "Return today's combined Agenda.",
-    "agenda": "Return an Agenda for a day range and optional filters.",
-    "next": "Return the recommended next agenda item.",
-    "add_task": "Create a Task through the shared Task Core service.",
-    "edit_task": "Update a Task through the shared Task Core service.",
-    "start": "Begin working on a Task now.",
-    "pause": "Pause work on a Task.",
-    "resume": "Resume previously paused work on a Task.",
-    "complete": "Mark a Task completed.",
-    "remove": "Delete a Task, or an Event object passed explicitly.",
-    "set_due": "Change a Task due value using the shared temporal parser.",
-    "add_event": "Create an Event through the shared Event Core service.",
-    "edit_event": "Update an Event through the shared Event Core service.",
-    "remove_event": "Delete an Event.",
-    "parse_date": "Parse human date text with the shared TemporalParser.",
-    "parse_time": "Parse human time text with the shared TemporalParser.",
-    "parse_datetime": "Parse human date/time text with the shared TemporalParser.",
-    "ask_date": "Prompt for a date using the shared UI/PromptKit.",
-    "ask_time": "Prompt for a time using the shared UI/PromptKit.",
-    "ask_datetime": "Prompt for a date/time using the shared UI/PromptKit.",
-    "choose": "Choose one item using the shared UI/PromptKit.",
-    "choose_many": "Choose multiple items using the shared UI/PromptKit.",
-    "confirm": "Ask a yes/no confirmation through the shared UI.",
-    "choose_task": "Choose one Task through the shared UI.",
-    "choose_event": "Choose one Event through the shared UI.",
-    "remind": "Create a reminder through ReminderService.",
-    "notify": "Send a notification through NotificationService.",
-    "snooze": "Snooze an existing reminder.",
-    "write_log": "Write or queue a long-term WordPress activity log.",
-    "command": "Register an extension command in the shared Command Registry.",
-}
-
-_EASY_EXAMPLES = {
-    "show": "show(today())",
-    "tasks": "for task in tasks(category='school'):\n    show(task)",
-    "today_tasks": "show(today_tasks())",
-    "overdue_tasks": "show(overdue_tasks())",
-    "next_task": "task = next_task()",
-    "find_task": "task = find_task('report')",
-    "events": "show(events())",
-    "today_events": "show(today_events())",
-    "next_event": "event = next_event()",
-    "find_event": "event = find_event('English class')",
-    "today": "show(today())",
-    "agenda": "show(agenda(days=7, category='school'))",
-    "next": "show(next())",
-    "add_task": "add_task('Write report', due='tomorrow')",
-    "edit_task": "edit_task(task, priority=1)",
-    "start": "start(next_task())",
-    "pause": "pause(task)",
-    "resume": "resume(task)",
-    "complete": "complete(task)",
-    "remove": "remove(task)",
-    "set_due": "set_due(task, 'next Friday')",
-    "add_event": "add_event('English class', start='tomorrow 17:00')",
-    "edit_event": "edit_event(event, location='Room 2')",
-    "remove_event": "remove_event(event)",
-    "parse_date": "due = parse_date('August5', bias='future')",
-    "parse_time": "at = parse_time('17:30')",
-    "parse_datetime": "when = parse_datetime('tomorrow 17:00', bias='future')",
-    "ask_date": "due = ask_date('Due?')",
-    "ask_time": "at = ask_time('Time?')",
-    "ask_datetime": "when = ask_datetime('When?')",
-    "choose": "item = choose(['A', 'B'], title='Choose')",
-    "choose_many": "items = choose_many(['A', 'B'], title='Choose')",
-    "confirm": "if confirm('Continue?'):\n    show('OK')",
-    "choose_task": "task = choose_task()",
-    "choose_event": "event = choose_event()",
-    "remind": "remind('Submit report', 'tomorrow 17:00')",
-    "notify": "notify('CalDAV Assistant', 'Done')",
-    "snooze": "snooze(reminder, 'in 15 minutes')",
-    "write_log": "write_log('Finished report')",
-    "command": "@command('school')\ndef school():\n    show(agenda(days=7, category='school'))",
-}
-
 
 def _first_doc_line(obj: Any) -> str:
     text = inspect.getdoc(obj) or ""
@@ -162,6 +74,11 @@ def _first_doc_line(obj: Any) -> str:
         return ""
     paragraph = text.split("\n\n", 1)[0].strip()
     return " ".join(line.strip() for line in paragraph.splitlines() if line.strip())
+
+
+def _fallback_summary(name: str, *, prefix: str = "") -> str:
+    words = name.replace("_", " ").strip()
+    return f"{prefix}{words}." if words else f"{prefix}public interface."
 
 
 def _signature(obj: Any, *, strip_bound: bool = False) -> str:
@@ -179,7 +96,7 @@ def _signature(obj: Any, *, strip_bound: bool = False) -> str:
 def _kind(obj: Any) -> str:
     if inspect.isclass(obj):
         return "class"
-    if inspect.isfunction(obj) or inspect.ismethod(obj) or callable(obj):
+    if callable(obj):
         return "callable"
     return "value"
 
@@ -208,16 +125,16 @@ def _collect_easy() -> list[APIEntry]:
         if not isinstance(name, str) or name.startswith("_") or not hasattr(module, name):
             continue
         obj = getattr(module, name)
-        summary = _EASY_SUMMARIES.get(name) or _first_doc_line(obj) or "Public Easy API callable."
-        example = _EASY_EXAMPLES.get(name, f"{name}(...)")
+        signature = _signature(obj)
         entries.append(
             APIEntry(
                 path=f"easy.{name}",
                 layer="easy",
                 kind=_kind(obj),
-                signature=_signature(obj),
-                summary=summary,
-                usage=f"from caldav_assistant.easy import {name}\n\n{example}",
+                signature=signature,
+                summary=_first_doc_line(obj)
+                or _fallback_summary(name, prefix="Easy API: "),
+                usage=f"from caldav_assistant.easy import {name}\n\n{name}(...)",
                 source="caldav_assistant.easy",
             )
         )
@@ -231,14 +148,14 @@ def _protocol_members(prefix: str, protocol: type[Any]) -> list[APIEntry]:
             layer="object",
             kind="namespace",
             signature=protocol.__name__,
-            summary=f"AssistantContext namespace implementing {protocol.__name__}.",
-            usage=f"{prefix}",
+            summary=_first_doc_line(protocol)
+            or f"AssistantContext namespace implementing {protocol.__name__}.",
+            usage=prefix,
             source=f"caldav_assistant.api.v1.{protocol.__name__}",
         )
     ]
 
-    annotations = getattr(protocol, "__annotations__", {})
-    for name, annotation in annotations.items():
+    for name, annotation in getattr(protocol, "__annotations__", {}).items():
         if name.startswith("_"):
             continue
         entries.append(
@@ -247,7 +164,7 @@ def _protocol_members(prefix: str, protocol: type[Any]) -> list[APIEntry]:
                 layer="object",
                 kind="attribute",
                 signature=str(annotation),
-                summary=f"Public {prefix} attribute.",
+                summary=_fallback_summary(name, prefix=f"{prefix}: "),
                 usage=f"value = {prefix}.{name}",
                 source=f"caldav_assistant.api.v1.{protocol.__name__}",
             )
@@ -256,14 +173,14 @@ def _protocol_members(prefix: str, protocol: type[Any]) -> list[APIEntry]:
     for name, obj in vars(protocol).items():
         if name.startswith("_") or not callable(obj):
             continue
-        summary = _first_doc_line(obj) or f"Public {prefix} method."
         entries.append(
             APIEntry(
                 path=f"{prefix}.{name}",
                 layer="object",
                 kind="method",
                 signature=_signature(obj, strip_bound=True),
-                summary=summary,
+                summary=_first_doc_line(obj)
+                or _fallback_summary(name, prefix=f"{prefix}: "),
                 usage=f"{prefix}.{name}(...)",
                 source=f"caldav_assistant.api.v1.{protocol.__name__}",
             )
@@ -280,8 +197,7 @@ def _collect_object() -> list[APIEntry]:
 
 def _class_members(owner_name: str, obj: type[Any]) -> list[APIEntry]:
     entries: list[APIEntry] = []
-    annotations = getattr(obj, "__annotations__", {})
-    for name, annotation in annotations.items():
+    for name, annotation in getattr(obj, "__annotations__", {}).items():
         if name.startswith("_"):
             continue
         entries.append(
@@ -290,7 +206,7 @@ def _class_members(owner_name: str, obj: type[Any]) -> list[APIEntry]:
                 layer="full",
                 kind="attribute",
                 signature=str(annotation),
-                summary=f"Public {owner_name} attribute.",
+                summary=_fallback_summary(name, prefix=f"{owner_name}: "),
                 usage=f"{_snake_case(owner_name)}.{name}",
                 source=f"caldav_assistant.api.v1.{owner_name}",
             )
@@ -299,14 +215,14 @@ def _class_members(owner_name: str, obj: type[Any]) -> list[APIEntry]:
     for name, member in vars(obj).items():
         if name.startswith("_") or not callable(member):
             continue
-        summary = _first_doc_line(member) or f"Public {owner_name} method."
         entries.append(
             APIEntry(
                 path=f"{owner_name}.{name}",
                 layer="full",
                 kind="method",
                 signature=_signature(member, strip_bound=True),
-                summary=summary,
+                summary=_first_doc_line(member)
+                or _fallback_summary(name, prefix=f"{owner_name}: "),
                 usage=f"{_snake_case(owner_name)}.{name}(...)",
                 source=f"caldav_assistant.api.v1.{owner_name}",
             )
@@ -321,9 +237,9 @@ def _collect_full() -> list[APIEntry]:
         if not isinstance(name, str) or name.startswith("_") or not hasattr(module, name):
             continue
         obj = getattr(module, name)
-        summary = _first_doc_line(obj) or f"Versioned v1 public {_kind(obj)}."
+        signature = _signature(obj)
         if inspect.isclass(obj):
-            usage = f"from caldav_assistant.api.v1 import {name}\n\n{name}{_signature(obj)}"
+            usage = f"from caldav_assistant.api.v1 import {name}\n\n{name}{signature}"
         elif callable(obj):
             usage = f"from caldav_assistant.api.v1 import {name}\n\n{name}(...)"
         else:
@@ -333,8 +249,9 @@ def _collect_full() -> list[APIEntry]:
                 path=f"v1.{name}",
                 layer="full",
                 kind=_kind(obj),
-                signature=_signature(obj),
-                summary=summary,
+                signature=signature,
+                summary=_first_doc_line(obj)
+                or _fallback_summary(name, prefix="Public v1: "),
                 usage=usage,
                 source="caldav_assistant.api.v1",
             )
@@ -345,11 +262,7 @@ def _collect_full() -> list[APIEntry]:
 
 
 def api_catalog(layer: str | None = None) -> tuple[APIEntry, ...]:
-    """Return the actual discoverable Public API catalog.
-
-    ``layer`` accepts ``easy``, ``object``/``ctx`` or ``full``/``v1``.
-    """
-
+    """Return the discoverable Public API catalog."""
     wanted = _normalize_layer(layer)
     entries = _collect_easy() + _collect_object() + _collect_full()
     unique = {(entry.layer, entry.path): entry for entry in entries}
@@ -386,7 +299,6 @@ def _exact_matches(query: str, entries: Iterable[APIEntry]) -> list[APIEntry]:
     matches = [entry for entry in entries if entry.path.casefold() == normalized]
     if matches:
         return matches
-
     return [
         entry
         for entry in entries
@@ -396,27 +308,23 @@ def _exact_matches(query: str, entries: Iterable[APIEntry]) -> list[APIEntry]:
 
 def api_find(query: str, *, layer: str | None = None) -> tuple[APIEntry, ...]:
     """Search public interface paths and summaries."""
-
     text = str(query).strip().casefold()
     if not text:
         return api_catalog(layer)
-    values = [
+    return tuple(
         entry
         for entry in api_catalog(layer)
         if text in entry.path.casefold() or text in entry.summary.casefold()
-    ]
-    return tuple(values)
+    )
 
 
 def api_exists(name: str, *, layer: str | None = None) -> bool:
     """Return whether a matching public interface exists."""
-
     return bool(_exact_matches(name, api_catalog(layer)))
 
 
 def api_describe(name: str, *, layer: str | None = None) -> APIEntry:
-    """Return one public interface description or raise a stable v1 API error."""
-
+    """Return one public interface description."""
     matches = _exact_matches(name, api_catalog(layer))
     if not matches:
         raise NotFoundError(f"Public API interface not found: {name}")
@@ -426,10 +334,4 @@ def api_describe(name: str, *, layer: str | None = None) -> APIEntry:
     return matches[0]
 
 
-__all__ = [
-    "APIEntry",
-    "api_catalog",
-    "api_find",
-    "api_exists",
-    "api_describe",
-]
+__all__ = ["APIEntry", "api_catalog", "api_find", "api_exists", "api_describe"]
