@@ -4,11 +4,17 @@ The work-period timer is auxiliary Assistant state. Successful pause/complete/de
 must remove any still-pending timer so a later notification cannot refer to work that
 has already stopped. Authoritative CalDAV mutations always happen first; cleanup
 failure is recorded in Activity Journal and never rolls back a successful Task write.
+
+Objects crossing IPC are deliberately detached from their process-local ``_service``
+binding. An unbound Task is therefore treated as a snapshot/reference and refreshed
+from CalDAV before lifecycle validation. Objects already bound to this service can be
+reused without an extra server round trip.
 """
 from __future__ import annotations
 
 from typing import Any
 
+from ...api import Task
 from ..progress import emit_progress
 from .completion_log import CompletionLoggingTaskService
 
@@ -20,6 +26,12 @@ class WorkPeriodAwareTaskService(CompletionLoggingTaskService):
 
     def bind_work_periods(self, work_periods: Any) -> None:
         self.work_periods = work_periods
+
+    def get(self, task: Task | str) -> Task:
+        if isinstance(task, Task) and getattr(task, "_service", None) is not self:
+            task_id = self._require_id(task)
+            return super().get(task_id)
+        return super().get(task)
 
     def _cancel_work_period(self, task: Any, *, reason: str) -> None:
         service = self.work_periods
