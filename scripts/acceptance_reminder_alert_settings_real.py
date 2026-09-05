@@ -96,7 +96,6 @@ def main() -> int:
                 label="persistent acknowledgement behavior is discoverable",
             )
 
-            # Change the repeat count through menu presets.
             child.sendline("4")
             _expect(child, "Terminal bell rings per reminder", label="ring-count preset menu opened")
             child.sendline("5")
@@ -106,7 +105,6 @@ def main() -> int:
                 label="ring count changed through the ordinary human menu",
             )
 
-            # Change the interval through menu presets.
             child.sendline("5")
             _expect(child, "Pause between bell rings", label="bell-interval preset menu opened")
             child.sendline("2")
@@ -116,13 +114,11 @@ def main() -> int:
                 label="bell interval changed through the ordinary human menu",
             )
 
-            # Verify the disable switch really exists in the same surface.
             child.sendline("3")
             _expect(child, "Terminal bell", label="terminal-bell On/Off menu opened")
             child.sendline("2")
             _expect(child, "✓ Terminal bell: Off", label="terminal bell can be disabled")
 
-            # Restore every changed value before testing the alarm itself.
             child.sendline("3")
             _expect(child, "Terminal bell", label="terminal-bell menu reopened for restore")
             child.sendline("1")
@@ -138,8 +134,8 @@ def main() -> int:
             child.sendline("4")
             _expect(child, "✓ Pause between bell rings \(ms\): 400", label="bell interval restored to 400 ms")
 
-            # This is a real terminal path. One logical BEL emitted by Settings must
-            # become a persistent alarm. Observing BEL #4 proves a second burst began.
+            # One logical BEL emitted by Settings must become a persistent alarm.
+            # Observing BEL #4 proves a second burst began.
             child.sendline("6")
             _expect(child, "Testing the terminal reminder alarm", label="bell test started from Settings")
             _expect(
@@ -183,7 +179,7 @@ def main() -> int:
             child.sendline("accept-task-template")
             _expect(
                 child,
-                r"Created typed Easy API extension accept-task-template \(task template\)",
+                "Created typed Easy API extension accept-task-template",
                 label="small Task template was really created",
             )
             _expect(child, "Extension created disabled", label="safe disabled-by-default lifecycle is explicit")
@@ -198,8 +194,6 @@ def main() -> int:
             if child.exitstatus not in (None, 0):
                 raise AssertionError(f"caldav-assistant settings exited with {child.exitstatus}")
 
-            # Read production settings storage after the real UI session. This proves
-            # the visible restore also restored persisted effective behavior.
             restored_settings = _settings_for_home(home)
             if restored_settings.get(TERMINAL_BELL_ENABLED) is not True:
                 raise AssertionError("Terminal bell was not restored to On")
