@@ -33,9 +33,11 @@ _CATEGORY_ORDER = (
     "Language",
     "CalDAV",
     "Notifications",
+    "Agenda",
     "WordPress",
     "Commands",
     "Extensions",
+    "Developer",
     "Experimental",
 )
 
@@ -140,13 +142,39 @@ class SettingsActions:
         enabled = sorted(name for name, active in (state or {}).items() if bool(active))
         return "Extensions\nEnabled: " + (", ".join(enabled) if enabled else "none")
 
-    def _extensions_panel(self) -> None:
-        """Manage the real ExtensionManager through its canonical CLI commands.
+    def _create_extension_wizard(self) -> None:
+        labels = [
+            "Command — add one small command",
+            "Task automation — choose and start a Task",
+            "Reminder — ask when and create a reminder",
+            "Daily workflow — show today's Agenda",
+            "Empty Easy API — smallest possible file",
+            "Detailed teaching template",
+        ]
+        selected = self._choose("Choose extension template", labels)
+        if selected is None:
+            return
+        template = {
+            labels[0]: "command",
+            labels[1]: "task",
+            labels[2]: "reminder",
+            labels[3]: "daily",
+            labels[4]: "empty",
+            labels[5]: "full",
+        }[selected]
+        name = self._ask_extension_name("create")
+        if name is None:
+            return
+        self._show_command_result("extension", "new", name, template)
+        enable = self._choose(
+            "Extension created disabled. What next?",
+            ["Enable now", "Keep disabled"],
+        )
+        if enable == "Enable now":
+            self._show_command_result("extension", "enable", name)
 
-        A non-interactive UI still gets the legacy status rendering used by tests,
-        diagnostics and lightweight clients. The real CLI has ``choose`` and receives
-        the full management panel below.
-        """
+    def _extensions_panel(self) -> None:
+        """Manage the real ExtensionManager through its canonical CLI commands."""
         if not callable(getattr(self.ctx.ui, "choose", None)):
             self._show(self._extensions_status_text())
             return
@@ -156,11 +184,13 @@ class SettingsActions:
                 "Extensions",
                 [
                     "Show extensions",
+                    "Create user extension",
                     "Enable extension",
                     "Disable extension",
                     "Reload extension",
                     "Extension errors",
-                    "Create user extension",
+                    "Extension folder",
+                    "Prepare editor workspace",
                     "Extension guide",
                 ],
             )
@@ -169,18 +199,22 @@ class SettingsActions:
             if selected == "Show extensions":
                 self._show_command_result("extensions")
                 continue
+            if selected == "Create user extension":
+                self._create_extension_wizard()
+                continue
             if selected == "Extension guide":
                 self._show_command_result("extension", "guide")
+                continue
+            if selected == "Extension folder":
+                self._show_command_result("extension", "path")
+                continue
+            if selected == "Prepare editor workspace":
+                self._show_command_result("extension", "dev")
                 continue
             if selected == "Extension errors":
                 name = self._ask_text("Extension name (empty = all)")
                 clean = str(name or "").strip()
                 self._show_command_result("extension", "errors", *([clean] if clean else []))
-                continue
-            if selected == "Create user extension":
-                name = self._ask_extension_name("create")
-                if name is not None:
-                    self._show_command_result("extension", "new", name)
                 continue
 
             verb = {
@@ -193,6 +227,74 @@ class SettingsActions:
             name = self._ask_extension_name(verb)
             if name is not None:
                 self._show_command_result("extension", verb, name)
+
+    def _notifications_panel(self) -> None:
+        specs = [
+            spec
+            for spec in self.schema.list(category="Notifications")
+            if spec.public_write
+        ]
+        while True:
+            labels: list[str] = []
+            mapping: dict[str, SettingSpec] = {}
+            for spec in specs:
+                current = self._get(spec) if spec.public_read else "Hidden"
+                label = f"{spec.label}: {_display_value(current)}"
+                labels.append(label)
+                mapping[label] = spec
+            labels.extend(
+                [
+                    "Test terminal bell",
+                    "How persistent acknowledgement works",
+                ]
+            )
+            selected = self._choose("Notifications & sound", labels)
+            if selected is None:
+                return
+            spec = mapping.get(selected)
+            if spec is not None:
+                self._edit_spec(spec)
+                continue
+            if selected == "Test terminal bell":
+                self._show(
+                    "Testing the terminal reminder alarm. Press Ctrl-C to acknowledge it.\a"
+                )
+                continue
+            if selected == "How persistent acknowledgement works":
+                self._show(
+                    "One logical terminal reminder repeats in configured bell bursts until "
+                    "you press Ctrl-C. That Ctrl-C only acknowledges the alarm; it does not "
+                    "pause, complete, reschedule, or otherwise change a Task/Event."
+                )
+                continue
+            raise ValidationError("Unknown Notifications menu selection")
+
+    def _developer_panel(self) -> None:
+        while True:
+            selected = self._choose(
+                "Developer",
+                [
+                    "Browse Public Python API",
+                    "Extension guide",
+                    "Extension folder",
+                    "Prepare VS Code/Pylance workspace",
+                    "Show available commands",
+                ],
+            )
+            if selected is None:
+                return
+            if selected == "Browse Public Python API":
+                self._show_command_result("api")
+            elif selected == "Extension guide":
+                self._show_command_result("extension", "guide")
+            elif selected == "Extension folder":
+                self._show_command_result("extension", "path")
+            elif selected == "Prepare VS Code/Pylance workspace":
+                self._show_command_result("extension", "dev")
+            elif selected == "Show available commands":
+                self._show_command_result("help")
+            else:
+                raise ValidationError("Unknown Developer menu selection")
 
     def _commands_panel(self) -> None:
         """Browse the actual CommandRegistry instead of pretending ASCII is editable."""
@@ -507,10 +609,14 @@ class SettingsActions:
     def _category(self, category: str) -> None:
         if category == "CalDAV":
             self._caldav_panel(); return
+        if category == "Notifications":
+            self._notifications_panel(); return
         if category == "Commands":
             self._commands_panel(); return
         if category == "Extensions":
             self._extensions_panel(); return
+        if category == "Developer":
+            self._developer_panel(); return
         if category == "Experimental":
             self._experimental_panel(); return
         specs = [spec for spec in self.schema.list(category=category) if getattr(spec, "interactive", True) and spec.public_write]
@@ -542,7 +648,7 @@ class SettingsActions:
 
     @staticmethod
     def _usage() -> str:
-        return ("settings\nsettings categories\nsettings list [CATEGORY]\nsettings get KEY\nsettings set KEY VALUE\nsettings reset KEY\nsettings caldav status|test|collections|roles\nsettings caldav server URL\nsettings caldav credentials\nsettings caldav clear-credentials\nsettings cache status|refresh\nsettings extensions [list|enable|disable|reload|errors|new|guide] [NAME]\nsettings commands [COMMAND]")
+        return ("settings\nsettings categories\nsettings list [CATEGORY]\nsettings get KEY\nsettings set KEY VALUE\nsettings reset KEY\nsettings caldav status|test|collections|roles\nsettings caldav server URL\nsettings caldav credentials\nsettings caldav clear-credentials\nsettings cache status|refresh\nsettings extensions [list|enable|disable|reload|errors|new|guide|path|dev] [NAME] [TEMPLATE]\nsettings commands [COMMAND]")
 
     def list_settings(self, category: str | None = None) -> str:
         items = self.ctx.settings.list(category)
@@ -603,9 +709,16 @@ class SettingsActions:
         if action in {"list", "show"}:
             if len(parts) != 1: raise ValidationError("settings extensions list takes no name")
             return self._run_command("extensions")
-        if action in {"guide", "errors"} and len(parts) == 1: return self._run_command("extension", action)
-        if action in {"enable", "disable", "reload", "errors", "new"} and len(parts) == 2: return self._run_command("extension", action, str(parts[1]))
-        raise ValidationError("settings extensions expects list|enable|disable|reload|errors|new|guide [NAME]")
+        if action in {"guide", "errors", "path", "dev"} and len(parts) == 1:
+            return self._run_command("extension", action)
+        if action in {"enable", "disable", "reload", "errors"} and len(parts) == 2:
+            return self._run_command("extension", action, str(parts[1]))
+        if action == "new" and len(parts) in {2, 3}:
+            args = ["new", str(parts[1])]
+            if len(parts) == 3:
+                args.append(str(parts[2]))
+            return self._run_command("extension", *args)
+        raise ValidationError("settings extensions expects list|enable|disable|reload|errors|new|guide|path|dev [NAME] [TEMPLATE]")
 
     def _commands_command(self, *parts: Any) -> Any:
         if not parts: return self._run_command("help")
