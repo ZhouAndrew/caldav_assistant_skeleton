@@ -15,6 +15,21 @@ from typing import Any
 from ...api.v1.errors import ExtensionError, ValidationError
 
 _NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+_TEMPLATE_ALIASES = {
+    "full": "full",
+    "detailed": "full",
+    "command": "command",
+    "cmd": "command",
+    "task": "task",
+    "task-automation": "task",
+    "reminder": "reminder",
+    "remind": "reminder",
+    "daily": "daily",
+    "daily-workflow": "daily",
+    "empty": "empty",
+    "minimal": "empty",
+}
+SIMPLE_EXTENSION_TEMPLATES = ("command", "task", "reminder", "daily", "empty")
 
 
 def normalize_extension_name(value: Any) -> str:
@@ -29,9 +44,88 @@ def normalize_extension_name(value: Any) -> str:
     return clean
 
 
-def easy_extension_template(name: str) -> str:
-    """Return a detailed, runnable one-file extension based only on frozen Easy API."""
+def normalize_extension_template(value: Any) -> str:
+    if value is None:
+        return "full"
+    clean = str(value).strip().casefold().replace("_", "-")
+    template = _TEMPLATE_ALIASES.get(clean)
+    if template is None:
+        choices = ", ".join(SIMPLE_EXTENSION_TEMPLATES)
+        raise ValidationError(f"Unknown extension template {value!r}; choose: {choices}")
+    return template
+
+
+def _small_template(name: str, template: str) -> str:
+    """Return one intentionally small, runnable Easy API starter."""
+    if template == "command":
+        return f'''"""Small command extension created by CalDAV Assistant."""
+from caldav_assistant.easy import command, show
+
+
+@command({name!r})
+def run() -> None:
+    show("Hello from {name}")
+'''
+
+    if template == "task":
+        return f'''"""Small Task automation extension created by CalDAV Assistant."""
+from caldav_assistant.easy import choose_task, command, start, show
+
+
+@command({name!r})
+def run() -> None:
+    task = choose_task()
+    if task is not None:
+        show(start(task))
+'''
+
+    if template == "reminder":
+        return f'''"""Small reminder extension created by CalDAV Assistant."""
+from caldav_assistant.easy import ask_datetime, command, remind, show
+
+
+@command({name!r})
+def run() -> None:
+    when = ask_datetime("When should I remind you?")
+    if when is not None:
+        show(remind("{name}", when))
+'''
+
+    if template == "daily":
+        return f'''"""Small daily-workflow extension created by CalDAV Assistant."""
+from caldav_assistant.easy import command, show, today
+
+
+@command({name!r})
+def run() -> None:
+    show(today())
+'''
+
+    if template == "empty":
+        return f'''"""Minimal Easy API extension created by CalDAV Assistant."""
+from caldav_assistant.easy import command
+
+
+@command({name!r})
+def run() -> None:
+    pass
+'''
+
+    raise ValidationError(f"Unsupported small extension template: {template}")
+
+
+def easy_extension_template(name: str, template: str = "full") -> str:
+    """Return a runnable extension based only on the frozen public Easy API.
+
+    ``full`` preserves the long-standing teaching template. The other templates are
+    deliberately small so a new user can create one useful feature without first
+    deleting a page of examples.
+    """
     clean = normalize_extension_name(name)
+    kind = normalize_extension_template(template)
+    if kind != "full":
+        return _small_template(clean, kind)
+
     return f'''"""CalDAV Assistant Easy API extension: {clean}.
 
 This is a working template, not a tiny placeholder. Keep the examples you need and
@@ -155,7 +249,7 @@ def run() -> None:
 '''
 
 
-def create_easy_extension(manager: Any, name: str):
+def create_easy_extension(manager: Any, name: str, template: str = "full"):
     """Create a disabled one-file Easy API extension in ``manager.root``.
 
     The file is deliberately not auto-enabled. New executable code must still pass
@@ -164,6 +258,7 @@ def create_easy_extension(manager: Any, name: str):
     before the new source becomes discoverable.
     """
     clean = normalize_extension_name(name)
+    kind = normalize_extension_template(template)
     registry = getattr(getattr(manager, "commands", None), "registry", None)
     contains = getattr(registry, "contains", None)
     if callable(contains) and contains(clean):
@@ -189,7 +284,10 @@ def create_easy_extension(manager: Any, name: str):
     set_enabled(clean, False)
 
     try:
-        destination.write_text(easy_extension_template(clean), encoding="utf-8")
+        destination.write_text(
+            easy_extension_template(clean, kind),
+            encoding="utf-8",
+        )
     except OSError as exc:
         raise ExtensionError(str(exc)) from exc
 
@@ -225,7 +323,9 @@ def ensure_vscode_workspace(manager: Any) -> tuple[Path, bool]:
 
 
 __all__ = [
+    "SIMPLE_EXTENSION_TEMPLATES",
     "normalize_extension_name",
+    "normalize_extension_template",
     "easy_extension_template",
     "create_easy_extension",
     "ensure_vscode_workspace",
