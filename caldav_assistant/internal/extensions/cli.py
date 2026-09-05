@@ -17,7 +17,12 @@ from ...api.v1.errors import ValidationError
 from ...builtin_extensions._catalog import OFFICIAL_EXTENSION_CATALOG
 from ..commands.service import CommandService
 from ..localization import LocaleService
-from .guidance import create_easy_extension, ensure_vscode_workspace
+from .guidance import (
+    SIMPLE_EXTENSION_TEMPLATES,
+    create_easy_extension,
+    ensure_vscode_workspace,
+    normalize_extension_template,
+)
 from .manager import ExtensionManager, ExtensionRecord
 
 
@@ -35,8 +40,17 @@ Small example:
   def urgent() -> None:
       show(overdue_tasks())
 
-Create a starter file:
+Create the original detailed teaching template:
   extension new NAME
+
+Or start with one small template:
+  extension new NAME command
+  extension new NAME task
+  extension new NAME reminder
+  extension new NAME daily
+  extension new NAME empty
+
+The Settings > Extensions panel provides the same choices as a guided menu.
 
 Prepare the extension directory for VS Code/Pylance:
   extension dev
@@ -185,14 +199,22 @@ class ExtensionActions:
         return self._t("extension.guide", _GUIDE_DEFAULT)
 
     def new(self, *parts: Any) -> str:
-        name = self._one_name(parts, "new")
-        record = create_easy_extension(self.manager, name)
+        if len(parts) not in {1, 2} or not isinstance(parts[0], str):
+            choices = "|".join(SIMPLE_EXTENSION_TEMPLATES)
+            raise ValidationError(
+                f"extension new requires NAME and optional template [{choices}]"
+            )
+        name = parts[0]
+        template = normalize_extension_template(parts[1] if len(parts) == 2 else "full")
+        record = create_easy_extension(self.manager, name, template=template)
+        template_note = "detailed" if template == "full" else template
         return self._t(
             "extension.created",
-            "Created typed Easy API extension {name} at {path} (disabled).\n"
+            "Created typed Easy API extension {name} ({template} template) at {path} (disabled).\n"
             "For VS Code support run: extension dev\n"
             "Then enable it with: extension enable {name}",
             name=record.name,
+            template=template_note,
             path=record.path,
         )
 
