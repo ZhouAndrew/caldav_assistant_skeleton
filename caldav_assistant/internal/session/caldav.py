@@ -208,44 +208,25 @@ class CalDAVSessionService:
         return task
 
     def paused_task_ids(self) -> tuple[str, ...]:
-        current = self.current_task_id()
-        paused: list[str] = []
-        seen: set[str] = set()
-
-        for task in self._in_progress_tasks():
-            task_id = str(getattr(task, "id", "") or "").strip()
-            if (
-                not task_id
-                or task_id in seen
-                or task_id == current
-                or bool(getattr(task, "completed", False))
-            ):
-                continue
-            seen.add(task_id)
-
-            if self._worklog_configured():
-                try:
-                    # Closed Assistant work segments prove this Task was actually
-                    # worked on by this Assistant.  STATUS:IN-PROCESS alone does not.
-                    if self.worklog.segments_for(task):
-                        paused.append(task_id)
-                except Exception:
-                    continue
-            elif self._latest_activity_action(task) == _PAUSED_ACTION:
-                paused.append(task_id)
-
-        return tuple(paused)
+        # Reuse the same composition as startup: one IN-PROCESS Task read plus one
+        # Work VEVENT snapshot.  The old implementation first read current Work state
+        # and then called segments_for() once per Task, multiplying network REPORTs.
+        tasks = self._in_progress_tasks()
+        return tuple(self.startup_snapshot(tasks)["paused_task_ids"])
 
     def paused_tasks(self) -> list[Any]:
         if self.tasks is None:
             return []
-        result = []
-        for uid in self.paused_task_ids():
-            try:
-                result.append(self.tasks.get(uid))
-            except Exception:
-                continue
-        return result
+        # Do not call paused_task_ids() and then tasks.get(uid) for every result.
+        # The already-read IN-PROCESS Task set is enough to return the same objects.
+        tasks = self._in_progress_tasks()
+        snapshot = self.startup_snapshot(tasks)
+        paused = set(snapshot["paused_task_ids"])
+        return [
+            task
+            for task in tasks
+            if str(getattr(task, "id", "") or "").strip() in paused
+        ]
 
     # Production lifecycle persistence is performed by TaskService through either
     # WorkLogService or ActivityService.  These compatibility methods deliberately
