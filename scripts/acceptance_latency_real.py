@@ -241,9 +241,9 @@ def main() -> int:
             )
 
             # First menu consumes the welcome snapshot. Back out, then enter a second
-            # time so the exact user path from the field report performs a fresh live
-            # read before the menu is built. Selecting Upcoming must reuse that same
-            # coherent snapshot instead of immediately issuing a duplicate request.
+            # time so the exact field path performs a fresh live read before the menu
+            # is built. Selecting Upcoming must reuse that same coherent snapshot and
+            # remain in numbered-menu mode instead of silently switching to commands.
             child.sendline("")
             _expect(child, "What do you want to do\?", "first guided menu opened")
             child.sendline("0")
@@ -258,8 +258,16 @@ def main() -> int:
             _expect(child, "What do you want to do\?", "second guided menu opened")
             child.sendline("Upcoming — next 24h")
             _expect(child, "Upcoming · next 24h", "guided Upcoming displayed")
+            _expect(
+                child,
+                "What do you want to do\?",
+                "guided menu stayed active after Upcoming",
+            )
+            child.sendline("0")
             child.expect(r"> ")
-            print("PASS: guided Upcoming returned to the console without a second live read")
+            print(
+                "PASS: guided Upcoming reused one live snapshot and stayed in numbered-menu mode"
+            )
 
             child.sendline("history")
             _expect(child, "Working: history", "History command entered")
@@ -295,6 +303,10 @@ def main() -> int:
             if "Refreshing Upcoming" in guided_section:
                 raise AssertionError(
                     "Selecting Upcoming performed the duplicate live refresh that caused the field timeout"
+                )
+            if "Unsupported command: 1" in after_console or "Unsupported command: 2" in after_console:
+                raise AssertionError(
+                    "A guided-menu number leaked into command mode during the human path"
                 )
             if "Traceback (most recent call last)" in after_console:
                 raise AssertionError("Interactive CLI leaked a traceback during the human path")
