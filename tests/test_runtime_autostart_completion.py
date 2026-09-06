@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import plistlib
 from types import SimpleNamespace
 import sys
 
 import pytest
 
+from caldav_assistant.internal.runtime import autostart as autostart_module
 from caldav_assistant.internal.runtime.autostart import AutostartManager
 
 
@@ -60,6 +62,35 @@ def test_autostart_command_matches_production_versioned_service_entrypoint():
         "-m",
         "caldav_assistant.internal.runtime.versioned_observable_service",
     ]
+
+
+def test_macos_autostart_restarts_failures_but_allows_clean_stop(tmp_path, monkeypatch):
+    agent = tmp_path / "org.caldav-assistant.service.plist"
+    calls = []
+
+    def runner(args, **kwargs):
+        calls.append(args)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(
+        AutostartManager,
+        "_launchd_path",
+        staticmethod(lambda: agent),
+    )
+    # Windows does not expose os.getuid; make this cross-platform even though we
+    # intentionally exercise the macOS branch in the Windows pytest matrix too.
+    monkeypatch.setattr(autostart_module.os, "getuid", lambda: 501, raising=False)
+
+    manager = AutostartManager(python="/example/python", runner=runner)
+    manager.enable()
+
+    with agent.open("rb") as stream:
+        payload = plistlib.load(stream)
+    assert payload["RunAtLoad"] is True
+    assert payload["KeepAlive"] == {"SuccessfulExit": False}
+    assert payload["ProgramArguments"] == manager.command
+    assert ["launchctl", "bootstrap", "gui/501", str(agent)] in calls
 
 
 def test_linux_autostart_does_not_report_unit_file_as_enabled_when_systemd_rejects_it(
