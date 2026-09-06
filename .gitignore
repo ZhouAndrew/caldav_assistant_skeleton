@@ -11,3 +11,4 @@ dist/
 .patch_backups/
 *.bak
 *.zip
+caldav_assistant.egg-info/*.*
