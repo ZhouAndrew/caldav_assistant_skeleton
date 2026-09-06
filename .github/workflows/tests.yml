@@ -122,3 +122,35 @@ jobs:
       - name: Test
         shell: pwsh
         run: python -m pytest -q
+
+  packaged-install:
+    name: packaged-install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Build wheel and source distribution
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+      - name: Install the built wheel, not the source checkout
+        run: >-
+          python -c "import glob, subprocess, sys;
+          wheels=glob.glob('dist/*.whl');
+          assert len(wheels) == 1, wheels;
+          subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--force-reinstall', wheels[0]])"
+      - name: Verify installed distribution outside the source tree
+        working-directory: ${{ runner.temp }}
+        run: |
+          python -m pip check
+          python -c "import caldav_assistant; assert caldav_assistant.__version__ == '1.0.0'"
+          python -c "from caldav_assistant.easy import agenda, command, complete; from caldav_assistant.api import AssistantContext"
+          python -c "from importlib.resources import files; root=files('caldav_assistant'); assert root.joinpath('py.typed').is_file(); assert root.joinpath('easy.pyi').is_file()"
+          caldav-assistant help
