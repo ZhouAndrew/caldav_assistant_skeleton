@@ -8,7 +8,7 @@ closes it with DTEND. Resume creates a new interval.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from ...api import Event, Task
 from ...api.v1.errors import AmbiguousError, NotFoundError, ValidationError
@@ -112,6 +112,21 @@ class WorkLogService:
             == target.rstrip("/")
         ]
 
+    def snapshot(self) -> tuple[Event, ...]:
+        """Read Work VEVENT facts once for reuse inside one synchronous action.
+
+        The returned tuple is deliberately not stored on the service.  It is only a
+        command-local view of one authoritative CalDAV read, so this optimization
+        cannot become a second source of truth or leak stale state into later
+        commands.
+        """
+        return tuple(self._all_work_events())
+
+    def _events(self, snapshot: Iterable[Event] | None) -> list[Event]:
+        if snapshot is None:
+            return list(self.snapshot())
+        return [item for item in snapshot if isinstance(item, Event)]
+
     def _update_work_event(self, event_id: str, changes: dict[str, Any]) -> Event:
         """Write directly to the configured Work collection when routing supports it."""
         target = self._collection_url(required=True)
@@ -128,11 +143,11 @@ class WorkLogService:
             return
         self.adapter.delete_event(event_id)
 
-    def open_events(self) -> list[Event]:
-        return [event for event in self._all_work_events() if self._is_open(event)]
+    def open_events(self, *, snapshot: Iterable[Event] | None = None) -> list[Event]:
+        return [event for event in self._events(snapshot) if self._is_open(event)]
 
-    def current_task_id(self) -> str | None:
-        open_items = self.open_events()
+    def current_task_id(self, *, snapshot: Iterable[Event] | None = None) -> str | None:
+        open_items = self.open_events(snapshot=snapshot)
         if not open_items:
             return None
         task_ids = {self._task_id_from_event(item) for item in open_items}
@@ -144,25 +159,35 @@ class WorkLogService:
             )
         return next(iter(task_ids))
 
-    def open_for(self, task: Task | str) -> Event | None:
+    def open_for(
+        self,
+        task: Task | str,
+        *,
+        snapshot: Iterable[Event] | None = None,
+    ) -> Event | None:
         task_id = str(getattr(task, "id", task) or "").strip()
         if not task_id:
             raise ValidationError("Task id must not be empty")
         matches = [
             event
-            for event in self.open_events()
+            for event in self.open_events(snapshot=snapshot)
             if self._task_id_from_event(event) == task_id
         ]
         if len(matches) > 1:
             raise AmbiguousError(f"Task {task_id!r} has more than one open work interval")
         return matches[0] if matches else None
 
-    def start_segment(self, task: Task) -> Event:
+    def start_segment(
+        self,
+        task: Task,
+        *,
+        snapshot: Iterable[Event] | None = None,
+    ) -> Event:
         task_id = str(task.id or "").strip()
         if not task_id:
             raise ValidationError("Task id must not be empty")
         target = self._collection_url(required=True)
-        current = self.current_task_id()
+        current = self.current_task_id(snapshot=snapshot)
         if current:
             if current == task_id:
                 raise ValidationError("This Task is already the current work")
@@ -198,8 +223,14 @@ class WorkLogService:
         )
         return created
 
-    def close_segment(self, task: Task | str, *, required: bool = True) -> Event | None:
-        event = self.open_for(task)
+    def close_segment(
+        self,
+        task: Task | str,
+        *,
+        required: bool = True,
+        snapshot: Iterable[Event] | None = None,
+    ) -> Event | None:
+        event = self.open_for(task, snapshot=snapshot)
         if event is None:
             if required:
                 raise ValidationError("This Task has no open CalDAV work interval")
@@ -250,13 +281,18 @@ class WorkLogService:
         except NotFoundError:
             return
 
-    def segments_for(self, task: Task | str) -> list[Event]:
+    def segments_for(
+        self,
+        task: Task | str,
+        *,
+        snapshot: Iterable[Event] | None = None,
+    ) -> list[Event]:
         task_id = str(getattr(task, "id", task) or "").strip()
         if not task_id:
             raise ValidationError("Task id must not be empty")
         result = [
             event
-            for event in self._all_work_events()
+            for event in self._events(snapshot)
             if self._task_id_from_event(event) == task_id
         ]
         return sorted(

@@ -96,6 +96,39 @@ class CalDAVSessionService:
                 return task
         return None
 
+    def _fallback_paused_ids(
+        self,
+        tasks: Iterable[Any],
+        *,
+        current_id: str | None,
+    ) -> tuple[str, ...]:
+        """Compatibility path for WorkLog replacements without snapshot bricks."""
+        paused: list[str] = []
+        seen: set[str] = set()
+        configured = self._worklog_configured()
+
+        for task in tasks:
+            task_id = str(getattr(task, "id", "") or "").strip()
+            if (
+                not task_id
+                or task_id in seen
+                or task_id == current_id
+                or bool(getattr(task, "completed", False))
+            ):
+                continue
+            seen.add(task_id)
+
+            if configured:
+                try:
+                    if self.worklog.segments_for(task):
+                        paused.append(task_id)
+                except Exception:
+                    continue
+            elif self._latest_activity_action(task) == _PAUSED_ACTION:
+                paused.append(task_id)
+
+        return tuple(paused)
+
     def startup_snapshot(self, tasks: Iterable[Any]) -> dict[str, Any]:
         """Resolve current/paused state from an already-read Task set.
 
@@ -112,14 +145,20 @@ class CalDAVSessionService:
             reader = getattr(self.worklog, "_all_work_events", None)
             if not callable(reader):
                 current_id = self.current_task_id()
-                paused_ids = self.paused_task_ids()
+                paused_ids = self._fallback_paused_ids(
+                    in_progress,
+                    current_id=current_id,
+                )
             else:
                 work_events = list(reader() or ())
                 is_open = getattr(self.worklog, "_is_open", None)
                 task_id_from_event = getattr(self.worklog, "_task_id_from_event", None)
                 if not callable(is_open) or not callable(task_id_from_event):
                     current_id = self.current_task_id()
-                    paused_ids = self.paused_task_ids()
+                    paused_ids = self._fallback_paused_ids(
+                        in_progress,
+                        current_id=current_id,
+                    )
                 else:
                     open_items = [event for event in work_events if is_open(event)]
                     current_ids = {
@@ -208,43 +247,28 @@ class CalDAVSessionService:
         return task
 
     def paused_task_ids(self) -> tuple[str, ...]:
-        current = self.current_task_id()
-        paused: list[str] = []
-        seen: set[str] = set()
-
-        for task in self._in_progress_tasks():
-            task_id = str(getattr(task, "id", "") or "").strip()
-            if (
-                not task_id
-                or task_id in seen
-                or task_id == current
-                or bool(getattr(task, "completed", False))
-            ):
-                continue
-            seen.add(task_id)
-
-            if self._worklog_configured():
-                try:
-                    # Closed Assistant work segments prove this Task was actually
-                    # worked on by this Assistant.  STATUS:IN-PROCESS alone does not.
-                    if self.worklog.segments_for(task):
-                        paused.append(task_id)
-                except Exception:
-                    continue
-            elif self._latest_activity_action(task) == _PAUSED_ACTION:
-                paused.append(task_id)
-
-        return tuple(paused)
+        # Reuse the same composition as startup: production WorkLogService performs
+        # one IN-PROCESS Task read plus one Work VEVENT snapshot.  Replacement
+        # WorkLogs without the internal snapshot brick keep the compatible fallback.
+        tasks = self._in_progress_tasks()
+        return tuple(self.startup_snapshot(tasks)["paused_task_ids"])
 
     def paused_tasks(self) -> list[Any]:
         if self.tasks is None:
             return []
-        result = []
-        for uid in self.paused_task_ids():
-            try:
-                result.append(self.tasks.get(uid))
-            except Exception:
+        # Do not call tasks.get(uid) for every result.  Reuse the already-read
+        # IN-PROCESS objects while preserving the historical UID deduplication rule.
+        tasks = self._in_progress_tasks()
+        snapshot = self.startup_snapshot(tasks)
+        paused = set(snapshot["paused_task_ids"])
+        result: list[Any] = []
+        seen: set[str] = set()
+        for task in tasks:
+            task_id = str(getattr(task, "id", "") or "").strip()
+            if not task_id or task_id in seen or task_id not in paused:
                 continue
+            seen.add(task_id)
+            result.append(task)
         return result
 
     # Production lifecycle persistence is performed by TaskService through either
