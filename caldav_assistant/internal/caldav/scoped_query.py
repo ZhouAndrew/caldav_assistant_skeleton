@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from ...api import Event
-from .library_adapter import _app_error, _matches
+from .library_adapter import _matches
 from .routing import CollectionRoutingCalDAVAdapter
 
 
@@ -76,14 +76,9 @@ def query_events_in_collection(
             if _matches(event, filters):
                 result.append(event)
         return result
-    except Exception as exc:
-        # Server-side property filters are an optional optimization. Protocol or
-        # compatibility failures intentionally fall back instead of becoming user
-        # visible. Application-level errors are likewise left to the stable path.
-        try:
-            _app_error(exc)
-        except Exception:
-            pass
+    except Exception:
+        # This optimization must never make a server less compatible. The stable
+        # scoped/full read remains the caller's fallback.
         return None
 
 
