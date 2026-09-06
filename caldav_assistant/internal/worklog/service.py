@@ -120,7 +120,7 @@ class WorkLogService:
         return self._query_work_events(category=self.CATEGORY)
 
     def snapshot(self) -> tuple[Event, ...]:
-        """Read Work VEVENT facts once for reuse inside one synchronous action.
+        """Read all Work VEVENT facts once when global history is truly required.
 
         The returned tuple is deliberately not stored on the service.  It is only a
         command-local view of one authoritative CalDAV read, so this optimization
@@ -128,6 +128,16 @@ class WorkLogService:
         commands.
         """
         return tuple(self._all_work_events())
+
+    def open_snapshot(self) -> tuple[Event, ...]:
+        """Read only currently open Work intervals for one lifecycle command.
+
+        Start/pause/complete-current need current-work facts, not years of closed
+        intervals.  Keeping this as a command-local tuple preserves the same
+        consistency model as :meth:`snapshot` while bounding the payload as history
+        grows.
+        """
+        return tuple(self._query_work_events(category=self.OPEN_CATEGORY))
 
     def _events(self, snapshot: Iterable[Event] | None) -> list[Event]:
         if snapshot is None:
@@ -150,11 +160,7 @@ class WorkLogService:
         self.adapter.delete_event(event_id)
 
     def open_events(self, *, snapshot: Iterable[Event] | None = None) -> list[Event]:
-        if snapshot is None:
-            # A standalone current/open query does not need years of closed history.
-            values = self._query_work_events(category=self.OPEN_CATEGORY)
-        else:
-            values = self._events(snapshot)
+        values = self.open_snapshot() if snapshot is None else self._events(snapshot)
         return [event for event in values if self._is_open(event)]
 
     def current_task_id(self, *, snapshot: Iterable[Event] | None = None) -> str | None:
@@ -302,8 +308,6 @@ class WorkLogService:
         if not task_id:
             raise ValidationError("Task id must not be empty")
         if snapshot is None:
-            # Exact local validation remains authoritative; description is merely a
-            # server-side narrowing hint so a large Work history need not be returned.
             values = self._query_work_events(
                 category=self.CATEGORY,
                 description=self._description(task_id),
