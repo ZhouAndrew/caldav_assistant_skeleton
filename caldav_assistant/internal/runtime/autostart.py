@@ -24,7 +24,7 @@ class AutostartManager:
     def command(self) -> list[str]:
         # Login autostart must use the same production daemon generation as the
         # on-demand ServiceLauncher and installed ``caldav-assistant-service`` entry
-        # point.  Starting the unversioned observable service here makes the first CLI
+        # point. Starting the unversioned observable service here makes the first CLI
         # after login see a missing runtime_identity and restart a freshly launched
         # daemon as if it were stale.
         return [
@@ -56,9 +56,7 @@ class AutostartManager:
                 ) from exc
             return None
         if required and getattr(result, "returncode", 1) != 0:
-            raise RuntimeError(
-                "Autostart command failed: " + " ".join(args)
-            )
+            raise RuntimeError("Autostart command failed: " + " ".join(args))
         return result
 
     def enable(self) -> None:
@@ -92,7 +90,10 @@ class AutostartManager:
                         "Label": "org.caldav-assistant.service",
                         "ProgramArguments": self.command,
                         "RunAtLoad": True,
-                        "KeepAlive": True,
+                        # Match systemd's Restart=on-failure semantics. A clean
+                        # ``background stop`` must remain stopped even while login
+                        # autostart stays enabled; abnormal exits should be relaunched.
+                        "KeepAlive": {"SuccessfulExit": False},
                     },
                     stream,
                 )
