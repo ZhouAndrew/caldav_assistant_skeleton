@@ -256,13 +256,17 @@ def build_service_application() -> ServiceApplication:
         credentials=settings_service.get(CALDAV_CREDENTIALS, None),
     )
     _caldav_setup = CalDAVSetupService(settings_service, base_url_provider, caldav)
-    sync = SyncEngine(caldav, cache)
 
     routed_caldav = CollectionRoutingCalDAVAdapter(
         caldav,
         task_collection_url=lambda: settings_service.get(CALDAV_TASK_COLLECTION_URL, None),
         event_collection_url=lambda: settings_service.get(CALDAV_EVENT_COLLECTION_URL, None),
     )
+    # Background synchronization must use the same configured collection roles as
+    # interactive traffic.  Otherwise each periodic "incremental" refresh falls
+    # back to a full cross-collection scan even though the user already selected the
+    # authoritative Task and Event collections.
+    sync = SyncEngine(routed_caldav, cache)
     app_caldav = ExperimentalCacheCalDAVAdapter(
         routed_caldav,
         sync,
