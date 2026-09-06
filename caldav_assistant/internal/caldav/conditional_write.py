@@ -1,11 +1,12 @@
 """Internal fast path for updating a just-read CalDAV object without re-reading it.
 
-The public/frozen CalDAVAdapter contract intentionally remains unchanged.  Core
-services may opportunistically call these helpers with a live Task/Event object.  A
-fast write is used only when the object carries all transport facts produced by the
-concrete CalDAV mapper: raw iCalendar data, resource URL, collection URL and ETag.
-The reconstructed python-caldav resource therefore sends the same ``If-Match`` PUT
-that a freshly re-read resource would send.
+The public/frozen CalDAVAdapter contract intentionally remains unchanged.  Concrete
+CalDAV adapter layers expose this only as an optional capability; Core services merely
+probe that capability and remain independent of transport details.  A fast write is
+used only when the object carries all transport facts produced by the concrete CalDAV
+mapper: raw iCalendar data, resource URL, collection URL and ETag.  The reconstructed
+python-caldav resource therefore sends the same ``If-Match`` PUT that a freshly
+re-read resource would send.
 
 If any prerequisite is absent (notably objects restored from the experimental SQLite
 snapshot, which deliberately does not persist ``raw``), the helper returns ``None``
