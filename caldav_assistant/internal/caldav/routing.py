@@ -4,10 +4,9 @@ Collection roles are not only creation hints. Once the user has selected the Tas
 Event and Work-log collections, ordinary reads and writes should not rediscover and
 traverse every compatible collection on every CLI command. CalDAV remains
 authoritative: this wrapper only narrows authoritative traffic to an explicitly
-configured collection and reuses already-discovered collection objects in this
-process.
+configured collection and reuses already-resolved collection objects in this process.
 
-The concrete python-caldav adapter exposes internal collection/mapping bricks. This
+The concrete python-caldav adapter exposes internal client/mapping bricks. This
 wrapper uses them opportunistically and falls back to the generic adapter contract
 when a replacement adapter does not provide those bricks, preserving adapter
 replaceability.
@@ -59,6 +58,12 @@ class CollectionRoutingCalDAVAdapter:
         except Exception:
             return ""
 
+    def _reset_calendar_cache_for_base(self, base: str) -> None:
+        if self._calendar_cache_base == base:
+            return
+        self._calendar_cache_base = base
+        self._calendar_cache = {}
+
     def _refresh_calendar_cache(self, calendars: Callable[[], Any]) -> None:
         values = list(calendars())
         index: dict[str, list[Any]] = {}
@@ -69,25 +74,55 @@ class CollectionRoutingCalDAVAdapter:
         self._calendar_cache_base = self._base_url()
         self._calendar_cache = index
 
+    def _calendar_handle_for_known_url(self, target: str) -> Any | None:
+        """Bind a configured URL without principal/calendar discovery when possible.
+
+        python-caldav's DAVClient.calendar(url=...) only creates a Calendar handle;
+        the first actual Task/Event operation remains the authoritative network read
+        or write. This removes cold-start PROPFIND discovery round-trips when Settings
+        already contain the exact collection URL, while replacement adapters still
+        fall back to their generic discovery contract.
+        """
+        client_getter = getattr(self.adapter, "_client_now", None)
+        if not callable(client_getter):
+            return None
+        client = client_getter()
+        factory = getattr(client, "calendar", None)
+        if not callable(factory):
+            return None
+        try:
+            return factory(url=target)
+        except TypeError:
+            return None
+
     def _selected_calendar(self, wanted: str | None) -> Any | None:
-        """Resolve a configured collection and reuse one discovery for all roles."""
+        """Resolve one configured collection with a direct-known-URL fast path."""
         target = _url(wanted)
-        calendars = getattr(self.adapter, "_calendars", None)
-        if not target or not callable(calendars):
+        if not target:
             return None
 
         base = self._base_url()
-        if self._calendar_cache_base != base:
-            self._refresh_calendar_cache(calendars)
+        self._reset_calendar_cache_for_base(base)
 
         matches = self._calendar_cache.get(target, [])
-        if not matches:
-            # A collection may have been added while the service stayed alive.
-            # Refresh once on a miss; normal Task/Event/WorkLog traffic remains a
-            # one-discovery fast path.
-            self._refresh_calendar_cache(calendars)
-            matches = self._calendar_cache.get(target, [])
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise NotFoundError(f"Configured CalDAV collection is not unique: {wanted}")
 
+        direct = self._calendar_handle_for_known_url(target)
+        if direct is not None:
+            self._calendar_cache[target] = [direct]
+            return direct
+
+        calendars = getattr(self.adapter, "_calendars", None)
+        if not callable(calendars):
+            return None
+
+        # Adapter-replacement fallback: discover collections when the concrete
+        # zero-network calendar(url=...) brick is unavailable.
+        self._refresh_calendar_cache(calendars)
+        matches = self._calendar_cache.get(target, [])
         if not matches:
             raise NotFoundError(f"Configured CalDAV collection not found: {wanted}")
         if len(matches) > 1:
@@ -157,10 +192,10 @@ class CollectionRoutingCalDAVAdapter:
             return self.adapter.list_tasks(**filters)
         try:
             result = []
-            # Agenda/Next explicitly request completed=False.  python-caldav can
+            # Agenda/Next explicitly request completed=False. python-caldav can
             # translate that to a server-side pending-VTODO REPORT, which avoids
             # downloading an ever-growing completed-task history just to discard it
-            # locally.  Other callers keep the old include-completed semantics.
+            # locally. Other callers keep the old include-completed semantics.
             include_completed = filters.get("completed") is not False
             for resource in calendar.get_todos(include_completed=include_completed):
                 task = mapper(resource, calendar)

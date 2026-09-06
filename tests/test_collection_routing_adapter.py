@@ -38,13 +38,38 @@ class ReadAdapter(Adapter):
     def __init__(self):
         super().__init__()
         self.calendar = TaskCalendar()
+        self.discovery_calls = 0
 
     def _calendars(self):
+        self.discovery_calls += 1
         return [self.calendar]
 
     @staticmethod
     def _to_task(resource, calendar):
         return resource
+
+
+class DirectClient:
+    def __init__(self, calendar):
+        self.value = calendar
+        self.calls = []
+
+    def calendar(self, *, url):
+        self.calls.append(url)
+        return self.value
+
+
+class DirectReadAdapter(ReadAdapter):
+    def __init__(self):
+        super().__init__()
+        self.client = DirectClient(self.calendar)
+
+    def _client_now(self):
+        return self.client
+
+    def _calendars(self):
+        self.discovery_calls += 1
+        raise AssertionError("configured collection URL must not require discovery")
 
 
 def test_routes_new_task_and_event_to_user_selected_collection_roles():
@@ -103,3 +128,20 @@ def test_general_task_listing_still_includes_completed_tasks():
 
     assert [task.id for task in result] == ["pending", "done"]
     assert inner.calendar.include_completed_calls == [True]
+
+
+def test_configured_role_url_binds_directly_without_principal_collection_discovery():
+    inner = DirectReadAdapter()
+    routed = CollectionRoutingCalDAVAdapter(
+        inner,
+        task_collection_url=lambda: "https://dav.example/tasks/",
+        event_collection_url=lambda: None,
+    )
+
+    first = routed.list_tasks(completed=False)
+    second = routed.list_tasks(completed=False)
+
+    assert [task.id for task in first] == ["pending"]
+    assert [task.id for task in second] == ["pending"]
+    assert inner.client.calls == ["https://dav.example/tasks"]
+    assert inner.discovery_calls == 0
