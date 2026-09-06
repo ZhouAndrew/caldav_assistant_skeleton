@@ -13,6 +13,7 @@ WordPress transport.
 from __future__ import annotations
 
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Any
 
 from caldav_assistant.api import Event
@@ -30,9 +31,21 @@ def _activity(event: HookEvent) -> Any:
     return event.get("activity")
 
 
-def _task_for(uid: str) -> Any:
+def _task_for(activity: Any) -> Any:
+    """Use the Task fact already carried by production lifecycle hooks when present."""
+    uid = str(getattr(activity, "object_id", "") or "").strip()
     if not uid:
         return None
+    metadata = getattr(activity, "metadata", None)
+    if isinstance(metadata, dict):
+        summary = str(metadata.get("task_summary") or "").strip()
+        if summary:
+            # WorkLogFormatter needs only id + summary.  Do not re-read the Task
+            # collection after the authoritative pause command already knew both.
+            return SimpleNamespace(id=uid, summary=summary)
+
+    # Compatibility path for replacement/older lifecycle publishers that do not
+    # carry the optional task_summary fact.
     try:
         for task in tasks():
             if str(getattr(task, "id", "") or "") == uid:
@@ -42,8 +55,26 @@ def _task_for(uid: str) -> Any:
     return None
 
 
+def _hook_segment(activity: Any) -> tuple[datetime, datetime] | None:
+    """Consume the exact Work interval closed by the current lifecycle command."""
+    metadata = getattr(activity, "metadata", None)
+    if not isinstance(metadata, dict):
+        return None
+    raw = metadata.get("work_segment")
+    if not isinstance(raw, dict):
+        return None
+    try:
+        start = datetime.fromisoformat(str(raw.get("start") or ""))
+        end = datetime.fromisoformat(str(raw.get("end") or ""))
+    except ValueError:
+        return None
+    if end < start:
+        return None
+    return start, end
+
+
 def _caldav_segment(task: Any, activity_end: datetime) -> tuple[datetime, datetime] | None:
-    """Prefer the real closed Work VEVENT that the pause operation just persisted."""
+    """Compatibility fallback: re-read Work history only when hook facts are absent."""
     try:
         ctx = get_current_context()
         session = getattr(ctx, "session", None)
@@ -98,8 +129,14 @@ def _activity_segment(task: Any, end: datetime) -> tuple[datetime, datetime] | N
     return None if start is None else (start, end)
 
 
-def _closed_segment(task: Any, end: datetime) -> tuple[datetime, datetime] | None:
-    return _caldav_segment(task, end) or _activity_segment(task, end)
+def _closed_segment(
+    task: Any,
+    end: datetime,
+    activity: Any,
+) -> tuple[datetime, datetime] | None:
+    # Production CalDAV lifecycle hands us the just-persisted segment.  The two
+    # fallbacks preserve behaviour for replacement services and WorkLog-disabled use.
+    return _hook_segment(activity) or _caldav_segment(task, end) or _activity_segment(task, end)
 
 
 def _queue(text: str) -> Any:
@@ -123,10 +160,10 @@ def log_closed_work_segment(event: HookEvent) -> Any:
     if not isinstance(activity_end, datetime) or not uid:
         return None
 
-    task = _task_for(uid)
+    task = _task_for(activity)
     if task is None:
         return None
-    interval = _closed_segment(task, activity_end)
+    interval = _closed_segment(task, activity_end, activity)
     if interval is None:
         return None
     start, end = interval
