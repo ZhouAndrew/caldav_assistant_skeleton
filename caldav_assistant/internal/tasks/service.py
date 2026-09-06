@@ -22,6 +22,7 @@ from typing import Any
 from ...api import ActionResult, Task
 from ...api.v1.errors import AmbiguousError, NotFoundError, ValidationError
 from ..caldav.adapter import CalDAVAdapter
+from ..caldav.conditional_write import update_task_from_snapshot
 
 
 class TaskService:
@@ -283,7 +284,12 @@ class TaskService:
             for key in normalized
             if key in self._MUTABLE_FIELDS
         }
-        updated = self._bind(self.adapter.update_task(task_id, normalized))
+        fast_updated = update_task_from_snapshot(self.adapter, obj, normalized)
+        updated = self._bind(
+            fast_updated
+            if fast_updated is not None
+            else self.adapter.update_task(task_id, normalized)
+        )
 
         undo_available = False
         if undo:
