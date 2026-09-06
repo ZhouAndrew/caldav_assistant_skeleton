@@ -65,7 +65,6 @@ class AgendaService:
             tasks,
             events,
             days=1,
-            now=now,
             user_state=self.state,
         )
 
@@ -79,7 +78,6 @@ class AgendaService:
             tasks,
             events,
             days=days,
-            now=now,
             user_state=self.state,
         )
 
@@ -206,14 +204,12 @@ class AgendaService:
             tasks,
             events,
             days=days,
-            now=now,
             user_state=self.state,
         )
         recommendation = self._choose_next(
             tasks,
             events,
             kind=kind,
-            now=now,
             current_task_uid=current_uid,
             skipped_uids=paused_uids,
         )
