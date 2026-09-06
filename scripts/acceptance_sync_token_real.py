@@ -3,8 +3,8 @@
 
 This complements the installed CLI human-path suite: it proves the production
 LibraryCalDAVAdapter + CollectionRoutingCalDAVAdapter + SyncEngine path actually uses
-Radicale sync tokens after initialization and does not silently fall back to Task/Event
-full scans on a no-change or changed-resource cycle.
+Radicale sync tokens after initialization, avoids Task/Event full scans, and batches
+changed-resource bodies through calendar-multiget instead of issuing one GET per href.
 """
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ import tempfile
 import time
 import urllib.request
 
+from caldav.calendarobjectresource import CalendarObjectResource
 from caldav.davclient import DAVClient
 
 from caldav_assistant.internal.caldav import (
@@ -115,6 +116,20 @@ def _forbid_full_scan(*args, **kwargs):
     raise AssertionError("RFC 6578 cycle attempted a full Task/Event collection scan")
 
 
+def _forbid_individual_load(*args, **kwargs):
+    raise AssertionError("RFC 6578 changed-resource cycle attempted an individual resource GET")
+
+
+def _count_multiget(calendar, counts: dict[str, int], key: str) -> None:
+    original = calendar.multiget
+
+    def counted(urls, *, raise_notfound=False):
+        counts[key] += 1
+        return original(urls, raise_notfound=raise_notfound)
+
+    calendar.multiget = counted
+
+
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     with tempfile.TemporaryDirectory(prefix="caldav-assistant-sync-token-") as raw_tmp:
@@ -145,6 +160,7 @@ def main() -> int:
             stderr=subprocess.STDOUT,
         )
         inner = None
+        original_load = CalendarObjectResource.load
         try:
             _wait_http(base_url)
             writer = DAVClient(url=base_url, username="sync", password="sync")
@@ -153,7 +169,9 @@ def main() -> int:
             event_calendar = principal.make_calendar(name="Events")
             now = datetime.now(timezone.utc)
             task_calendar.save_todo(_todo("sync-task-1", "Initial Task", now))
-            event = event_calendar.save_event(_event("sync-event-1", "Initial Event", now))
+            initial_event = event_calendar.save_event(
+                _event("sync-event-1", "Initial Event", now)
+            )
             print("PASS: real Radicale seeded with separate Task/Event collections")
 
             inner = LibraryCalDAVAdapter(
@@ -184,29 +202,93 @@ def main() -> int:
             second = engine.incremental_sync()
             if second["effective_mode"] != "sync-token":
                 raise AssertionError(f"no-change cycle did not use RFC 6578: {second}")
-            if any(second["changes"][kind][bucket] for kind in ("tasks", "events") for bucket in ("added", "updated", "removed")):
+            if any(
+                second["changes"][kind][bucket]
+                for kind in ("tasks", "events")
+                for bucket in ("added", "updated", "removed")
+            ):
                 raise AssertionError(f"no-change cycle reported changes: {second}")
             print("PASS: no-change cycle used sync-token with zero full collection scans")
 
-            # Mutate through a separate CalDAV client, including a deletion.  The
-            # next cycle must merge only those deltas while full readers stay banned.
-            task_calendar.save_todo(_todo("sync-task-2", "Added Task", now + timedelta(minutes=1)))
-            event.delete()
+            # Instrument the exact production Calendar handles cached by routing.
+            counts = {"tasks": 0, "events": 0}
+            task_handle = routed._selected_calendar(str(task_calendar.url))
+            event_handle = routed._selected_calendar(str(event_calendar.url))
+            _count_multiget(task_handle, counts, "tasks")
+            _count_multiget(event_handle, counts, "events")
+
+            # Apply several changes through a separate CalDAV client.  One changed
+            # collection must cost one sync REPORT + one multiget REPORT, independent
+            # of the number of changed resources.  Deletions are also present.
+            for index in range(2, 7):
+                task_calendar.save_todo(
+                    _todo(
+                        f"sync-task-{index}",
+                        f"Added Task {index}",
+                        now + timedelta(minutes=index),
+                    )
+                )
+            for index in range(2, 5):
+                event_calendar.save_event(
+                    _event(
+                        f"sync-event-{index}",
+                        f"Added Event {index}",
+                        now + timedelta(minutes=index),
+                    )
+                )
+            initial_event.delete()
+
+            # If production falls back to python-caldav's old load_objects=True or
+            # manually loads each changed resource, this makes the acceptance fail.
+            CalendarObjectResource.load = _forbid_individual_load
             third = engine.incremental_sync()
+            CalendarObjectResource.load = original_load
+
             if third["effective_mode"] != "sync-token":
                 raise AssertionError(f"changed cycle did not use RFC 6578: {third}")
-            if third["changes"]["tasks"]["added"] != ["sync-task-2"]:
+            if third["changes"]["tasks"]["added"] != [
+                "sync-task-2",
+                "sync-task-3",
+                "sync-task-4",
+                "sync-task-5",
+                "sync-task-6",
+            ]:
                 raise AssertionError(f"Task delta mismatch: {third}")
+            if third["changes"]["events"]["added"] != [
+                "sync-event-2",
+                "sync-event-3",
+                "sync-event-4",
+            ]:
+                raise AssertionError(f"Event addition delta mismatch: {third}")
             if third["changes"]["events"]["removed"] != ["sync-event-1"]:
                 raise AssertionError(f"Event deletion delta mismatch: {third}")
-            if sorted(task.id for task in engine.cached_tasks()) != ["sync-task-1", "sync-task-2"]:
+            if counts != {"tasks": 1, "events": 1}:
+                raise AssertionError(
+                    f"changed resources were not batched one multiget per collection: {counts}"
+                )
+            if sorted(task.id for task in engine.cached_tasks()) != [
+                "sync-task-1",
+                "sync-task-2",
+                "sync-task-3",
+                "sync-task-4",
+                "sync-task-5",
+                "sync-task-6",
+            ]:
                 raise AssertionError("incremental Task snapshot merge is incorrect")
-            if engine.cached_events():
-                raise AssertionError("incremental Event deletion was not removed from cache")
-            print("PASS: real add/delete deltas merged without Task/Event full scans")
+            if sorted(event.id for event in engine.cached_events()) != [
+                "sync-event-2",
+                "sync-event-3",
+                "sync-event-4",
+            ]:
+                raise AssertionError("incremental Event snapshot merge is incorrect")
+            print(
+                "PASS: 8 additions + 1 deletion used exactly one multiget per changed collection"
+            )
+            print("PASS: changed-resource cycle made zero individual CalendarObjectResource.load GETs")
             print("REAL RFC6578 SYNC TOKEN ACCEPTANCE: PASS")
             return 0
         finally:
+            CalendarObjectResource.load = original_load
             if inner is not None:
                 inner.close()
             radicale.terminate()
