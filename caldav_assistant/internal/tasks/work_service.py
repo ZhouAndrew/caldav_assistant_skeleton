@@ -31,15 +31,32 @@ class CalDAVWorkTaskService(TaskService):
             return False
 
     def _work_snapshot(self):
-        """Read Work facts once for one lifecycle command when supported."""
+        """Read all Work facts once only where global history is required."""
         snapshot = getattr(self.worklog, "snapshot", None)
         return snapshot() if callable(snapshot) else None
+
+    def _open_work_snapshot(self):
+        """Read only current/open Work facts when the WorkLog supports it.
+
+        Replacement WorkLog implementations keep their old behavior through the
+        full-snapshot fallback.
+        """
+        snapshot = getattr(self.worklog, "open_snapshot", None)
+        if callable(snapshot):
+            return snapshot()
+        return self._work_snapshot()
 
     def _work_call(self, name: str, *args: Any, snapshot: Any = None, **kwargs: Any):
         method = getattr(self.worklog, name)
         if snapshot is not None:
             kwargs["snapshot"] = snapshot
         return method(*args, **kwargs)
+
+    def _segments_for_command(self, task: Task, *, fallback_snapshot: Any):
+        """Use per-Task server narrowing when production WorkLog supports it."""
+        if callable(getattr(self.worklog, "open_snapshot", None)):
+            return self._work_call("segments_for", task)
+        return self._work_call("segments_for", task, snapshot=fallback_snapshot)
 
     @staticmethod
     def _closed_segment_metadata(segment: Any) -> dict[str, str] | None:
@@ -55,9 +72,6 @@ class CalDAVWorkTaskService(TaskService):
         return {"start": start_iso, "end": end_iso}
 
     def _session_current_id(self) -> str | None:
-        # The Session service owns the user-facing current/paused interpretation.
-        # With a configured work log it delegates to WorkLogService; without one it
-        # derives state from explicit Activity Journal lifecycle records.
         if self.session is not None:
             return super()._session_current_id()
         if self._worklog_configured():
@@ -70,7 +84,11 @@ class CalDAVWorkTaskService(TaskService):
         if not self._worklog_configured():
             return ()
 
-        current = self.worklog.current_task_id()
+        # This fallback must classify every IN-PROCESS Task, so one complete
+        # command-local Work snapshot is cheaper and more consistent than N targeted
+        # history queries.  Production normally delegates this to SessionService.
+        snapshot = self._work_snapshot()
+        current = self._work_call("current_task_id", snapshot=snapshot)
         try:
             items = self.list(status="IN-PROCESS")
         except Exception:
@@ -82,9 +100,7 @@ class CalDAVWorkTaskService(TaskService):
             if not task_id or task_id == current or task.completed:
                 continue
             try:
-                # An IN-PROCESS VTODO is not enough to mean "paused by this
-                # Assistant".  A prior Assistant work segment is the proof.
-                if self.worklog.segments_for(task):
+                if self._work_call("segments_for", task, snapshot=snapshot):
                     paused.append(task_id)
             except Exception:
                 continue
@@ -99,10 +115,10 @@ class CalDAVWorkTaskService(TaskService):
         if obj.completed or obj.status in {"COMPLETED", "CANCELLED"}:
             raise ValidationError("A completed or cancelled Task cannot be started")
 
-        work_snapshot = self._work_snapshot()
+        open_snapshot = self._open_work_snapshot()
         current_id = self._work_call(
             "current_task_id",
-            snapshot=work_snapshot,
+            snapshot=open_snapshot,
         )
         if current_id == task_id:
             raise ValidationError("This Task is already the current work")
@@ -114,7 +130,7 @@ class CalDAVWorkTaskService(TaskService):
         segment = self._work_call(
             "start_segment",
             obj,
-            snapshot=work_snapshot,
+            snapshot=open_snapshot,
         )
         try:
             result = self._update(
@@ -152,10 +168,10 @@ class CalDAVWorkTaskService(TaskService):
         if obj.status != "IN-PROCESS":
             raise ValidationError("A planned Task is not running and cannot be paused")
 
-        work_snapshot = self._work_snapshot()
+        open_snapshot = self._open_work_snapshot()
         current_id = self._work_call(
             "current_task_id",
-            snapshot=work_snapshot,
+            snapshot=open_snapshot,
         )
         if current_id != task_id:
             raise ValidationError("Only the Task you are working on now can be paused")
@@ -164,7 +180,7 @@ class CalDAVWorkTaskService(TaskService):
             "close_segment",
             obj,
             required=True,
-            snapshot=work_snapshot,
+            snapshot=open_snapshot,
         )
         self._record(
             "task_paused",
@@ -188,10 +204,10 @@ class CalDAVWorkTaskService(TaskService):
         if obj.status != "IN-PROCESS":
             raise ValidationError("Only an in-progress Task can be resumed")
 
-        work_snapshot = self._work_snapshot()
+        open_snapshot = self._open_work_snapshot()
         current_id = self._work_call(
             "current_task_id",
-            snapshot=work_snapshot,
+            snapshot=open_snapshot,
         )
         if current_id:
             if current_id == task_id:
@@ -200,24 +216,20 @@ class CalDAVWorkTaskService(TaskService):
                 "Another Task is currently being worked on; pause or complete it before resuming this Task"
             )
 
-        segments = self._work_call(
-            "segments_for",
-            obj,
-            snapshot=work_snapshot,
-        )
+        segments = self._segments_for_command(obj, fallback_snapshot=open_snapshot)
         if not segments:
             raise ValidationError("Only a Task you previously paused can be resumed")
         if self._work_call(
             "open_for",
             obj,
-            snapshot=work_snapshot,
+            snapshot=open_snapshot,
         ) is not None:
             raise ValidationError("This Task already has an open CalDAV work interval")
 
         self._work_call(
             "start_segment",
             obj,
-            snapshot=work_snapshot,
+            snapshot=open_snapshot,
         )
         self._record(
             "task_resumed",
@@ -235,18 +247,21 @@ class CalDAVWorkTaskService(TaskService):
 
         obj = self.get(task)
         task_id = self._require_id(obj)
-        work_snapshot = self._work_snapshot()
+        open_snapshot = self._open_work_snapshot()
         current_id = self._work_call(
             "current_task_id",
-            snapshot=work_snapshot,
+            snapshot=open_snapshot,
         )
-        worked_before = bool(
-            self._work_call(
-                "segments_for",
-                obj,
-                snapshot=work_snapshot,
+
+        if current_id == task_id:
+            worked_before = True
+        elif obj.status == "IN-PROCESS":
+            worked_before = bool(
+                self._segments_for_command(obj, fallback_snapshot=open_snapshot)
             )
-        )
+        else:
+            worked_before = False
+
         work_session_before = (
             "current"
             if current_id == task_id
@@ -262,10 +277,8 @@ class CalDAVWorkTaskService(TaskService):
                 "close_segment",
                 obj,
                 required=True,
-                snapshot=work_snapshot,
+                snapshot=open_snapshot,
             )
-            # Use the same authoritative clock instant for VTODO completion as the
-            # closed interval when possible.
             if getattr(closed, "end", None) is not None:
                 completed_at = closed.end
 
@@ -287,9 +300,6 @@ class CalDAVWorkTaskService(TaskService):
                     pass
             raise
 
-        # CompletionLoggingTaskService runs immediately after this method.  Mark the
-        # just-resolved final segment on the returned in-process object so it does not
-        # re-read Work history to rediscover the exact fact this command just wrote.
         setattr(result.affected, "_caldav_completion_segment_resolved", True)
         setattr(result.affected, "_caldav_completion_segment", closed)
 
