@@ -30,6 +30,17 @@ class CalDAVWorkTaskService(TaskService):
         except Exception:
             return False
 
+    def _work_snapshot(self):
+        """Read Work facts once for one lifecycle command when supported."""
+        snapshot = getattr(self.worklog, "snapshot", None)
+        return snapshot() if callable(snapshot) else None
+
+    def _work_call(self, name: str, *args: Any, snapshot: Any = None, **kwargs: Any):
+        method = getattr(self.worklog, name)
+        if snapshot is not None:
+            kwargs["snapshot"] = snapshot
+        return method(*args, **kwargs)
+
     def _session_current_id(self) -> str | None:
         # The Session service owns the user-facing current/paused interpretation.
         # With a configured work log it delegates to WorkLogService; without one it
@@ -75,7 +86,11 @@ class CalDAVWorkTaskService(TaskService):
         if obj.completed or obj.status in {"COMPLETED", "CANCELLED"}:
             raise ValidationError("A completed or cancelled Task cannot be started")
 
-        current_id = self._session_current_id()
+        work_snapshot = self._work_snapshot()
+        current_id = self._work_call(
+            "current_task_id",
+            snapshot=work_snapshot,
+        )
         if current_id == task_id:
             raise ValidationError("This Task is already the current work")
         if current_id:
@@ -83,7 +98,11 @@ class CalDAVWorkTaskService(TaskService):
                 "Another Task is currently being worked on; pause or complete it before starting a different Task"
             )
 
-        segment = self.worklog.start_segment(obj)
+        segment = self._work_call(
+            "start_segment",
+            obj,
+            snapshot=work_snapshot,
+        )
         try:
             result = self._update(
                 obj,
@@ -118,10 +137,21 @@ class CalDAVWorkTaskService(TaskService):
         task_id = self._require_id(obj)
         if obj.status != "IN-PROCESS":
             raise ValidationError("A planned Task is not running and cannot be paused")
-        if self._session_current_id() != task_id:
+
+        work_snapshot = self._work_snapshot()
+        current_id = self._work_call(
+            "current_task_id",
+            snapshot=work_snapshot,
+        )
+        if current_id != task_id:
             raise ValidationError("Only the Task you are working on now can be paused")
 
-        self.worklog.close_segment(obj, required=True)
+        self._work_call(
+            "close_segment",
+            obj,
+            required=True,
+            snapshot=work_snapshot,
+        )
         self._record(
             "task_paused",
             obj,
@@ -142,19 +172,37 @@ class CalDAVWorkTaskService(TaskService):
         if obj.status != "IN-PROCESS":
             raise ValidationError("Only an in-progress Task can be resumed")
 
-        current_id = self._session_current_id()
+        work_snapshot = self._work_snapshot()
+        current_id = self._work_call(
+            "current_task_id",
+            snapshot=work_snapshot,
+        )
         if current_id:
             if current_id == task_id:
                 raise ValidationError("This Task is already the current work")
             raise ValidationError(
                 "Another Task is currently being worked on; pause or complete it before resuming this Task"
             )
-        if task_id not in self._session_paused_ids():
+
+        segments = self._work_call(
+            "segments_for",
+            obj,
+            snapshot=work_snapshot,
+        )
+        if not segments:
             raise ValidationError("Only a Task you previously paused can be resumed")
-        if self.worklog.open_for(obj) is not None:
+        if self._work_call(
+            "open_for",
+            obj,
+            snapshot=work_snapshot,
+        ) is not None:
             raise ValidationError("This Task already has an open CalDAV work interval")
 
-        self.worklog.start_segment(obj)
+        self._work_call(
+            "start_segment",
+            obj,
+            snapshot=work_snapshot,
+        )
         self._record(
             "task_resumed",
             obj,
@@ -170,20 +218,35 @@ class CalDAVWorkTaskService(TaskService):
 
         obj = self.get(task)
         task_id = self._require_id(obj)
-        current_id = self._session_current_id()
-        paused_ids = self._session_paused_ids()
+        work_snapshot = self._work_snapshot()
+        current_id = self._work_call(
+            "current_task_id",
+            snapshot=work_snapshot,
+        )
+        worked_before = bool(
+            self._work_call(
+                "segments_for",
+                obj,
+                snapshot=work_snapshot,
+            )
+        )
         work_session_before = (
             "current"
             if current_id == task_id
             else "paused"
-            if task_id in paused_ids
+            if worked_before and obj.status == "IN-PROCESS"
             else "none"
         )
 
         closed = None
         completed_at = self.worklog.now()
         if current_id == task_id:
-            closed = self.worklog.close_segment(obj, required=True)
+            closed = self._work_call(
+                "close_segment",
+                obj,
+                required=True,
+                snapshot=work_snapshot,
+            )
             # Use the same authoritative clock instant for VTODO completion as the
             # closed interval when possible.
             if getattr(closed, "end", None) is not None:
