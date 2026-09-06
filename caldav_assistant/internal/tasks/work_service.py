@@ -41,6 +41,19 @@ class CalDAVWorkTaskService(TaskService):
             kwargs["snapshot"] = snapshot
         return method(*args, **kwargs)
 
+    @staticmethod
+    def _closed_segment_metadata(segment: Any) -> dict[str, str] | None:
+        """Small immutable hook payload for the Work interval just persisted."""
+        if segment is None:
+            return None
+        start = getattr(segment, "start", None)
+        end = getattr(segment, "end", None)
+        start_iso = start.isoformat() if callable(getattr(start, "isoformat", None)) else None
+        end_iso = end.isoformat() if callable(getattr(end, "isoformat", None)) else None
+        if not start_iso or not end_iso:
+            return None
+        return {"start": start_iso, "end": end_iso}
+
     def _session_current_id(self) -> str | None:
         # The Session service owns the user-facing current/paused interpretation.
         # With a configured work log it delegates to WorkLogService; without one it
@@ -123,6 +136,7 @@ class CalDAVWorkTaskService(TaskService):
         self._record(
             "task_started",
             result.affected,
+            task_summary=str(getattr(result.affected, "summary", "") or ""),
             work_session_before="none",
             work_session_after="current",
             **self._plan_context(obj),
@@ -146,7 +160,7 @@ class CalDAVWorkTaskService(TaskService):
         if current_id != task_id:
             raise ValidationError("Only the Task you are working on now can be paused")
 
-        self._work_call(
+        closed = self._work_call(
             "close_segment",
             obj,
             required=True,
@@ -155,6 +169,8 @@ class CalDAVWorkTaskService(TaskService):
         self._record(
             "task_paused",
             obj,
+            task_summary=str(getattr(obj, "summary", "") or ""),
+            work_segment=self._closed_segment_metadata(closed),
             work_session_before="current",
             work_session_after="paused",
             **self._plan_context(obj),
@@ -206,6 +222,7 @@ class CalDAVWorkTaskService(TaskService):
         self._record(
             "task_resumed",
             obj,
+            task_summary=str(getattr(obj, "summary", "") or ""),
             work_session_before="paused",
             work_session_after="current",
             **self._plan_context(obj),
@@ -270,9 +287,17 @@ class CalDAVWorkTaskService(TaskService):
                     pass
             raise
 
+        # CompletionLoggingTaskService runs immediately after this method.  Mark the
+        # just-resolved final segment on the returned in-process object so it does not
+        # re-read Work history to rediscover the exact fact this command just wrote.
+        setattr(result.affected, "_caldav_completion_segment_resolved", True)
+        setattr(result.affected, "_caldav_completion_segment", closed)
+
         self._record(
             "task_completed",
             result.affected,
+            task_summary=str(getattr(result.affected, "summary", "") or ""),
+            work_segment=self._closed_segment_metadata(closed),
             work_session_before=work_session_before,
             work_session_after="none",
             **self._plan_context(obj),
