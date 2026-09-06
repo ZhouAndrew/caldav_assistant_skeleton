@@ -1,0 +1,20 @@
+name: real-use-smoothness
+
+on:
+  pull_request:
+
+jobs:
+  real-use:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install exactly as a user-facing package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . "radicale==3.5.4" pexpect
+      - name: Drive the installed CLI through the numbered human path
+        run: python scripts/acceptance_real_use_smoothness.py
