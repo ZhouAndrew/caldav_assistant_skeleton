@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from types import SimpleNamespace
 
-from caldav_assistant.internal.cli import smooth_home
+from caldav_assistant.internal.cli import latency_guard, smooth_home
 
 
 @dataclass(frozen=True)
@@ -116,3 +116,90 @@ def test_install_is_idempotent():
     assert installed is module.conversation._home_menu
     assert installed is not original
     assert installed(app, _Snapshot("initial")) == "console"
+
+
+@dataclass(frozen=True)
+class _GuardSnapshot:
+    name: str = "snapshot"
+    warning: str | None = None
+    window_hours: int = 24
+
+
+def test_timeout_then_upcoming_recovery_keeps_next_start_inside_the_guided_menu(monkeypatch):
+    """Regression for the exact field path that used to turn the next `1` into a command."""
+    shown = []
+    snapshots = []
+    started = []
+    reads = []
+    ui = _UI(
+        [
+            "Upcoming — next 24h",
+            "Choose a Task and start",
+            "Stay in console",
+        ]
+    )
+    conversation = SimpleNamespace()
+    conversation.StartupSnapshot = _GuardSnapshot
+    conversation._window_hours = lambda app: 24
+    conversation._item_in_window = lambda item, now, end: True
+    conversation._show = lambda app, value="": shown.append(str(value))
+    conversation._visible_call = lambda app, label, fn, *args, **kwargs: fn()
+
+    def guided_start(app, task=None):
+        started.append(task)
+        return "console"
+
+    def home_menu(app, snapshot):
+        snapshots.append(snapshot)
+        selected = app.ctx.ui.choose(
+            "What do you want to do?",
+            (
+                "Upcoming — next 24h",
+                "Choose a Task and start",
+                "Stay in console",
+            ),
+        )
+        if selected == "Upcoming — next 24h":
+            conversation._visible_call(
+                app,
+                "Refreshing Upcoming…",
+                lambda: module._read_snapshot(app),
+            )
+            return "console"
+        if selected == "Choose a Task and start":
+            return conversation._guided_start(app)
+        return "console"
+
+    conversation._guided_start = guided_start
+    conversation._home_menu = home_menu
+    module = SimpleNamespace(
+        conversation=conversation,
+        _execute_user=lambda app, parsed, paginate=True: (0, False),
+        legacy=SimpleNamespace(_split_lifecycle_duration=lambda parsed: (parsed, None)),
+        base=SimpleNamespace(
+            execute_command=lambda app, parsed: None,
+            _render_result=lambda app, result, paginate=True: None,
+        ),
+    )
+    app = SimpleNamespace(ctx=SimpleNamespace(ui=ui), runtime=None)
+    healthy = _GuardSnapshot("healthy")
+
+    def read_snapshot(current_module, current_app):
+        reads.append("read")
+        return healthy
+
+    monkeypatch.setattr(latency_guard, "_read_snapshot", read_snapshot)
+    latency_guard.install(module)
+    smooth_home.install(module)
+
+    degraded = _GuardSnapshot("degraded", warning="startup timeout")
+    result = conversation._home_menu(app, degraded)
+
+    assert result == "console"
+    assert reads == ["read"]
+    assert [value.name for value in snapshots] == ["degraded", "healthy", "healthy"]
+    # The recovered snapshot must reach the guarded Start path. If the stale warning
+    # leaked across menu iterations, latency_guard would block this call instead.
+    assert started == [None]
+    assert len(ui.calls) == 3
+    assert not any("Current Task state is unavailable" in line for line in shown)
