@@ -10,12 +10,19 @@ that a freshly re-read resource would send.
 If any prerequisite is absent (notably objects restored from the experimental SQLite
 snapshot, which deliberately does not persist ``raw``), the helper returns ``None``
 and the caller uses the ordinary adapter update path.  CalDAV remains authoritative.
+
+A stale snapshot is also compatibility-safe: when the fast If-Match PUT gets a 412,
+we immediately fall back to the pre-existing authoritative update path.  That path
+re-reads the current server object and applies only the requested field changes, which
+preserves the service's historical merge semantics while keeping the normal case to a
+single read followed by a single conditional write.
 """
 from __future__ import annotations
 
 from typing import Any, Mapping
 
 from ...api import Event, Task
+from ...api.v1.errors import ConflictError
 from .library_adapter import _app_error
 from .routing import CollectionRoutingCalDAVAdapter
 
@@ -28,7 +35,6 @@ def _url(value: Any) -> str:
 
 
 def _routing_adapter(adapter: Any) -> CollectionRoutingCalDAVAdapter | None:
-    """Unwrap known transparent adapter layers without depending on their classes."""
     current = adapter
     seen: set[int] = set()
     for _ in range(6):
@@ -59,9 +65,6 @@ def _resource_from_snapshot(
     if raw in (None, "", b"") or not resource_url or not collection_url or not etag:
         return None
 
-    # Never trust transport metadata that points outside the collection from which
-    # the object says it was read.  This also keeps a malformed IPC/plugin object from
-    # turning the fast path into an arbitrary DAV write primitive.
     collection_key = _url(collection_url)
     resource_key = _url(resource_url)
     if not resource_key.startswith(collection_key + "/"):
@@ -100,15 +103,23 @@ def _resource_from_snapshot(
 
 
 def _patch_experimental_snapshot(adapter: Any, kind: str, obj: Task | Event) -> None:
-    """Preserve the cache wrapper's existing write-through behavior when present."""
     patch = getattr(adapter, "_patch_snapshot", None)
     if not callable(patch):
         return
     try:
         patch(kind, obj=obj)
     except Exception:
-        # Experimental cache maintenance must never reverse an authoritative write.
         pass
+
+
+def _ordinary_update(
+    adapter: Any,
+    obj: Task | Event,
+    changes: Mapping[str, Any],
+) -> Task | Event:
+    if isinstance(obj, Task):
+        return adapter.update_task(str(obj.id), dict(changes))
+    return adapter.update_event(str(obj.id), dict(changes))
 
 
 def _update_from_snapshot(
@@ -123,12 +134,15 @@ def _update_from_snapshot(
     try:
         if changes:
             editor(resource, dict(changes))
-            # python-caldav uses resource.props[DAV:getetag] as If-Match.  A 412 is
-            # mapped below to the same ConflictError exposed by the ordinary path.
             resource.save()
         result = mapper(resource, resource.parent)
     except Exception as exc:
-        raise _app_error(exc) from exc
+        mapped = _app_error(exc)
+        if isinstance(mapped, ConflictError):
+            # Preserve the old update semantics.  A stale live object used to be
+            # refreshed by the ordinary adapter immediately before editing.
+            return _ordinary_update(adapter, obj, changes)
+        raise mapped from exc
 
     kind = "task" if isinstance(result, Task) else "event"
     _patch_experimental_snapshot(adapter, kind, result)
