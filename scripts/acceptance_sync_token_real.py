@@ -4,7 +4,8 @@
 This complements the installed CLI human-path suite: it proves the production
 LibraryCalDAVAdapter + CollectionRoutingCalDAVAdapter + SyncEngine path actually uses
 Radicale sync tokens after initialization, avoids Task/Event full scans, and batches
-changed-resource bodies through calendar-multiget instead of issuing one GET per href.
+changed-resource bodies through calendar-multiget instead of issuing one HTTP GET per
+href.
 """
 from __future__ import annotations
 
@@ -17,7 +18,6 @@ import tempfile
 import time
 import urllib.request
 
-from caldav.calendarobjectresource import CalendarObjectResource
 from caldav.davclient import DAVClient
 
 from caldav_assistant.internal.caldav import (
@@ -116,10 +116,6 @@ def _forbid_full_scan(*args, **kwargs):
     raise AssertionError("RFC 6578 cycle attempted a full Task/Event collection scan")
 
 
-def _forbid_individual_load(*args, **kwargs):
-    raise AssertionError("RFC 6578 changed-resource cycle attempted an individual resource GET")
-
-
 def _count_multiget(calendar, counts: dict[str, int], key: str) -> None:
     original = calendar.multiget
 
@@ -128,6 +124,18 @@ def _count_multiget(calendar, counts: dict[str, int], key: str) -> None:
         return original(urls, raise_notfound=raise_notfound)
 
     calendar.multiget = counted
+
+
+def _count_http_methods(client, counts: dict[str, int]) -> None:
+    """Count real DAVClient.request calls, not local load() state checks."""
+    original = client.request
+
+    def counted(url=None, method="GET", body="", headers=None):
+        key = str(method or "GET").upper()
+        counts[key] = counts.get(key, 0) + 1
+        return original(url, method, body, headers)
+
+    client.request = counted
 
 
 def main() -> int:
@@ -160,7 +168,6 @@ def main() -> int:
             stderr=subprocess.STDOUT,
         )
         inner = None
-        original_load = CalendarObjectResource.load
         try:
             _wait_http(base_url)
             writer = DAVClient(url=base_url, username="sync", password="sync")
@@ -196,7 +203,6 @@ def main() -> int:
                 raise AssertionError(f"expected two opaque collection tokens: {token_state}")
             print("PASS: initialization seeded real opaque sync tokens before full snapshot")
 
-            # Prove no-change sync cannot quietly call the full Task/Event readers.
             routed.list_tasks = _forbid_full_scan
             routed.list_events = _forbid_full_scan
             second = engine.incremental_sync()
@@ -210,16 +216,18 @@ def main() -> int:
                 raise AssertionError(f"no-change cycle reported changes: {second}")
             print("PASS: no-change cycle used sync-token with zero full collection scans")
 
-            # Instrument the exact production Calendar handles cached by routing.
             counts = {"tasks": 0, "events": 0}
             task_handle = routed._selected_calendar(str(task_calendar.url))
             event_handle = routed._selected_calendar(str(event_calendar.url))
             _count_multiget(task_handle, counts, "tasks")
             _count_multiget(event_handle, counts, "events")
 
-            # Apply several changes through a separate CalDAV client.  One changed
-            # collection must cost one sync REPORT + one multiget REPORT, independent
-            # of the number of changed resources.  Deletions are also present.
+            http_counts: dict[str, int] = {}
+            production_client = inner._client_now()
+            _count_http_methods(production_client, http_counts)
+
+            # Apply changes with the independent writer client so they do not pollute
+            # production request counts.
             for index in range(2, 7):
                 task_calendar.save_todo(
                     _todo(
@@ -238,11 +246,7 @@ def main() -> int:
                 )
             initial_event.delete()
 
-            # If production falls back to python-caldav's old load_objects=True or
-            # manually loads each changed resource, this makes the acceptance fail.
-            CalendarObjectResource.load = _forbid_individual_load
             third = engine.incremental_sync()
-            CalendarObjectResource.load = original_load
 
             if third["effective_mode"] != "sync-token":
                 raise AssertionError(f"changed cycle did not use RFC 6578: {third}")
@@ -266,6 +270,15 @@ def main() -> int:
                 raise AssertionError(
                     f"changed resources were not batched one multiget per collection: {counts}"
                 )
+            if http_counts.get("GET", 0) != 0:
+                raise AssertionError(
+                    f"changed-resource cycle issued individual HTTP GETs: {http_counts}"
+                )
+            if http_counts.get("REPORT", 0) != 4:
+                raise AssertionError(
+                    "expected exactly two sync-token REPORTs + two multiget REPORTs; "
+                    f"observed {http_counts}"
+                )
             if sorted(task.id for task in engine.cached_tasks()) != [
                 "sync-task-1",
                 "sync-task-2",
@@ -284,11 +297,12 @@ def main() -> int:
             print(
                 "PASS: 8 additions + 1 deletion used exactly one multiget per changed collection"
             )
-            print("PASS: changed-resource cycle made zero individual CalendarObjectResource.load GETs")
+            print(
+                f"PASS: changed-resource cycle used 4 REPORTs and zero HTTP GETs ({http_counts})"
+            )
             print("REAL RFC6578 SYNC TOKEN ACCEPTANCE: PASS")
             return 0
         finally:
-            CalendarObjectResource.load = original_load
             if inner is not None:
                 inner.close()
             radicale.terminate()
