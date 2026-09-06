@@ -26,7 +26,10 @@ def test_linux_user_autostart_uses_current_python_and_systemd_user(tmp_path, mon
     manager.enable()
 
     text = unit.read_text()
-    assert "ExecStart=/example/python -m caldav_assistant.internal.runtime.observable_service" in text
+    assert (
+        "ExecStart=/example/python -m "
+        "caldav_assistant.internal.runtime.versioned_observable_service"
+    ) in text
     assert "Restart=on-failure" in text
     assert ["systemctl", "--user", "daemon-reload"] in calls
     assert [
@@ -48,6 +51,15 @@ def test_linux_user_autostart_uses_current_python_and_systemd_user(tmp_path, mon
         "--now",
         unit.name,
     ] in calls
+
+
+def test_autostart_command_matches_production_versioned_service_entrypoint():
+    manager = AutostartManager(python="/example/python")
+    assert manager.command == [
+        "/example/python",
+        "-m",
+        "caldav_assistant.internal.runtime.versioned_observable_service",
+    ]
 
 
 def test_linux_autostart_does_not_report_unit_file_as_enabled_when_systemd_rejects_it(
