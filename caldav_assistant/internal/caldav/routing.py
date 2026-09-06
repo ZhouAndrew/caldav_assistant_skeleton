@@ -220,6 +220,35 @@ class CollectionRoutingCalDAVAdapter:
         except Exception as exc:
             raise _app_error(exc) from exc
 
+    def list_events_between(self, start: Any, end: Any, **filters: Any):
+        """Server-side VEVENT time-range read for bounded Agenda projections.
+
+        The generic Event list remains unchanged for Next and other broad queries.
+        With a configured Event collection, python-caldav translates this into a
+        CalDAV time-range REPORT so years of unrelated history are not downloaded.
+        ``expand=False`` preserves the existing non-expanded Event object semantics;
+        AgendaEngine remains the final overlap/filter authority.
+        """
+        wanted = self.event_collection_url()
+        calendar = self._selected_calendar(wanted)
+        mapper = getattr(self.adapter, "_to_event", None)
+        if calendar is None or not callable(mapper):
+            return self.adapter.list_events(**filters)
+        try:
+            result = []
+            for resource in calendar.search(
+                event=True,
+                start=start,
+                end=end,
+                expand=False,
+            ):
+                event = mapper(resource, calendar)
+                if _matches(event, filters):
+                    result.append(event)
+            return result
+        except Exception as exc:
+            raise _app_error(exc) from exc
+
     def list_tasks(self, **filters: Any):
         wanted = self.task_collection_url()
         if not _url(wanted):
