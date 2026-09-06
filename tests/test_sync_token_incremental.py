@@ -11,6 +11,7 @@ from caldav_assistant.internal.caldav.sync_token import (
 
 TASKS_URL = "https://dav.example/tasks"
 EVENTS_URL = "https://dav.example/events"
+_ETAG = "{DAV:}getetag"
 
 
 class MemoryCache:
@@ -228,14 +229,38 @@ class FakeURL:
         return self.value
 
 
+class NotFoundError(Exception):
+    pass
+
+
 class FakeResource:
-    def __init__(self, url, component=None, *, deleted=False):
+    def __init__(self, url, component=None, *, deleted=False, loaded=False):
         self.url = FakeURL(url)
         self._component = component
-        self._data = None if deleted else "BEGIN:VCALENDAR"
+        self._deleted = deleted
+        self._data = "BEGIN:VCALENDAR" if loaded and not deleted else None
+        self.props = {} if deleted else {_ETAG: f'"etag-{url}"'}
+        self.load_calls = 0
 
     def get_icalendar_component(self):
         return self._component
+
+    def loaded_copy(self):
+        copied = FakeResource(
+            str(self.url),
+            self._component,
+            deleted=False,
+            loaded=True,
+        )
+        copied.props = {}
+        return copied
+
+    def load(self):
+        self.load_calls += 1
+        if self._deleted:
+            raise NotFoundError(str(self.url))
+        self._data = "BEGIN:VCALENDAR"
+        return self
 
 
 class FakeSyncResult(list):
@@ -247,19 +272,39 @@ class FakeSyncResult(list):
 class FakeCalendar:
     def __init__(self):
         self.calls = []
+        self.multiget_calls = []
+        self.multiget_error = None
         self.result = FakeSyncResult([], "seed")
 
     def get_objects_by_sync_token(self, token, *, load_objects, disable_fallback):
         self.calls.append((token, load_objects, disable_fallback))
         return self.result
 
+    def multiget(self, urls, *, raise_notfound=False):
+        urls = list(urls)
+        self.multiget_calls.append((urls, raise_notfound))
+        if self.multiget_error is not None:
+            raise self.multiget_error
+        wanted = {str(value) for value in urls}
+        return [
+            resource.loaded_copy()
+            for resource in self.result
+            if str(resource.url) in wanted and not resource._deleted
+        ]
+
 
 class FakeInner:
     def _to_task(self, resource, calendar):
-        return _task("t", "Task")
+        assert resource._data is not None
+        item = _task("t", "Task")
+        item._caldav_etag = resource.props.get(_ETAG)
+        return item
 
     def _to_event(self, resource, calendar):
-        return _event("e", "Event")
+        assert resource._data is not None
+        item = _event("e", "Event")
+        item._caldav_etag = resource.props.get(_ETAG)
+        return item
 
 
 class FakeRouted:
@@ -274,26 +319,68 @@ class FakeRouted:
         return self.calendar
 
 
-def test_transport_groups_shared_task_event_collection_into_one_report():
+def test_transport_groups_shared_collection_and_multigets_changed_resources_once():
     calendar = FakeCalendar()
     routed = FakeRouted(calendar)
     transport = SyncTokenTransport(routed)
 
     seeded = transport.seed()
     assert seeded["tokens"] == {TASKS_URL: "seed"}
-    assert len(calendar.calls) == 1
+    assert calendar.calls == [(None, False, True)]
 
+    task_resource = FakeResource(f"{TASKS_URL}/t.ics", FakeComponent("VTODO"))
+    event_resource = FakeResource(f"{TASKS_URL}/e.ics", FakeComponent("VEVENT"))
+    deleted_resource = FakeResource(f"{TASKS_URL}/gone.ics", deleted=True)
     calendar.result = FakeSyncResult(
-        [
-            FakeResource(f"{TASKS_URL}/t.ics", FakeComponent("VTODO")),
-            FakeResource(f"{TASKS_URL}/e.ics", FakeComponent("VEVENT")),
-            FakeResource(f"{TASKS_URL}/gone.ics", deleted=True),
-        ],
+        [task_resource, event_resource, deleted_resource],
         "next",
     )
+
     changes = transport.changes(seeded)
+
+    assert calendar.calls[-1] == ("seed", False, True)
     assert len(calendar.calls) == 2
+    assert len(calendar.multiget_calls) == 1
+    urls, raise_notfound = calendar.multiget_calls[0]
+    assert {str(value) for value in urls} == {
+        f"{TASKS_URL}/t.ics",
+        f"{TASKS_URL}/e.ics",
+    }
+    assert raise_notfound is False
+    assert task_resource.load_calls == 0
+    assert event_resource.load_calls == 0
+    assert deleted_resource.load_calls == 0
+    assert [item.id for item in changes["tasks"]] == ["t"]
+    assert [item.id for item in changes["events"]] == ["e"]
+    assert changes["tasks"][0]._caldav_etag == task_resource.props[_ETAG]
+    assert changes["events"][0]._caldav_etag == event_resource.props[_ETAG]
+    assert changes["deleted_urls"] == [f"{TASKS_URL}/gone.ics"]
+    assert changes["tokens"] == {TASKS_URL: "next"}
+
+
+def test_transport_falls_back_to_individual_loads_when_multiget_is_rejected():
+    calendar = FakeCalendar()
+    routed = FakeRouted(calendar)
+    transport = SyncTokenTransport(routed)
+    seeded = transport.seed()
+
+    task_resource = FakeResource(f"{TASKS_URL}/t.ics", FakeComponent("VTODO"))
+    event_resource = FakeResource(f"{TASKS_URL}/e.ics", FakeComponent("VEVENT"))
+    deleted_resource = FakeResource(f"{TASKS_URL}/gone.ics", deleted=True)
+    calendar.result = FakeSyncResult(
+        [task_resource, event_resource, deleted_resource],
+        "next",
+    )
+    calendar.multiget_error = RuntimeError("calendar-multiget unsupported")
+
+    changes = transport.changes(seeded)
+
+    assert len(calendar.multiget_calls) == 1
+    assert task_resource.load_calls == 1
+    assert event_resource.load_calls == 1
+    # The sync REPORT itself identifies the deletion by missing getetag, so even
+    # the compatibility fallback does not waste a confirming GET on removed hrefs.
+    assert deleted_resource.load_calls == 0
     assert [item.id for item in changes["tasks"]] == ["t"]
     assert [item.id for item in changes["events"]] == ["e"]
     assert changes["deleted_urls"] == [f"{TASKS_URL}/gone.ics"]
-    assert changes["tokens"] == {TASKS_URL: "next"}
