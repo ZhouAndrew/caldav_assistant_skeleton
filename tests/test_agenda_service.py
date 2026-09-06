@@ -87,8 +87,8 @@ def test_next_builds_candidate_agenda_and_uses_human_work_context():
     now = datetime.now().astimezone()
     assert service.next(kind="task", now=now) == "next-item"
     assert tasks.calls == [{"completed": False}]
-    assert events.calls == [{}]
-    assert engine.candidate_calls == [(["task"], ["event"])]
+    assert events.calls == []
+    assert engine.candidate_calls == [(["task"], [])]
     assert next_engine.calls == [
         (
             "candidate-agenda",
@@ -121,6 +121,7 @@ def test_next_reuses_one_session_snapshot_from_already_fetched_tasks():
     now = datetime.now().astimezone()
     assert service.next(kind="task", now=now) == "next-item"
     assert tasks.calls == [{"completed": False}]
+    assert events.calls == []
     assert session.calls == [["task"]]
     assert next_engine.calls[0][1]["current_task_uid"] == "task-current"
     assert next_engine.calls[0][1]["skipped_uids"] == ("task-paused",)
