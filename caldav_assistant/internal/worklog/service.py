@@ -12,6 +12,7 @@ from typing import Any, Callable, Iterable
 
 from ...api import Event, Task
 from ...api.v1.errors import AmbiguousError, NotFoundError, ValidationError
+from ..caldav.scoped_query import query_events_in_collection
 from ..progress import emit_progress
 
 
@@ -86,22 +87,32 @@ class WorkLogService:
             and event.end is None
         )
 
-    def _all_work_events(self) -> list[Event]:
+    def _query_work_events(
+        self,
+        *,
+        server_filters: dict[str, Any] | None = None,
+        **filters: Any,
+    ) -> list[Event]:
+        """Read only Work VEVENTs matching the supplied authoritative facts.
+
+        ``server_filters`` may be a deliberately simpler narrowing hint than the
+        fallback/local filters.  This is useful for DESCRIPTION: CalDAV text-match is
+        substring-based and real servers disagree on multi-line matching, so a
+        single-line Task-UID marker can narrow the REPORT while exact Assistant Work
+        semantics are still validated locally.
+        """
         target = self._collection_url(required=False)
         if target is None:
             return []
 
-        # Production collection routing provides this internal scoped-read brick.
-        # It keeps Work history authoritative in CalDAV while avoiding a traversal
-        # of every human Event collection just to locate Assistant-owned Work VEVENTs.
-        scoped = getattr(self.adapter, "list_events_in_collection", None)
-        if callable(scoped):
-            items = scoped(target, category=self.CATEGORY)
-        else:
-            # Adapter-replacement compatibility: an implementation that only
-            # satisfies the generic CalDAV contract still works, just without the
-            # collection-role acceleration.
-            items = self.adapter.list_events(category=self.CATEGORY)
+        query_filters = dict(server_filters) if server_filters is not None else dict(filters)
+        items = query_events_in_collection(self.adapter, target, **query_filters)
+        if items is None:
+            scoped = getattr(self.adapter, "list_events_in_collection", None)
+            if callable(scoped):
+                items = scoped(target, **filters)
+            else:
+                items = self.adapter.list_events(**filters)
 
         return [
             item
@@ -112,8 +123,11 @@ class WorkLogService:
             == target.rstrip("/")
         ]
 
+    def _all_work_events(self) -> list[Event]:
+        return self._query_work_events(category=self.CATEGORY)
+
     def snapshot(self) -> tuple[Event, ...]:
-        """Read Work VEVENT facts once for reuse inside one synchronous action.
+        """Read all Work VEVENT facts once when global history is truly required.
 
         The returned tuple is deliberately not stored on the service.  It is only a
         command-local view of one authoritative CalDAV read, so this optimization
@@ -122,13 +136,22 @@ class WorkLogService:
         """
         return tuple(self._all_work_events())
 
+    def open_snapshot(self) -> tuple[Event, ...]:
+        """Read only currently open Work intervals for one lifecycle command.
+
+        Start/pause/complete-current need current-work facts, not years of closed
+        intervals.  Keeping this as a command-local tuple preserves the same
+        consistency model as :meth:`snapshot` while bounding the payload as history
+        grows.
+        """
+        return tuple(self._query_work_events(category=self.OPEN_CATEGORY))
+
     def _events(self, snapshot: Iterable[Event] | None) -> list[Event]:
         if snapshot is None:
             return list(self.snapshot())
         return [item for item in snapshot if isinstance(item, Event)]
 
     def _update_work_event(self, event_id: str, changes: dict[str, Any]) -> Event:
-        """Write directly to the configured Work collection when routing supports it."""
         target = self._collection_url(required=True)
         scoped = getattr(self.adapter, "update_event_in_collection", None)
         if callable(scoped):
@@ -144,7 +167,8 @@ class WorkLogService:
         self.adapter.delete_event(event_id)
 
     def open_events(self, *, snapshot: Iterable[Event] | None = None) -> list[Event]:
-        return [event for event in self._events(snapshot) if self._is_open(event)]
+        values = self.open_snapshot() if snapshot is None else self._events(snapshot)
+        return [event for event in values if self._is_open(event)]
 
     def current_task_id(self, *, snapshot: Iterable[Event] | None = None) -> str | None:
         open_items = self.open_events(snapshot=snapshot)
@@ -290,9 +314,19 @@ class WorkLogService:
         task_id = str(getattr(task, "id", task) or "").strip()
         if not task_id:
             raise ValidationError("Task id must not be empty")
+        if snapshot is None:
+            values = self._query_work_events(
+                server_filters={
+                    "description_contains": f"{self.TASK_PREFIX}{task_id}",
+                },
+                category=self.CATEGORY,
+                description=self._description(task_id),
+            )
+        else:
+            values = self._events(snapshot)
         result = [
             event
-            for event in self._events(snapshot)
+            for event in values
             if self._task_id_from_event(event) == task_id
         ]
         return sorted(

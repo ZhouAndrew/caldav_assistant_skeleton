@@ -48,6 +48,9 @@ class CountingAdapter:
         category = filters.get("category")
         if category is not None:
             items = [event for event in items if category in event.categories]
+        description = filters.get("description")
+        if description is not None:
+            items = [event for event in items if event.description == description]
         return items
 
     def create_event(self, event):
@@ -103,25 +106,30 @@ def _build_service():
     return adapter, clock, worklog, session, service
 
 
-def _assert_one_work_read(adapter, operation):
+def _assert_work_reads(adapter, expected, operation):
     before = adapter.work_event_reads
     operation()
-    assert adapter.work_event_reads - before == 1
+    assert adapter.work_event_reads - before == expected
 
 
-def test_each_caldav_work_lifecycle_action_reuses_one_authoritative_work_snapshot():
+def test_caldav_work_lifecycle_uses_bounded_targeted_reads_not_full_history_per_action():
     adapter, clock, _worklog, _session, service = _build_service()
 
-    _assert_one_work_read(adapter, lambda: service.start("t1"))
+    # Start and pause need only the current/open Work set.
+    _assert_work_reads(adapter, 1, lambda: service.start("t1"))
 
     clock.advance(10)
-    _assert_one_work_read(adapter, lambda: service.pause("t1"))
+    _assert_work_reads(adapter, 1, lambda: service.pause("t1"))
 
+    # Resume needs two bounded facts: the open set plus this Task's own history.
+    # It deliberately does not load all historical Work VEVENTs.
     clock.advance(10)
-    _assert_one_work_read(adapter, lambda: service.resume("t1"))
+    _assert_work_reads(adapter, 2, lambda: service.resume("t1"))
 
+    # Completing the current Task reuses the open snapshot; its open interval is
+    # already proof that the Task was worked, so no history query is needed.
     clock.advance(10)
-    _assert_one_work_read(adapter, lambda: service.complete("t1"))
+    _assert_work_reads(adapter, 1, lambda: service.complete("t1"))
 
 
 def _closed_work_event(task_id: str, event_id: str) -> Event:

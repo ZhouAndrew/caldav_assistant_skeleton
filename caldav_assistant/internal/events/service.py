@@ -252,8 +252,12 @@ class EventService:
             for key in normalized
         }
 
+        fast_writer = getattr(self.adapter, "update_event_from_snapshot", None)
+        fast_updated = fast_writer(obj, normalized) if callable(fast_writer) else None
         updated = self._bind(
-            self.adapter.update_event(event_id, normalized)
+            fast_updated
+            if fast_updated is not None
+            else self.adapter.update_event(event_id, normalized)
         )
 
         undo_available = self._remember(

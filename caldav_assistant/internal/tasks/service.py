@@ -283,7 +283,14 @@ class TaskService:
             for key in normalized
             if key in self._MUTABLE_FIELDS
         }
-        updated = self._bind(self.adapter.update_task(task_id, normalized))
+
+        fast_writer = getattr(self.adapter, "update_task_from_snapshot", None)
+        fast_updated = fast_writer(obj, normalized) if callable(fast_writer) else None
+        updated = self._bind(
+            fast_updated
+            if fast_updated is not None
+            else self.adapter.update_task(task_id, normalized)
+        )
 
         undo_available = False
         if undo:
