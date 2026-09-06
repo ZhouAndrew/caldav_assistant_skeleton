@@ -1,9 +1,9 @@
 """Focused network optimizations for configured CalDAV collection routing.
 
 This subclass keeps :mod:`routing` as the stable, readable collection-role layer and
-only overrides the three hot paths that need transport metadata immediately:
-Task/Event UID reads and scoped updates.  The public/frozen CalDAVAdapter contract is
-unchanged.
+only overrides hot paths that need transport metadata immediately.  The public/frozen
+CalDAVAdapter contract is unchanged; Core code may merely probe the optional
+``update_*_from_snapshot`` capability.
 
 For the concrete python-caldav adapter, a UID read requests both calendar-data and
 DAV:getetag in the same calendar-query REPORT.  A following update can therefore
@@ -12,10 +12,11 @@ that reject the optimized query fall back to the original routing implementation
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 from ...api import Event, Task
 from ...api.v1.errors import AmbiguousError, NotFoundError
+from .conditional_write import update_event_from_snapshot, update_task_from_snapshot
 from .library_adapter import _app_error
 from .resource_lookup import resource_by_uid_with_etag
 from .routing import CollectionRoutingCalDAVAdapter as _BaseRouting
@@ -134,6 +135,20 @@ class CollectionRoutingCalDAVAdapter(_BaseRouting):
             raise
         except Exception:
             return super().get_event(event_id)
+
+    def update_task_from_snapshot(
+        self,
+        task: Task,
+        changes: Mapping[str, Any],
+    ) -> Task | None:
+        return update_task_from_snapshot(self, task, changes)
+
+    def update_event_from_snapshot(
+        self,
+        event: Event,
+        changes: Mapping[str, Any],
+    ) -> Event | None:
+        return update_event_from_snapshot(self, event, changes)
 
 
 __all__ = ["CollectionRoutingCalDAVAdapter"]
