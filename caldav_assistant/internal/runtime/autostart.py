@@ -22,7 +22,16 @@ class AutostartManager:
 
     @property
     def command(self) -> list[str]:
-        return [self.python, "-m", "caldav_assistant.internal.runtime.observable_service"]
+        # Login autostart must use the same production daemon generation as the
+        # on-demand ServiceLauncher and installed ``caldav-assistant-service`` entry
+        # point.  Starting the unversioned observable service here makes the first CLI
+        # after login see a missing runtime_identity and restart a freshly launched
+        # daemon as if it were stale.
+        return [
+            self.python,
+            "-m",
+            "caldav_assistant.internal.runtime.versioned_observable_service",
+        ]
 
     @staticmethod
     def _systemd_path() -> Path:
