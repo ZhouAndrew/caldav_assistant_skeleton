@@ -1,6 +1,6 @@
 from .adapter import CalDAVAdapter
-from .experimental_cache import ExperimentalCacheCalDAVAdapter
 from .library_adapter import BaseURLProvider, LibraryCalDAVAdapter
+from .optimized_cache import ExperimentalCacheCalDAVAdapter
 from .optimized_routing import CollectionRoutingCalDAVAdapter
 from .setup import CalDAVSetupService
 from .sync import SyncEngine
