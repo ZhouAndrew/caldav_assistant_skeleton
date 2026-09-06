@@ -12,6 +12,7 @@ from typing import Any, Callable, Iterable
 
 from ...api import Event, Task
 from ...api.v1.errors import AmbiguousError, NotFoundError, ValidationError
+from ..caldav.scoped_query import query_events_in_collection
 from ..progress import emit_progress
 
 
@@ -86,22 +87,25 @@ class WorkLogService:
             and event.end is None
         )
 
-    def _all_work_events(self) -> list[Event]:
+    def _query_work_events(self, **filters: Any) -> list[Event]:
+        """Read only Work VEVENTs matching the supplied authoritative facts.
+
+        Production first tries one server-side property-filter REPORT in the known
+        Work collection.  Servers/replacement adapters without that optional brick
+        keep the previous scoped-read behavior.  Every result is still validated
+        locally as a real Assistant Work event in exactly the configured collection.
+        """
         target = self._collection_url(required=False)
         if target is None:
             return []
 
-        # Production collection routing provides this internal scoped-read brick.
-        # It keeps Work history authoritative in CalDAV while avoiding a traversal
-        # of every human Event collection just to locate Assistant-owned Work VEVENTs.
-        scoped = getattr(self.adapter, "list_events_in_collection", None)
-        if callable(scoped):
-            items = scoped(target, category=self.CATEGORY)
-        else:
-            # Adapter-replacement compatibility: an implementation that only
-            # satisfies the generic CalDAV contract still works, just without the
-            # collection-role acceleration.
-            items = self.adapter.list_events(category=self.CATEGORY)
+        items = query_events_in_collection(self.adapter, target, **filters)
+        if items is None:
+            scoped = getattr(self.adapter, "list_events_in_collection", None)
+            if callable(scoped):
+                items = scoped(target, **filters)
+            else:
+                items = self.adapter.list_events(**filters)
 
         return [
             item
@@ -111,6 +115,9 @@ class WorkLogService:
             and str(getattr(item, "_caldav_collection_url", "") or "").rstrip("/")
             == target.rstrip("/")
         ]
+
+    def _all_work_events(self) -> list[Event]:
+        return self._query_work_events(category=self.CATEGORY)
 
     def snapshot(self) -> tuple[Event, ...]:
         """Read Work VEVENT facts once for reuse inside one synchronous action.
@@ -128,7 +135,6 @@ class WorkLogService:
         return [item for item in snapshot if isinstance(item, Event)]
 
     def _update_work_event(self, event_id: str, changes: dict[str, Any]) -> Event:
-        """Write directly to the configured Work collection when routing supports it."""
         target = self._collection_url(required=True)
         scoped = getattr(self.adapter, "update_event_in_collection", None)
         if callable(scoped):
@@ -144,7 +150,12 @@ class WorkLogService:
         self.adapter.delete_event(event_id)
 
     def open_events(self, *, snapshot: Iterable[Event] | None = None) -> list[Event]:
-        return [event for event in self._events(snapshot) if self._is_open(event)]
+        if snapshot is None:
+            # A standalone current/open query does not need years of closed history.
+            values = self._query_work_events(category=self.OPEN_CATEGORY)
+        else:
+            values = self._events(snapshot)
+        return [event for event in values if self._is_open(event)]
 
     def current_task_id(self, *, snapshot: Iterable[Event] | None = None) -> str | None:
         open_items = self.open_events(snapshot=snapshot)
@@ -290,9 +301,18 @@ class WorkLogService:
         task_id = str(getattr(task, "id", task) or "").strip()
         if not task_id:
             raise ValidationError("Task id must not be empty")
+        if snapshot is None:
+            # Exact local validation remains authoritative; description is merely a
+            # server-side narrowing hint so a large Work history need not be returned.
+            values = self._query_work_events(
+                category=self.CATEGORY,
+                description=self._description(task_id),
+            )
+        else:
+            values = self._events(snapshot)
         result = [
             event
-            for event in self._events(snapshot)
+            for event in values
             if self._task_id_from_event(event) == task_id
         ]
         return sorted(
