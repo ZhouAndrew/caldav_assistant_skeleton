@@ -135,11 +135,21 @@ class AgendaService:
         return self.next_engine.choose(agenda, kind=kind, **values)
 
     def next(self, kind=None, **options):
+        # A Task-only recommendation cannot be influenced by Event candidates.
+        # Avoiding that Event collection read is particularly important for the
+        # normal `start` command, which asks for `next(kind="task")` before work
+        # begins. Generic Next still reads both sources because Events participate
+        # in its ranking policy.
+        if kind == "task":
+            tasks = list(self.tasks.list(completed=False))
+            events = []
+        else:
+            tasks, events = self._sources()
+
         # Reuse the Tasks already fetched for this command when resolving current
         # and paused work.  The older path called current_task_id(), paused_task_ids()
         # and tasks.list() independently, multiplying one user command into several
         # CalDAV traversals.
-        tasks, events = self._sources()
         values = dict(options)
         if "current_task_uid" not in values or "skipped_uids" not in values:
             session_snapshot = self._session_snapshot(tasks)
