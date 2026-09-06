@@ -57,7 +57,15 @@ class TaskCompletionLogService:
         )
 
     def queue_for(self, task: Task) -> Any:
-        text = self.render(task, self.worklog.segments_for(task))
+        # Production CalDAVWorkTaskService already resolved whether completion
+        # closed a Work VEVENT.  Reuse that command-local fact instead of issuing a
+        # second Work collection REPORT immediately after the authoritative write.
+        if bool(getattr(task, "_caldav_completion_segment_resolved", False)):
+            segment = getattr(task, "_caldav_completion_segment", None)
+            text = self.render(task, [segment] if isinstance(segment, Event) else [])
+        else:
+            # Replacement-service compatibility path.
+            text = self.render(task, self.worklog.segments_for(task))
         if not text:
             return None
         return self.wordpress.queue_log(text, _show_clock=False)

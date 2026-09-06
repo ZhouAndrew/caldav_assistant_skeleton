@@ -205,6 +205,24 @@ class CollectionRoutingCalDAVAdapter:
         except Exception as exc:
             raise _app_error(exc) from exc
 
+    def _event_resources_for_filters(self, calendar: Any, filters: dict[str, Any]):
+        """Push a simple category filter to CalDAV when the server accepts it.
+
+        WorkLogService reads the Assistant-owned category on every current/paused
+        lookup.  A server-side property filter avoids returning unrelated VEVENTs
+        from a shared Work collection.  Some CalDAV servers are inconsistent on
+        property-filter support, so a rejected category REPORT falls back to the
+        previous complete Event read and local filtering.
+        """
+        category = filters.get("category")
+        search = getattr(calendar, "search", None)
+        if isinstance(category, str) and category.strip() and callable(search):
+            try:
+                return search(event=True, category=category.strip(), expand=False)
+            except Exception:
+                pass
+        return calendar.get_events()
+
     def list_events_in_collection(self, collection_url: str, **filters: Any):
         calendar = self._selected_calendar(collection_url)
         mapper = getattr(self.adapter, "_to_event", None)
@@ -212,7 +230,36 @@ class CollectionRoutingCalDAVAdapter:
             return self.adapter.list_events(**filters)
         try:
             result = []
-            for resource in calendar.get_events():
+            for resource in self._event_resources_for_filters(calendar, dict(filters)):
+                event = mapper(resource, calendar)
+                if _matches(event, filters):
+                    result.append(event)
+            return result
+        except Exception as exc:
+            raise _app_error(exc) from exc
+
+    def list_events_between(self, start: Any, end: Any, **filters: Any):
+        """Server-side VEVENT time-range read for bounded Agenda projections.
+
+        The generic Event list remains unchanged for Next and other broad queries.
+        With a configured Event collection, python-caldav translates this into a
+        CalDAV time-range REPORT so years of unrelated history are not downloaded.
+        ``expand=False`` preserves the existing non-expanded Event object semantics;
+        AgendaEngine remains the final overlap/filter authority.
+        """
+        wanted = self.event_collection_url()
+        calendar = self._selected_calendar(wanted)
+        mapper = getattr(self.adapter, "_to_event", None)
+        if calendar is None or not callable(mapper):
+            return self.adapter.list_events(**filters)
+        try:
+            result = []
+            for resource in calendar.search(
+                event=True,
+                start=start,
+                end=end,
+                expand=False,
+            ):
                 event = mapper(resource, calendar)
                 if _matches(event, filters):
                     result.append(event)

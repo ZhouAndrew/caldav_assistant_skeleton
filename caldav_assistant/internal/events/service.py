@@ -148,6 +148,25 @@ class EventService:
     def list(self, **filters: Any) -> list[Event]:
         return [self._bind(event) for event in self.adapter.list_events(**filters)]
 
+    def list_between(
+        self,
+        start: date | datetime,
+        end: date | datetime,
+        **filters: Any,
+    ) -> list[Event]:
+        """Use an adapter time-range read when available, otherwise preserve semantics.
+
+        This is an internal query brick for Agenda.  It does not alter the frozen
+        public API.  Replacement adapters without a range capability still return
+        the ordinary full Event set, which AgendaEngine filters exactly as before.
+        """
+        self._validate_temporal(start, "start")
+        self._validate_temporal(end, "end")
+        reader = getattr(self.adapter, "list_events_between", None)
+        if not callable(reader):
+            return self.list(**filters)
+        return [self._bind(event) for event in reader(start, end, **filters)]
+
     def find(self, query: str, **filters: Any) -> Event:
         if not isinstance(query, str) or not query.strip():
             raise ValidationError("Event query must not be empty")

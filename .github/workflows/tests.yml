@@ -23,6 +23,11 @@ jobs:
           python -m pip install -e . pytest "radicale==3.5.4" pexpect
       - name: Test
         run: python -m pytest -q
+      - name: Real RFC 6578 sync-token acceptance
+        shell: bash
+        run: |
+          set -o pipefail
+          python scripts/acceptance_sync_token_real.py 2>&1 | tee sync-token-acceptance-${{ matrix.python-version }}.log
       - name: Real installed CLI conversation acceptance
         shell: bash
         env:
@@ -74,6 +79,7 @@ jobs:
         with:
           name: conversation-acceptance-${{ matrix.python-version }}
           path: |
+            sync-token-acceptance-${{ matrix.python-version }}.log
             conversation-acceptance-${{ matrix.python-version }}.log
             conversation-transcript-${{ matrix.python-version }}.log
             reminder-alert-settings-acceptance-${{ matrix.python-version }}.log

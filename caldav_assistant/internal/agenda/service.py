@@ -1,7 +1,7 @@
 """Application-facing Agenda orchestration service."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 _WORK_CATEGORY = "caldav-assistant-work"
@@ -25,25 +25,42 @@ class AgendaService:
             if _WORK_CATEGORY not in set(getattr(event, "categories", ()) or ())
         ]
 
-    def _sources(self, **filters):
+    @staticmethod
+    def _event_window(now: datetime, days: int) -> tuple[datetime, datetime]:
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return start, start + timedelta(days=days)
+
+    def _sources(self, *, event_window=None, **filters):
         """Read only the Task/Event facts that can affect an Agenda decision.
 
         Completed Tasks are never eligible for Agenda or Next.  Passing the
         explicit ``completed=False`` filter lets the CalDAV adapter translate this
         invariant into a server-side pending-VTODO query instead of downloading a
         potentially large completed-task history and discarding it afterwards.
-        Event filters remain unchanged because Event objects have no ``completed``
-        field.
+
+        Bounded Agenda projections may also pass ``event_window``.  Production
+        EventService then asks the routing adapter for a CalDAV server-side time-range
+        REPORT.  Replacement adapters without that optional brick preserve the old
+        full-read behaviour and AgendaEngine remains the final filter authority.
         """
         task_filters = dict(filters)
         task_filters.setdefault("completed", False)
+        event_reader = None
+        if event_window is not None:
+            event_reader = getattr(self.events, "list_between", None)
+        if callable(event_reader):
+            start, end = event_window
+            event_values = event_reader(start, end, **filters)
+        else:
+            event_values = self.events.list(**filters)
         return (
             list(self.tasks.list(**task_filters)),
-            self._ordinary_events(self.events.list(**filters)),
+            self._ordinary_events(event_values),
         )
 
     def today(self):
-        tasks, events = self._sources()
+        now = datetime.now().astimezone()
+        tasks, events = self._sources(event_window=self._event_window(now, 1))
         return self.engine.build(
             tasks,
             events,
@@ -52,7 +69,11 @@ class AgendaService:
         )
 
     def range(self, days=1, **filters):
-        tasks, events = self._sources(**filters)
+        now = datetime.now().astimezone()
+        tasks, events = self._sources(
+            event_window=self._event_window(now, days),
+            **filters,
+        )
         return self.engine.build(
             tasks,
             events,
@@ -165,8 +186,15 @@ class AgendaService:
         objects and one WorkLog read, then passed directly into NextEngine.  This
         removes the old current -> range -> next -> paused chain of repeated CalDAV
         traversals without introducing a cache or changing the source of truth.
+
+        The ordinary startup recommendation is Task-only, so Events outside the
+        visible Agenda range cannot affect it.  In that default path the Event read is
+        therefore safely bounded at the CalDAV server.  Generic/event recommendation
+        startup keeps the broad Event candidate set.
         """
-        tasks, events = self._sources()
+        now = datetime.now().astimezone()
+        event_window = self._event_window(now, days) if kind == "task" else None
+        tasks, events = self._sources(event_window=event_window)
         session_snapshot = self._session_snapshot(tasks)
         current_uid = session_snapshot["current_task_id"]
         paused_uids = session_snapshot["paused_task_ids"]
