@@ -20,7 +20,6 @@ from typing import Any
 from ...api import ActionResult, Event
 from ...api.v1.errors import AmbiguousError, NotFoundError, ValidationError
 from ..caldav.adapter import CalDAVAdapter
-from ..caldav.conditional_write import update_event_from_snapshot
 
 
 class EventService:
@@ -47,6 +46,9 @@ class EventService:
         self.activity = activity
         self.undo = undo
 
+    # ------------------------------------------------------------------
+    # Small reusable bricks
+    # ------------------------------------------------------------------
     def _bind(self, event: Event) -> Event:
         """Attach this service for future object convenience methods."""
         if not isinstance(event, Event):
@@ -77,20 +79,26 @@ class EventService:
     def _normalize_changes(cls, changes: dict[str, Any]) -> dict[str, Any]:
         if not changes:
             raise ValidationError("No event changes supplied")
+
         unknown = set(changes) - cls._MUTABLE_FIELDS
         if unknown:
             raise ValidationError(
                 f"Unsupported Event fields: {', '.join(sorted(unknown))}"
             )
+
         normalized = dict(changes)
+
         if "summary" in normalized:
             normalized["summary"] = cls._validate_summary(normalized["summary"])
+
         for key in ("start", "end"):
             if key in normalized:
                 normalized[key] = cls._validate_temporal(normalized[key], key)
+
         for key in ("location", "description"):
             if key in normalized and not isinstance(normalized[key], str):
                 raise ValidationError(f"{key} must be text")
+
         if "categories" in normalized:
             value = normalized["categories"]
             if not isinstance(value, (list, tuple)) or not all(
@@ -98,10 +106,12 @@ class EventService:
             ):
                 raise ValidationError("categories must contain strings")
             normalized["categories"] = list(value)
+
         return normalized
 
     @classmethod
     def _copy_for_create(cls, value: Event) -> Event:
+        """Validate a detached Event without mutating the caller's object."""
         event = replace(value, categories=list(value.categories), _service=None)
         event.summary = cls._validate_summary(event.summary)
         validated = cls._normalize_changes(
@@ -113,6 +123,7 @@ class EventService:
 
     @classmethod
     def _snapshot(cls, event: Event) -> dict[str, Any]:
+        """Keep reconstructable Event facts; never persist ``raw`` here."""
         return {
             "id": event.id,
             **{
@@ -131,6 +142,9 @@ class EventService:
         self.undo.remember(payload)
         return True
 
+    # ------------------------------------------------------------------
+    # Queries
+    # ------------------------------------------------------------------
     def list(self, **filters: Any) -> list[Event]:
         return [self._bind(event) for event in self.adapter.list_events(**filters)]
 
@@ -140,6 +154,12 @@ class EventService:
         end: date | datetime,
         **filters: Any,
     ) -> list[Event]:
+        """Use an adapter time-range read when available, otherwise preserve semantics.
+
+        This is an internal query brick for Agenda.  It does not alter the frozen
+        public API.  Replacement adapters without a range capability still return
+        the ordinary full Event set, which AgendaEngine filters exactly as before.
+        """
         self._validate_temporal(start, "start")
         self._validate_temporal(end, "end")
         reader = getattr(self.adapter, "list_events_between", None)
@@ -150,10 +170,17 @@ class EventService:
     def find(self, query: str, **filters: Any) -> Event:
         if not isinstance(query, str) or not query.strip():
             raise ValidationError("Event query must not be empty")
+
         needle = query.strip().casefold()
         items = self.list(**filters)
-        exact = [event for event in items if event.summary.casefold() == needle]
-        matches = exact or [event for event in items if needle in event.summary.casefold()]
+
+        exact = [
+            event for event in items if event.summary.casefold() == needle
+        ]
+        matches = exact or [
+            event for event in items if needle in event.summary.casefold()
+        ]
+
         if not matches:
             raise NotFoundError(query)
         if len(matches) > 1:
@@ -162,16 +189,23 @@ class EventService:
 
     def get(self, event: Event | str) -> Event:
         if isinstance(event, Event):
+            # IPC intentionally strips process-local service bindings. Treat such
+            # objects as references/snapshots and re-read the authoritative CalDAV
+            # Event before validation, undo snapshots or mutation.
             if getattr(event, "_service", None) is self:
                 return event
             event = self._require_id(event)
         if not isinstance(event, str) or not event.strip():
             raise ValidationError("Event id must not be empty")
+
         try:
             return self._bind(self.adapter.get_event(event.strip()))
         except KeyError as exc:
             raise NotFoundError(event) from exc
 
+    # ------------------------------------------------------------------
+    # Mutations
+    # ------------------------------------------------------------------
     def create(self, summary: Event | str, **fields: Any) -> ActionResult:
         if isinstance(summary, Event):
             if fields:
@@ -182,29 +216,44 @@ class EventService:
         else:
             if not isinstance(summary, str):
                 raise ValidationError("Event summary must be text")
+
             unknown = set(fields) - self._MUTABLE_FIELDS
             if unknown:
                 raise ValidationError(
                     f"Unsupported Event fields: {', '.join(sorted(unknown))}"
                 )
-            candidate = Event(summary=self._validate_summary(summary), **fields)
+
+            candidate = Event(
+                summary=self._validate_summary(summary),
+                **fields,
+            )
             candidate = self._copy_for_create(candidate)
 
         created = self._bind(self.adapter.create_event(candidate))
         self._require_id(created)
+
         undo_available = self._remember(
             {"action": "event.create", "event_id": created.id}
         )
         self._record("event_created", created)
-        return ActionResult(True, affected=created, undo_available=undo_available)
+        return ActionResult(
+            True,
+            affected=created,
+            undo_available=undo_available,
+        )
 
     def update(self, event: Event | str, **changes: Any) -> ActionResult:
         obj = self.get(event)
         event_id = self._require_id(obj)
         normalized = self._normalize_changes(changes)
-        before = {key: deepcopy(getattr(obj, key)) for key in normalized}
 
-        fast_updated = update_event_from_snapshot(self.adapter, obj, normalized)
+        before = {
+            key: deepcopy(getattr(obj, key))
+            for key in normalized
+        }
+
+        fast_writer = getattr(self.adapter, "update_event_from_snapshot", None)
+        fast_updated = fast_writer(obj, normalized) if callable(fast_writer) else None
         updated = self._bind(
             fast_updated
             if fast_updated is not None
@@ -219,7 +268,11 @@ class EventService:
                 "after": deepcopy(normalized),
             }
         )
-        self._record("event_updated", updated, changes=deepcopy(normalized))
+        self._record(
+            "event_updated",
+            updated,
+            changes=deepcopy(normalized),
+        )
         return ActionResult(
             True,
             affected=updated,
@@ -230,7 +283,9 @@ class EventService:
         obj = self.get(event)
         event_id = self._require_id(obj)
         snapshot = self._snapshot(obj)
+
         self.adapter.delete_event(event_id)
+
         undo_available = self._remember(
             {
                 "action": "event.delete",
