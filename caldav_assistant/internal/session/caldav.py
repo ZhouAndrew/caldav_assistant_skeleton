@@ -1,8 +1,9 @@
 """Read human work-session state from explicit Assistant-owned facts.
 
 When a Work VEVENT collection is configured, open/closed Assistant work segments are
-the cross-device source for current/paused state.  Without one, the lightweight
-Activity Journal is a local fallback so Task lifecycle commands remain usable.
+the cross-device source for current/paused state. Without one, or while that CalDAV
+collection is temporarily unavailable, the lightweight Activity Journal is the local
+read fallback so the Assistant can still explain the last known work context.
 
 A plain CalDAV ``STATUS:IN-PROCESS`` is never treated as proof that the Assistant
 paused a Task; external CalDAV clients may legitimately use that standard status.
@@ -11,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-from ...api.v1.errors import AmbiguousError
+from ...api.v1.errors import AmbiguousError, UnavailableError
 
 
 _CURRENT_ACTIONS = frozenset({"task_started", "task_resumed"})
@@ -71,11 +72,8 @@ class CalDAVSessionService:
             return None
         if not items:
             return None
-        # Activity repositories return journal rows in chronological insertion order.
-        # Windows clocks can legitimately give start/pause (or resume/complete) the
-        # exact same timestamp.  Timestamp-only max() then kept the first row and
-        # made a just-paused Task still look current.  Preserve chronological ordering
-        # while using the later journal row as the deterministic tie-breaker.
+        # Equal timestamps occur on coarse Windows clocks. Journal insertion order
+        # provides the deterministic tie-breaker for start->pause/complete pairs.
         _, latest = max(
             enumerate(items),
             key=lambda pair: (getattr(pair[1], "timestamp", 0), pair[0]),
@@ -95,6 +93,36 @@ class CalDAVSessionService:
                     return None
                 return task
         return None
+
+    def _activity_snapshot(
+        self,
+        task_values: list[Any],
+        in_progress: list[Any],
+    ) -> dict[str, Any]:
+        """Resolve last locally observed current/paused state from Activity Journal."""
+        current: list[str] = []
+        paused: list[str] = []
+        for task in in_progress:
+            task_id = str(getattr(task, "id", "") or "").strip()
+            if not task_id:
+                continue
+            action = self._latest_activity_action(task)
+            if action in _CURRENT_ACTIONS:
+                current.append(task_id)
+            elif action == _PAUSED_ACTION:
+                paused.append(task_id)
+
+        if len(current) > 1:
+            raise AmbiguousError(
+                "More than one Task is marked current by the Activity Journal; "
+                "pause or complete the extra Task before continuing."
+            )
+        current_id = current[0] if current else None
+        return {
+            "current_task_id": current_id,
+            "current_task": self._task_by_id(task_values, current_id),
+            "paused_task_ids": tuple(dict.fromkeys(paused)),
+        }
 
     def _fallback_paused_ids(
         self,
@@ -130,79 +158,77 @@ class CalDAVSessionService:
         return tuple(paused)
 
     def startup_snapshot(self, tasks: Iterable[Any]) -> dict[str, Any]:
-        """Resolve current/paused state from an already-read Task set.
-
-        Startup used to ask ``current_task_id()``, ``paused_task_ids()`` and then
-        ``tasks.get()`` independently.  With a CalDAV Work collection that caused
-        repeated full Work VEVENT scans plus another Task traversal.  This internal
-        composition reads the Work facts once and reuses the Tasks already fetched
-        for Agenda.  No state is cached or promoted to a second source of truth.
-        """
+        """Resolve current/paused state from an already-read Task set."""
         task_values = list(tasks or ())
         in_progress = [task for task in task_values if self._is_in_progress(task)]
 
-        if self._worklog_configured():
-            reader = getattr(self.worklog, "_all_work_events", None)
-            if not callable(reader):
+        if not self._worklog_configured():
+            return self._activity_snapshot(task_values, in_progress)
+
+        reader = getattr(self.worklog, "_all_work_events", None)
+        if not callable(reader):
+            try:
                 current_id = self.current_task_id()
                 paused_ids = self._fallback_paused_ids(
                     in_progress,
                     current_id=current_id,
                 )
-            else:
-                work_events = list(reader() or ())
-                is_open = getattr(self.worklog, "_is_open", None)
-                task_id_from_event = getattr(self.worklog, "_task_id_from_event", None)
-                if not callable(is_open) or not callable(task_id_from_event):
-                    current_id = self.current_task_id()
-                    paused_ids = self._fallback_paused_ids(
-                        in_progress,
-                        current_id=current_id,
-                    )
-                else:
-                    open_items = [event for event in work_events if is_open(event)]
-                    current_ids = {
-                        task_id_from_event(item)
-                        for item in open_items
-                        if task_id_from_event(item) is not None
-                    }
-                    if len(open_items) > 1 or len(current_ids) > 1:
-                        raise AmbiguousError(
-                            "More than one open CalDAV work interval exists; "
-                            "close the extra interval before starting another Task."
-                        )
-                    current_id = next(iter(current_ids)) if current_ids else None
-                    worked_ids = {
-                        task_id_from_event(item)
-                        for item in work_events
-                        if task_id_from_event(item) is not None
-                    }
-                    paused_ids = tuple(
-                        task_id
-                        for task in in_progress
-                        for task_id in [str(getattr(task, "id", "") or "").strip()]
-                        if task_id and task_id != current_id and task_id in worked_ids
-                    )
-        else:
-            current: list[str] = []
-            paused: list[str] = []
-            for task in in_progress:
-                task_id = str(getattr(task, "id", "") or "").strip()
-                if not task_id:
-                    continue
-                action = self._latest_activity_action(task)
-                if action in _CURRENT_ACTIONS:
-                    current.append(task_id)
-                elif action == _PAUSED_ACTION:
-                    paused.append(task_id)
-            if len(current) > 1:
-                raise AmbiguousError(
-                    "More than one Task is marked current by the Activity Journal; "
-                    "pause or complete the extra Task before continuing."
-                )
-            current_id = current[0] if current else None
-            paused_ids = tuple(paused)
+            except UnavailableError:
+                return self._activity_snapshot(task_values, in_progress)
+            return {
+                "current_task_id": current_id,
+                "current_task": self._task_by_id(task_values, current_id),
+                "paused_task_ids": tuple(dict.fromkeys(paused_ids)),
+            }
 
+        try:
+            work_events = list(reader() or ())
+        except UnavailableError:
+            # Work VEVENTs remain authoritative; this is only a read fallback while
+            # that collection cannot be reached. Activity is never written back over
+            # CalDAV and therefore cannot become a competing source of truth.
+            return self._activity_snapshot(task_values, in_progress)
+
+        is_open = getattr(self.worklog, "_is_open", None)
+        task_id_from_event = getattr(self.worklog, "_task_id_from_event", None)
+        if not callable(is_open) or not callable(task_id_from_event):
+            try:
+                current_id = self.current_task_id()
+                paused_ids = self._fallback_paused_ids(
+                    in_progress,
+                    current_id=current_id,
+                )
+            except UnavailableError:
+                return self._activity_snapshot(task_values, in_progress)
+            return {
+                "current_task_id": current_id,
+                "current_task": self._task_by_id(task_values, current_id),
+                "paused_task_ids": tuple(dict.fromkeys(paused_ids)),
+            }
+
+        open_items = [event for event in work_events if is_open(event)]
+        current_ids = {
+            task_id_from_event(item)
+            for item in open_items
+            if task_id_from_event(item) is not None
+        }
+        if len(open_items) > 1 or len(current_ids) > 1:
+            raise AmbiguousError(
+                "More than one open CalDAV work interval exists; "
+                "close the extra interval before starting another Task."
+            )
+        current_id = next(iter(current_ids)) if current_ids else None
+        worked_ids = {
+            task_id_from_event(item)
+            for item in work_events
+            if task_id_from_event(item) is not None
+        }
+        paused_ids = tuple(
+            task_id
+            for task in in_progress
+            for task_id in [str(getattr(task, "id", "") or "").strip()]
+            if task_id and task_id != current_id and task_id in worked_ids
+        )
         return {
             "current_task_id": current_id,
             "current_task": self._task_by_id(task_values, current_id),
@@ -211,7 +237,14 @@ class CalDAVSessionService:
 
     def current_task_id(self) -> str | None:
         if self._worklog_configured():
-            return self.worklog.current_task_id()
+            try:
+                return self.worklog.current_task_id()
+            except UnavailableError:
+                snapshot = self._activity_snapshot(
+                    self._in_progress_tasks(),
+                    self._in_progress_tasks(),
+                )
+                return snapshot["current_task_id"]
 
         current: list[str] = []
         seen: set[str] = set()
@@ -247,17 +280,12 @@ class CalDAVSessionService:
         return task
 
     def paused_task_ids(self) -> tuple[str, ...]:
-        # Reuse the same composition as startup: production WorkLogService performs
-        # one IN-PROCESS Task read plus one Work VEVENT snapshot.  Replacement
-        # WorkLogs without the internal snapshot brick keep the compatible fallback.
         tasks = self._in_progress_tasks()
         return tuple(self.startup_snapshot(tasks)["paused_task_ids"])
 
     def paused_tasks(self) -> list[Any]:
         if self.tasks is None:
             return []
-        # Do not call tasks.get(uid) for every result.  Reuse the already-read
-        # IN-PROCESS objects while preserving the historical UID deduplication rule.
         tasks = self._in_progress_tasks()
         snapshot = self.startup_snapshot(tasks)
         paused = set(snapshot["paused_task_ids"])
@@ -272,7 +300,7 @@ class CalDAVSessionService:
         return result
 
     # Production lifecycle persistence is performed by TaskService through either
-    # WorkLogService or ActivityService.  These compatibility methods deliberately
+    # WorkLogService or ActivityService. These compatibility methods deliberately
     # keep no second mutable session store.
     def set_current(self, task: Any) -> None:
         return None
