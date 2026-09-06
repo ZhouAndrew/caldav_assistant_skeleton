@@ -80,6 +80,23 @@ class OfflineFallbackCalDAVAdapter:
                 raise
             return self._cached_events(**filters)
 
+    def list_events_between(self, start: Any, end: Any, **filters: Any) -> Sequence[Event]:
+        """Keep Agenda's optimized bounded read inside the reliability boundary.
+
+        On an outage it is safe to return the full cached Event subset: AgendaEngine
+        remains the final time-window authority. This costs only local work and avoids
+        duplicating the engine's overlap rules in the infrastructure adapter.
+        """
+        reader = getattr(self.adapter, "list_events_between", None)
+        if not callable(reader):
+            return self.list_events(**filters)
+        try:
+            return reader(start, end, **filters)
+        except UnavailableError:
+            if not self._snapshot_available():
+                raise
+            return self._cached_events(**filters)
+
     def get_event(self, event_id: str) -> Event:
         try:
             return self.adapter.get_event(event_id)
