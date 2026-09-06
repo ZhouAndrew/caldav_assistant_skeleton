@@ -104,6 +104,9 @@ class Adapter:
         category = filters.get("category")
         if category is not None:
             values = [item for item in values if category in item.categories]
+        description = filters.get("description")
+        if description is not None:
+            values = [item for item in values if item.description == description]
         return values
 
     def create_event(self, event):
@@ -229,7 +232,7 @@ def test_completion_logger_reuses_just_closed_segment_without_work_history_rerea
     assert wordpress.calls[0][0].endswith(" Anki")
 
 
-def test_completing_already_paused_task_does_not_re_read_or_duplicate_wordpress_log():
+def test_completing_paused_task_uses_bounded_open_and_task_history_reads_without_duplicate_wordpress_log():
     adapter, clock, _worklog, _activity, service, wordpress = _build_work_service(
         completion=True
     )
@@ -243,5 +246,7 @@ def test_completing_already_paused_task_does_not_re_read_or_duplicate_wordpress_
     result = service.complete(adapter.task)
 
     assert result.success is True
-    assert adapter.work_event_reads - before_work == 1
+    # A paused completion needs two bounded facts: the global OPEN set and this
+    # Task's own history.  The completion logger must not add a third history read.
+    assert adapter.work_event_reads - before_work == 2
     assert wordpress.calls == []
