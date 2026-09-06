@@ -2,11 +2,11 @@
 """Real request-budget acceptance for live Task/Event conditional writes.
 
 The test runs the production CalDAV adapter stack against disposable Radicale and
-counts DAVClient.request calls.  In python-caldav 3.2.1 one authoritative UID lookup
-is two REPORTs (calendar-query followed by calendar-multiget for the body).  A normal
-edit must therefore be exactly two REPORTs followed by one If-Match PUT.  The old
-service path performed that UID lookup twice, costing four REPORTs before the PUT.
-It also proves a stale fast snapshot falls back to the old fresh-read merge behavior.
+counts DAVClient.request calls.  The optimized configured-collection UID lookup asks
+for calendar-data and DAV:getetag in the same calendar-query REPORT, so a normal edit
+must be exactly one REPORT followed by one If-Match PUT, with no HTTP GET.  It also
+proves a stale fast snapshot falls back to one fresh authoritative read and preserves
+unrelated remote changes.
 """
 from __future__ import annotations
 
@@ -139,9 +139,9 @@ def _assert_normal_edit_budget(calls, label: str) -> None:
     reports = methods.count("REPORT")
     puts = methods.count("PUT")
     gets = methods.count("GET")
-    if reports != 2 or puts != 1 or gets != 0:
+    if reports != 1 or puts != 1 or gets != 0:
         raise AssertionError(
-            f"{label} expected 2 REPORT + 1 PUT + 0 GET, observed {methods}"
+            f"{label} expected 1 REPORT + 1 PUT + 0 GET, observed {methods}"
         )
     put_headers = next(headers for method, _url, headers in calls if method == "PUT")
     if not put_headers.get("if-match"):
@@ -215,14 +215,14 @@ def main() -> int:
             if task_result.affected.summary != "Edited Task":
                 raise AssertionError("Task update did not persist expected summary")
             _assert_normal_edit_budget(calls, "Task update")
-            print("PASS: Task edit used one UID lookup (2 REPORTs) + one If-Match PUT")
+            print("PASS: Task edit used one ETag-aware REPORT + one If-Match PUT")
 
             calls.clear()
             event_result = events.update("conditional-event", summary="Edited Event")
             if event_result.affected.summary != "Edited Event":
                 raise AssertionError("Event update did not persist expected summary")
             _assert_normal_edit_budget(calls, "Event update")
-            print("PASS: Event edit used one UID lookup (2 REPORTs) + one If-Match PUT")
+            print("PASS: Event edit used one ETag-aware REPORT + one If-Match PUT")
 
             stale = tasks.get("conditional-task")
             remote = task_calendar.get_todo_by_uid("conditional-task")
@@ -233,11 +233,18 @@ def main() -> int:
             calls.clear()
             merged = tasks.update(stale, summary="Merged after stale snapshot")
             methods = [method for method, _url, _headers in calls]
-            if methods.count("PUT") < 2 or methods.count("REPORT") < 2:
+            if methods.count("PUT") != 2 or methods.count("REPORT") != 1 or methods.count("GET") != 0:
                 raise AssertionError(
-                    "stale fast write did not fall back through fresh-read update path: "
+                    "stale fast write did not fall back through exactly one fresh read: "
                     f"{methods}"
                 )
+            put_headers = [headers for method, _url, headers in calls if method == "PUT"]
+            if len(put_headers) != 2 or not all(headers.get("if-match") for headers in put_headers):
+                raise AssertionError(
+                    "stale path must protect both attempted writes with If-Match: "
+                    f"{put_headers}"
+                )
+
             current = tasks.get("conditional-task")
             if current.summary != "Merged after stale snapshot":
                 raise AssertionError("stale fallback did not apply requested field")
@@ -247,7 +254,7 @@ def main() -> int:
                 )
             if merged.affected.summary != current.summary:
                 raise AssertionError("stale fallback returned an inconsistent Task")
-            print("PASS: stale ETag fell back to fresh-read merge and preserved remote detail")
+            print("PASS: stale ETag used one fresh REPORT and preserved remote detail")
             print("REAL CONDITIONAL WRITE ACCEPTANCE: PASS")
             return 0
         finally:
