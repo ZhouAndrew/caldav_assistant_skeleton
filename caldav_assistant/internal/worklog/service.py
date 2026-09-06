@@ -87,19 +87,26 @@ class WorkLogService:
             and event.end is None
         )
 
-    def _query_work_events(self, **filters: Any) -> list[Event]:
+    def _query_work_events(
+        self,
+        *,
+        server_filters: dict[str, Any] | None = None,
+        **filters: Any,
+    ) -> list[Event]:
         """Read only Work VEVENTs matching the supplied authoritative facts.
 
-        Production first tries one server-side property-filter REPORT in the known
-        Work collection.  Servers/replacement adapters without that optional brick
-        keep the previous scoped-read behavior.  Every result is still validated
-        locally as a real Assistant Work event in exactly the configured collection.
+        ``server_filters`` may be a deliberately simpler narrowing hint than the
+        fallback/local filters.  This is useful for DESCRIPTION: CalDAV text-match is
+        substring-based and real servers disagree on multi-line matching, so a
+        single-line Task-UID marker can narrow the REPORT while exact Assistant Work
+        semantics are still validated locally.
         """
         target = self._collection_url(required=False)
         if target is None:
             return []
 
-        items = query_events_in_collection(self.adapter, target, **filters)
+        query_filters = dict(server_filters) if server_filters is not None else dict(filters)
+        items = query_events_in_collection(self.adapter, target, **query_filters)
         if items is None:
             scoped = getattr(self.adapter, "list_events_in_collection", None)
             if callable(scoped):
@@ -309,6 +316,9 @@ class WorkLogService:
             raise ValidationError("Task id must not be empty")
         if snapshot is None:
             values = self._query_work_events(
+                server_filters={
+                    "description_contains": f"{self.TASK_PREFIX}{task_id}",
+                },
                 category=self.CATEGORY,
                 description=self._description(task_id),
             )
