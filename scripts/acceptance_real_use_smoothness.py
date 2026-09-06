@@ -153,9 +153,12 @@ def main() -> int:
             child.expect(r"How long do you want to work")
             print(f"REAL-USE: choose_start_to_duration={_elapsed(started):.3f}s")
 
+            # `0 Back` is deliberately the only numeric exit assumption here. It is
+            # stable across all Menu instances and therefore cannot drift when home
+            # menu options are added/reordered.
             child.sendline("0")
             child.expect(r"What do you want to do\?")
-            child.sendline("10")
+            child.sendline("0")
             child.expect(r"> ")
             child.sendline("exit")
             child.expect(pexpect.EOF)
