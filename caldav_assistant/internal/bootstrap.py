@@ -12,6 +12,7 @@ from .agenda import AgendaEngine, AgendaService, NextEngine
 from .caldav import (
     CollectionRoutingCalDAVAdapter,
     ExperimentalCacheCalDAVAdapter,
+    OfflineFallbackCalDAVAdapter,
     SyncEngine,
 )
 from .caldav.library_adapter import LibraryCalDAVAdapter
@@ -274,6 +275,9 @@ def build_service_application() -> ServiceApplication:
             settings_service.get(EXPERIMENTAL_FAST_QUERY_CACHE, False)
         ),
     )
+    # Fast cache remains opt-in.  This outer stable layer activates only after a
+    # live read fails and marks every returned fact stale; writes never fall back.
+    reliable_caldav = OfflineFallbackCalDAVAdapter(app_caldav, sync)
 
     worklog = WorkLogService(
         app_caldav,
@@ -289,7 +293,7 @@ def build_service_application() -> ServiceApplication:
 
     session = CalDAVSessionService(worklog, activity=activity)
     tasks = WorkPeriodAwareTaskService(
-        app_caldav,
+        reliable_caldav,
         activity,
         undo,
         session,
@@ -298,7 +302,7 @@ def build_service_application() -> ServiceApplication:
     )
     session.bind_tasks(tasks)
 
-    events = EventService(app_caldav, activity, undo)
+    events = EventService(reliable_caldav, activity, undo)
     undo.bind(tasks=tasks, events=events)
     agenda = AgendaService(
         tasks,
@@ -307,6 +311,8 @@ def build_service_application() -> ServiceApplication:
         NextEngine(),
         assistant_state,
         session=session,
+        cached_tasks=reliable_caldav.cached_tasks,
+        cached_events=reliable_caldav.cached_events,
     )
     notifications = NotificationService(
         _notification_adapter_for_platform(

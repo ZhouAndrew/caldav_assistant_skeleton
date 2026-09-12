@@ -28,7 +28,8 @@ from ..runtime.ipc import (
 )
 
 
-STARTUP_READ_TIMEOUT_SECONDS = 8.0
+STARTUP_READ_TIMEOUT_SECONDS = 3.0
+STARTUP_CACHE_FALLBACK_TIMEOUT_SECONDS = 0.75
 _MAIN_THREAD_SHELLS = frozenset({"history", "menu", "settings"})
 _UPCOMING_REFRESH_LABEL = "Refreshing Upcoming…"
 _HOME_REFRESH_LABEL = "Refreshing current work, Tasks and Events…"
@@ -58,9 +59,32 @@ def _bounded_read_call(app: Any, method: str, **payload: Any) -> Any:
             ensure()
         return execute(clean, body, timeout=STARTUP_READ_TIMEOUT_SECONDS)
     except IPCTimeoutError as exc:
-        raise UnavailableError(
-            f"Startup live read exceeded {STARTUP_READ_TIMEOUT_SECONDS:g}s: {clean}"
-        ) from exc
+        # The server-side live request is still allowed to finish and is coalesced
+        # with later retries.  Keep the foreground usable now by asking for the last
+        # verified local snapshot through a separate cache-only IPC route.
+        try:
+            cached = execute(
+                "agenda.cached_startup_snapshot",
+                body,
+                timeout=STARTUP_CACHE_FALLBACK_TIMEOUT_SECONDS,
+            )
+        except Exception as cache_exc:
+            raise UnavailableError(
+                f"Startup live read exceeded {STARTUP_READ_TIMEOUT_SECONDS:g}s: "
+                f"{clean}; no verified cache fallback was available "
+                f"({type(cache_exc).__name__}: {cache_exc})"
+            ) from exc
+        if not isinstance(cached, dict):
+            raise UnavailableError(
+                f"Startup live read exceeded {STARTUP_READ_TIMEOUT_SECONDS:g}s: "
+                f"{clean}; cache fallback returned an invalid response"
+            ) from exc
+        value = dict(cached)
+        value["stale"] = True
+        value["fallback_reason"] = (
+            f"live read exceeded {STARTUP_READ_TIMEOUT_SECONDS:g}s"
+        )
+        return value
     except IPCUnavailableError as exc:
         raise UnavailableError(
             f"Background service became unavailable during startup read: {clean}"
@@ -89,6 +113,8 @@ def _read_snapshot(module: Any, app: Any) -> Any:
         agenda = bundle.get("agenda")
         recommendation = bundle.get("recommendation")
         current = bundle.get("current_task")
+        tasks = tuple(bundle.get("tasks") or ())
+        stale = bool(bundle.get("stale", False))
     else:
         # Deliberately small test contexts may have no Runtime connection.
         session = getattr(app.ctx, "session", None)
@@ -99,6 +125,8 @@ def _read_snapshot(module: Any, app: Any) -> Any:
             recommendation = app.ctx.agenda.next(kind="task")
         except TypeError:
             recommendation = app.ctx.agenda.next()
+        tasks = ()
+        stale = False
 
     values = tuple(
         item
@@ -116,7 +144,9 @@ def _read_snapshot(module: Any, app: Any) -> Any:
         current_task=current,
         upcoming=values,
         recommended=recommendation,
+        tasks=tasks,
         window_hours=hours,
+        stale=stale,
     )
 
 
@@ -224,22 +254,32 @@ def install(module: Any) -> None:
         menu_state["snapshot"] = refreshed
         return refreshed
 
-    def guarded_guided_start(app: Any, task: Any = None):
+    def guarded_guided_start(app: Any, task: Any = None, **options: Any):
         snapshot = menu_state["snapshot"]
-        # After startup already proved live state unavailable, do not immediately
-        # issue a second long session.current_task IPC call from the guided menu. We
-        # cannot safely assume "no current Task" from an unavailable snapshot, so the
-        # correct degraded behavior is to keep the console alive and change nothing.
+        # A timeout must not permanently disable the primary Task action.  Retry the
+        # coalesced snapshot explicitly; if it is still unavailable, remain safe and
+        # change nothing.
         if snapshot is not None and getattr(snapshot, "warning", None) is not None:
-            conversation._show(
-                app,
-                "Current Task state is unavailable, so the Assistant cannot safely "
-                "start another Task from this menu yet. No Task state was changed.",
-            )
-            return "console"
+            try:
+                recovered = original_visible_call(
+                    app,
+                    "Retrying current Task state…",
+                    lambda: _read_snapshot(module, app),
+                )
+            except (UnavailableError, RuntimeError) as exc:
+                conversation._show(
+                    app,
+                    "Current Task state is still unavailable. The menu remains "
+                    "usable; no Task state was changed. "
+                    f"{type(exc).__name__}: {exc}",
+                )
+                return "console"
+            menu_state["snapshot"] = recovered
+            options["known_current"] = getattr(recovered, "current_task", None)
+            options["task_choices"] = tuple(getattr(recovered, "tasks", ()) or ())
         try:
             assert callable(original_guided_start)
-            return original_guided_start(app, task)
+            return original_guided_start(app, task, **options)
         except (UnavailableError, RuntimeError) as exc:
             conversation._show(
                 app,

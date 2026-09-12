@@ -15,6 +15,9 @@ from .ipc import IPCAlreadyRunningError
 from .scheduler import PlatformWakeScheduler
 
 
+DEFAULT_MAINTENANCE_STARTUP_GRACE_SECONDS = 10.0
+
+
 class AssistantService:
     def __init__(
         self,
@@ -28,6 +31,7 @@ class AssistantService:
         sync_interval: float = 60.0,
         wordpress_interval: float = 60.0,
         max_idle: float = 30.0,
+        maintenance_startup_grace: float = DEFAULT_MAINTENANCE_STARTUP_GRACE_SECONDS,
     ) -> None:
         self.sync = sync
         self.reminders = reminders
@@ -38,8 +42,11 @@ class AssistantService:
         self.sync_interval = float(sync_interval)
         self.wordpress_interval = float(wordpress_interval)
         self.max_idle = float(max_idle)
+        self.maintenance_startup_grace = float(maintenance_startup_grace)
         if self.sync_interval <= 0 or self.wordpress_interval <= 0 or self.max_idle <= 0:
             raise ValueError("Background service intervals must be positive")
+        if self.maintenance_startup_grace < 0:
+            raise ValueError("Background maintenance startup grace must not be negative")
 
         self._stop_event = Event()
         self._running = Event()
@@ -161,11 +168,25 @@ class AssistantService:
         self._run_one("wordpress.flush", getattr(self.wordpress, "flush", None))
 
     def _maintenance_loop(self) -> None:
+        # A daemon restart is normally followed immediately by the foreground
+        # startup snapshot.  Do not launch cache sync, reminder evaluation and
+        # WordPress flushing into the same CalDAV/CPU window.  This bounded grace
+        # changes only scheduling order; explicit maintenance remains immediate.
+        maintenance_ready: float | None = None
         next_sync = 0.0
         next_wordpress = 0.0
         while not self._stop_event.is_set():
             try:
                 now = self.scheduler.monotonic()
+                if maintenance_ready is None:
+                    maintenance_ready = now + self.maintenance_startup_grace
+                    next_sync = maintenance_ready
+                    next_wordpress = maintenance_ready
+                    with self._lock:
+                        self._next_reminder_wake = max(
+                            self._next_reminder_wake,
+                            maintenance_ready,
+                        )
                 if now >= next_sync:
                     incremental = getattr(self.sync, "incremental_sync", None) or getattr(
                         self.sync, "refresh", None

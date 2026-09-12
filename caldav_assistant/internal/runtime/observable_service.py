@@ -190,6 +190,7 @@ def build_observable_service() -> ObservableAssistantService:
         sync_interval=base.sync_interval,
         wordpress_interval=base.wordpress_interval,
         max_idle=base.max_idle,
+        maintenance_startup_grace=base.maintenance_startup_grace,
     )
 
 

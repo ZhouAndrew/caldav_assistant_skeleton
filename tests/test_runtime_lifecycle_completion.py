@@ -64,6 +64,7 @@ def make_service(scheduler=None):
         FakeDispatcher(),
         scheduler or BrokenDelayScheduler(),
         max_idle=0.1,
+        maintenance_startup_grace=0,
     )
 
 
@@ -276,6 +277,7 @@ def test_losing_ipc_singleton_never_starts_maintenance():
         FakeDispatcher(),
         BrokenDelayScheduler(),
         max_idle=0.1,
+        maintenance_startup_grace=0,
     )
     with pytest.raises(IPCAlreadyRunningError):
         service.run_forever()
@@ -327,6 +329,7 @@ def test_blocking_sync_does_not_starve_wordpress_or_reminder_processing():
         FakeDispatcher(),
         Scheduler(),
         max_idle=0.1,
+        maintenance_startup_grace=0,
     )
     try:
         service._maintenance_loop()
@@ -373,6 +376,7 @@ def test_overdue_reminder_retry_has_low_resource_floor():
         FakeDispatcher(),
         ImmediateScheduler(),
         max_idle=5.0,
+        maintenance_startup_grace=0,
     )
     service._maintenance_loop()
     assert waits
@@ -417,6 +421,7 @@ def test_slow_next_due_never_blocks_scheduler_thread():
         FakeDispatcher(),
         Scheduler(),
         max_idle=0.2,
+        maintenance_startup_grace=0,
     )
     try:
         service._maintenance_loop()

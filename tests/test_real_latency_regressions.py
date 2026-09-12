@@ -360,7 +360,7 @@ def test_startup_read_timeout_is_reported_as_unavailable_not_a_fake_empty_agenda
         def _execute(self, method, payload, *, timeout=None):
             raise IPCTimeoutError("slow")
 
-    with pytest.raises(UnavailableError, match="Startup live read exceeded 8s"):
+    with pytest.raises(UnavailableError, match="Startup live read exceeded 3s"):
         latency_guard._bounded_read_call(
             SimpleNamespace(runtime=Runtime()),
             "agenda.startup_snapshot",

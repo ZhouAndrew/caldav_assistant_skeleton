@@ -28,6 +28,7 @@ from .completion import completion_session
 
 
 DEFAULT_UPCOMING_HOURS = 24
+_UNKNOWN_CURRENT = object()
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,8 +36,10 @@ class StartupSnapshot:
     current_task: Any = None
     upcoming: tuple[AgendaItem, ...] = ()
     recommended: Any = None
+    tasks: tuple[Task, ...] = ()
     window_hours: int = DEFAULT_UPCOMING_HOURS
     warning: str | None = None
+    stale: bool = False
 
 
 def _show(app: Any, value: Any = "") -> None:
@@ -354,20 +357,38 @@ def _execute_user(app: Any, parsed: base.ParsedCommand, *, paginate: bool = True
     return code, should_exit
 
 
-def _guided_start(app: Any, task: Any = None) -> str:
-    session = getattr(app.ctx, "session", None)
-    current_getter = getattr(session, "current_task", None)
-    current = current_getter() if callable(current_getter) else None
+def _guided_start(
+    app: Any,
+    task: Any = None,
+    *,
+    known_current: Any = _UNKNOWN_CURRENT,
+    task_choices: Sequence[Task] | None = None,
+) -> str:
+    if known_current is _UNKNOWN_CURRENT:
+        session = getattr(app.ctx, "session", None)
+        current_getter = getattr(session, "current_task", None)
+        current = current_getter() if callable(current_getter) else None
+    else:
+        current = known_current
     if current is not None:
         _show(app, f"You are already working on: {_summary(current)}")
         _show(app, "Pause or complete it before starting another Task.")
         return "wait"
 
     if task is None:
-        chooser = getattr(app.ctx.ui, "choose_task", None)
-        if not callable(chooser):
-            raise ValidationError("Guided start requires Task selection")
-        task = chooser(title="Choose a Task to work on")
+        if task_choices is not None:
+            if not task_choices:
+                _show(app, "No actionable Tasks are available in this snapshot.")
+                return "console"
+            chooser = getattr(app.ctx.ui, "choose", None)
+            if not callable(chooser):
+                raise ValidationError("Guided start requires Task selection")
+            task = chooser("Choose a Task to work on", task_choices)
+        else:
+            chooser = getattr(app.ctx.ui, "choose_task", None)
+            if not callable(chooser):
+                raise ValidationError("Guided start requires Task selection")
+            task = chooser(title="Choose a Task to work on")
     if task is None:
         return "console"
 
@@ -615,9 +636,18 @@ def _home_menu(app: Any, snapshot: StartupSnapshot | None) -> str:
     if text.startswith("Return to Waiting Mode"):
         return "wait"
     if text.startswith("Start recommended Task"):
-        return _guided_start(app, snapshot.recommended)
+        return _guided_start(
+            app,
+            snapshot.recommended,
+            known_current=snapshot.current_task,
+            task_choices=snapshot.tasks,
+        )
     if text == "Choose a Task and start":
-        return _guided_start(app)
+        return _guided_start(
+            app,
+            known_current=snapshot.current_task,
+            task_choices=snapshot.tasks,
+        )
     if text.startswith("Upcoming —"):
         _show(app, _snapshot_text(_visible_call(app, "Refreshing Upcoming…", lambda: _read_snapshot(app))))
         return "console"

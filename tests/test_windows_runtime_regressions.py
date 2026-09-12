@@ -37,15 +37,16 @@ def test_activity_fallback_prefers_later_row_when_windows_clock_ticks_match():
     assert session.paused_task_ids() == ("t1",)
 
 
-def test_guided_start_does_not_issue_second_live_read_after_startup_timeout():
-    """The exact Windows human path must stay in the CLI after startup timeout."""
+def test_guided_start_retries_coalesced_snapshot_after_startup_timeout():
+    """The exact Windows human path must recover without a second Task-state read."""
     shown: list[str] = []
-    original_calls: list[str] = []
+    original_calls: list[dict[str, object]] = []
     conversation = SimpleNamespace()
+    task = Task(id="t1", summary="Recovered")
 
-    def original_guided_start(app, task=None):
-        original_calls.append("called")
-        raise UnavailableError("Runtime request timed out: session.current_task")
+    def original_guided_start(app, selected=None, **options):
+        original_calls.append(options)
+        return "console"
 
     def original_home_menu(app, snapshot):
         return conversation._guided_start(app)
@@ -74,12 +75,31 @@ def test_guided_start_does_not_issue_second_live_read_after_startup_timeout():
     latency_guard.install(module)
     unavailable = SimpleNamespace(warning="startup live read unavailable")
 
-    result = conversation._home_menu(SimpleNamespace(), unavailable)
+    class Runtime:
+        def call(self, method, **payload):
+            raise AssertionError("bounded execution path expected")
+
+        def _execute(self, method, payload, *, timeout=None):
+            assert method == "agenda.startup_snapshot"
+            return {
+                "agenda": None,
+                "recommendation": task,
+                "current_task": None,
+                "tasks": (task,),
+                "stale": False,
+            }
+
+    app = SimpleNamespace(
+        runtime=Runtime(),
+        ctx=SimpleNamespace(settings=None),
+    )
+    result = conversation._home_menu(app, unavailable)
 
     assert result == "console"
-    assert original_calls == []
-    assert any("cannot safely start another Task" in line for line in shown)
-    assert any("no task state was changed" in line.lower() for line in shown)
+    assert original_calls == [
+        {"known_current": None, "task_choices": (task,)}
+    ]
+    assert not any("cannot safely start another Task" in line for line in shown)
 
 
 def test_direct_guided_start_timeout_is_caught_instead_of_escaping_repl():
