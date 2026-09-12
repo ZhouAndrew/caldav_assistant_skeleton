@@ -65,7 +65,17 @@ class Autostart:
 def test_background_actions_cover_status_process_lifecycle_and_autostart():
     runtime = Runtime()
     autostart = Autostart()
-    actions = BackgroundActions(runtime, autostart)
+    waited = []
+
+    def process_waiter(pid, *, timeout):
+        waited.append((pid, timeout))
+        return True
+
+    actions = BackgroundActions(
+        runtime,
+        autostart,
+        process_waiter=process_waiter,
+    )
 
     assert "Background service: Stopped" in actions.command("status")
     assert "Background reminders: Off" in actions.command("status")
@@ -76,7 +86,8 @@ def test_background_actions_cover_status_process_lifecycle_and_autostart():
     assert "PID: 42" in started
 
     restarted = actions.command("restart")
-    assert "PID: 43" in restarted
+    assert "PID: 42" in restarted
+    assert waited == [(42, 5.0)]
 
     enabled = actions.command("enable")
     assert autostart.enabled is True
@@ -87,6 +98,7 @@ def test_background_actions_cover_status_process_lifecycle_and_autostart():
     assert runtime.running is False
     assert "Background service: Stopped" in disabled
     assert ("disable", True) in autostart.calls
+    assert waited == [(42, 5.0), (42, 5.0)]
 
 
 def test_background_command_is_protected_registry_entry_and_validates_actions():

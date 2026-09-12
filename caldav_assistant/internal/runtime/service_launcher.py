@@ -46,7 +46,14 @@ class ServiceLauncher:
             "stdin": subprocess.DEVNULL,
             "stdout": log,
             "stderr": subprocess.STDOUT,
-            "close_fds": os.name != "nt",
+            # The background service must never keep arbitrary foreground CLI
+            # handles alive. This matters especially on Windows when the CLI is
+            # launched from PowerShell, CI, an editor, or any caller capturing
+            # stdout/stderr with a pipe: inheriting that pipe's write handle keeps
+            # the caller waiting for EOF after the foreground command has exited.
+            # Python 3.10+ supports close_fds=True on Windows with redirected
+            # standard handles, which is exactly our supported runtime range.
+            "close_fds": True,
             "cwd": str(Path.home()),
         }
         if os.name == "nt":

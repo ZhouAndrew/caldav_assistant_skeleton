@@ -16,6 +16,46 @@ from time import sleep
 from typing import Any, Callable, TextIO
 
 
+def _encoding_safe_text(stream: TextIO, value: Any) -> str:
+    """Return text representable by the stream without changing its encoding.
+
+    Windows terminals and redirected CI pipes can still expose a legacy code page.
+    Presentation glyphs such as arrows, check marks, or reminder icons must never
+    turn a successful Core operation into a failed CLI command. UTF-capable streams
+    keep the original text; narrower encodings only replace unsupported glyphs.
+    """
+    text = str(value)
+    encoding = getattr(stream, "encoding", None)
+    if not encoding:
+        return text
+    try:
+        text.encode(encoding)
+        return text
+    except (UnicodeEncodeError, LookupError):
+        try:
+            return text.encode(encoding, errors="replace").decode(
+                encoding,
+                errors="replace",
+            )
+        except (LookupError, UnicodeError):
+            return text.encode("ascii", errors="replace").decode("ascii")
+
+
+def _safe_stream_write(stream: TextIO, value: Any) -> int:
+    """Write presentation text without allowing UnicodeEncodeError to escape."""
+    text = str(value)
+    try:
+        written = stream.write(text)
+    except UnicodeEncodeError:
+        written = stream.write(_encoding_safe_text(stream, text))
+    return len(text) if written is None else int(written)
+
+
+def _safe_line(stream: TextIO, value: Any = "") -> None:
+    _safe_stream_write(stream, f"{value}\n")
+    stream.flush()
+
+
 @dataclass(frozen=True, slots=True)
 class TerminalBellProfile:
     """Injected presentation policy for one logical terminal reminder bell."""
@@ -81,12 +121,15 @@ class _BellAwareTextStream:
         )
         rings_sounded = 0
 
-        self._stream.write("\n🔔 Reminder alarm — press Ctrl-C to stop the ringing.\n")
+        _safe_stream_write(
+            self._stream,
+            "\n🔔 Reminder alarm — press Ctrl-C to stop the ringing.\n",
+        )
         self._stream.flush()
         try:
             while True:
                 for ring_number in range(rings_per_burst):
-                    self._stream.write("\a")
+                    _safe_stream_write(self._stream, "\a")
                     self._stream.flush()
                     rings_sounded += 1
                     is_last_ring_in_burst = ring_number + 1 >= rings_per_burst
@@ -94,19 +137,22 @@ class _BellAwareTextStream:
                         self._sleep_fn(pause_between_rings_seconds)
                 self._sleep_fn(pause_between_bursts_seconds)
         except KeyboardInterrupt:
-            self._stream.write("\n✓ Reminder alarm stopped. Task/Event state was not changed.\n")
+            _safe_stream_write(
+                self._stream,
+                "\n✓ Reminder alarm stopped. Task/Event state was not changed.\n",
+            )
             self._stream.flush()
             return rings_sounded
 
     def write(self, value: str) -> int:
         text = str(value)
         if "\a" not in text:
-            return self._stream.write(text)
+            return _safe_stream_write(self._stream, text)
 
         text_parts = text.split("\a")
         for part_number, text_part in enumerate(text_parts):
             if text_part:
-                self._stream.write(text_part)
+                _safe_stream_write(self._stream, text_part)
             has_bell_after_part = part_number + 1 < len(text_parts)
             if has_bell_after_part:
                 self._ring_once_logically()
@@ -182,10 +228,10 @@ class StdConsoleIO:
             self._input_wait.clear()
 
     def write(self, value: Any = "") -> None:
-        print(value, file=self.stdout, flush=True)
+        _safe_line(self.stdout, value)
 
     def error(self, value: Any) -> None:
-        print(value, file=self.stderr, flush=True)
+        _safe_line(self.stderr, value)
 
     prompt = read
     input = read

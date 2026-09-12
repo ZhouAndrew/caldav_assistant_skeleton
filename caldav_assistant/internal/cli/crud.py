@@ -38,17 +38,27 @@ class CrudActions:
             raise ValidationError(f"{prompt} requires interactive UI")
         return ask(prompt, **options)
 
-    def _ask_date(self, prompt: str) -> Any:
+    def _ask_date(self, prompt: str, *, bias: str = "future") -> Any:
         ask = getattr(self.ctx.ui, "ask_date", None)
         if not callable(ask):
             raise ValidationError(f"{prompt} requires date input support")
-        return ask(prompt)
+        try:
+            return ask(prompt, bias=bias)
+        except TypeError:
+            # Narrow test/extension UIs written before the bias keyword existed may
+            # expose only ask_date(prompt). Production PromptKit accepts the frozen
+            # bias argument; keeping the fallback avoids making internal test doubles
+            # part of the product contract.
+            return ask(prompt)
 
-    def _ask_datetime(self, prompt: str) -> Any:
+    def _ask_datetime(self, prompt: str, *, bias: str = "future") -> Any:
         ask = getattr(self.ctx.ui, "ask_datetime", None)
         if not callable(ask):
             raise ValidationError(f"{prompt} requires date/time input support")
-        return ask(prompt)
+        try:
+            return ask(prompt, bias=bias)
+        except TypeError:
+            return ask(prompt)
 
     @staticmethod
     def _summary(value: Any) -> str:
