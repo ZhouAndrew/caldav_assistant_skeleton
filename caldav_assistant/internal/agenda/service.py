@@ -1,6 +1,7 @@
 """Application-facing Agenda orchestration service."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
 
@@ -30,33 +31,37 @@ class AgendaService:
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         return start, start + timedelta(days=days)
 
-    def _sources(self, *, event_window=None, **filters):
-        """Read only the Task/Event facts that can affect an Agenda decision.
-
-        Completed Tasks are never eligible for Agenda or Next.  Passing the
-        explicit ``completed=False`` filter lets the CalDAV adapter translate this
-        invariant into a server-side pending-VTODO query instead of downloading a
-        potentially large completed-task history and discarding it afterwards.
-
-        Bounded Agenda projections may also pass ``event_window``.  Production
-        EventService then asks the routing adapter for a CalDAV server-side time-range
-        REPORT.  Replacement adapters without that optional brick preserve the old
-        full-read behaviour and AgendaEngine remains the final filter authority.
-        """
+    def _read_tasks(self, filters):
         task_filters = dict(filters)
         task_filters.setdefault("completed", False)
+        return list(self.tasks.list(**task_filters))
+
+    def _read_events(self, event_window, filters):
         event_reader = None
         if event_window is not None:
             event_reader = getattr(self.events, "list_between", None)
         if callable(event_reader):
             start, end = event_window
-            event_values = event_reader(start, end, **filters)
+            values = event_reader(start, end, **filters)
         else:
-            event_values = self.events.list(**filters)
-        return (
-            list(self.tasks.list(**task_filters)),
-            self._ordinary_events(event_values),
-        )
+            values = self.events.list(**filters)
+        return self._ordinary_events(values)
+
+    def _sources(self, *, event_window=None, **filters):
+        """Read only Task/Event facts that can affect an Agenda decision.
+
+        Task and Event CalDAV REPORTs are independent network operations.  They are
+        intentionally executed concurrently here so ordinary agenda reads pay the
+        slower of the two network waits rather than their sum.  Business semantics
+        remain unchanged: both results are collected before AgendaEngine runs and
+        CalDAV remains authoritative.
+        """
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="caldav-agenda") as pool:
+            task_future = pool.submit(self._read_tasks, filters)
+            event_future = pool.submit(self._read_events, event_window, filters)
+            tasks = task_future.result()
+            events = event_future.result()
+        return tasks, events
 
     def today(self):
         now = datetime.now().astimezone()
@@ -110,12 +115,15 @@ class AgendaService:
                 return tuple(getter())
         return tuple(self._state_value(self.state, "paused_task_uids", ()) or ())
 
-    def _session_snapshot(self, tasks):
+    def _session_snapshot(self, tasks, *, work_facts=None):
         """Resolve current/paused work once from an already-read Task set."""
         if self.session is not None:
             snapshot = getattr(self.session, "startup_snapshot", None)
             if callable(snapshot):
-                value = snapshot(tasks)
+                try:
+                    value = snapshot(tasks, work_facts=work_facts)
+                except TypeError:
+                    value = snapshot(tasks)
                 if isinstance(value, dict):
                     return {
                         "current_task_id": value.get("current_task_id"),
@@ -145,10 +153,6 @@ class AgendaService:
         agenda = self.engine.candidates(tasks, events)
         values = dict(options)
         values.setdefault("now", datetime.now().astimezone())
-        # Do not use ``dict.setdefault(key, expensive_call())`` here: Python evaluates
-        # the default argument even when the caller already supplied the key.  That
-        # bug made startup re-read current/paused CalDAV Work state after it had
-        # already been resolved from the same snapshot.
         if "current_task_uid" not in values:
             values["current_task_uid"] = self._current_task_uid()
         if "skipped_uids" not in values:
@@ -156,21 +160,12 @@ class AgendaService:
         return self.next_engine.choose(agenda, kind=kind, **values)
 
     def next(self, kind=None, **options):
-        # A Task-only recommendation cannot be influenced by Event candidates.
-        # Avoiding that Event collection read is particularly important for the
-        # normal `start` command, which asks for `next(kind="task")` before work
-        # begins. Generic Next still reads both sources because Events participate
-        # in its ranking policy.
         if kind == "task":
             tasks = list(self.tasks.list(completed=False))
             events = []
         else:
             tasks, events = self._sources()
 
-        # Reuse the Tasks already fetched for this command when resolving current
-        # and paused work.  The older path called current_task_id(), paused_task_ids()
-        # and tasks.list() independently, multiplying one user command into several
-        # CalDAV traversals.
         values = dict(options)
         if "current_task_uid" not in values or "skipped_uids" not in values:
             session_snapshot = self._session_snapshot(tasks)
@@ -179,23 +174,28 @@ class AgendaService:
         return self._choose_next(tasks, events, kind=kind, **values)
 
     def startup_snapshot(self, days=1, kind="task"):
-        """Return startup current work + Agenda + recommendation from one source set.
+        """Return startup current work + Agenda + recommendation from one live read.
 
-        Task/Event objects are fetched once.  When the production Session service
-        provides ``startup_snapshot``, current/paused work is derived from those Task
-        objects and one WorkLog read, then passed directly into NextEngine.  This
-        removes the old current -> range -> next -> paused chain of repeated CalDAV
-        traversals without introducing a cache or changing the source of truth.
-
-        The ordinary startup recommendation is Task-only, so Events outside the
-        visible Agenda range cannot affect it.  In that default path the Event read is
-        therefore safely bounded at the CalDAV server.  Generic/event recommendation
-        startup keeps the broad Event candidate set.
+        Startup has three independent I/O lanes in production: Task VTODO facts,
+        ordinary Event VEVENT facts, and Assistant Work VEVENT facts.  Older code ran
+        them serially, so a 3s + 3s + 3s server path became a 9s CLI startup.  The
+        three reads now overlap.  Results are joined before any decision is made; no
+        cache is promoted to truth and no mutation semantics change.
         """
         now = datetime.now().astimezone()
         event_window = self._event_window(now, days) if kind == "task" else None
-        tasks, events = self._sources(event_window=event_window)
-        session_snapshot = self._session_snapshot(tasks)
+        work_reader = getattr(self.session, "startup_work_facts", None)
+
+        with ThreadPoolExecutor(max_workers=3, thread_name_prefix="caldav-startup") as pool:
+            task_future = pool.submit(self._read_tasks, {})
+            event_future = pool.submit(self._read_events, event_window, {})
+            work_future = pool.submit(work_reader) if callable(work_reader) else None
+
+            tasks = task_future.result()
+            events = event_future.result()
+            work_facts = work_future.result() if work_future is not None else None
+
+        session_snapshot = self._session_snapshot(tasks, work_facts=work_facts)
         current_uid = session_snapshot["current_task_id"]
         paused_uids = session_snapshot["paused_task_ids"]
         current_task = session_snapshot["current_task"]
