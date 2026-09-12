@@ -89,6 +89,7 @@ def _read_snapshot(module: Any, app: Any) -> Any:
         agenda = bundle.get("agenda")
         recommendation = bundle.get("recommendation")
         current = bundle.get("current_task")
+        stale = bool(bundle.get("stale", False))
     else:
         # Deliberately small test contexts may have no Runtime connection.
         session = getattr(app.ctx, "session", None)
@@ -99,6 +100,15 @@ def _read_snapshot(module: Any, app: Any) -> Any:
             recommendation = app.ctx.agenda.next(kind="task")
         except TypeError:
             recommendation = app.ctx.agenda.next()
+        stale = any(
+            bool(getattr(item, "stale", False))
+            for item in (
+                current,
+                *(getattr(value, "value", None) for value in getattr(agenda, "items", ())),
+                getattr(recommendation, "value", recommendation),
+            )
+            if item is not None
+        )
 
     values = tuple(
         item
@@ -117,6 +127,7 @@ def _read_snapshot(module: Any, app: Any) -> Any:
         upcoming=values,
         recommended=recommendation,
         window_hours=hours,
+        stale=stale,
     )
 
 
@@ -218,7 +229,7 @@ def install(module: Any) -> None:
             conversation._show(
                 app,
                 "Live refresh is still unavailable. The console remains usable; "
-                "showing the last available menu snapshot.",
+                "Task/Event data remains explicitly marked unavailable.",
             )
             return _unavailable_snapshot(conversation, app, exc)
         menu_state["snapshot"] = refreshed

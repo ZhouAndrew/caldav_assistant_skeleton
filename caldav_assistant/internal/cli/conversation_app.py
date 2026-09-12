@@ -37,6 +37,7 @@ class StartupSnapshot:
     recommended: Any = None
     window_hours: int = DEFAULT_UPCOMING_HOURS
     warning: str | None = None
+    stale: bool = False
 
 
 def _show(app: Any, value: Any = "") -> None:
@@ -199,7 +200,9 @@ def _render_upcoming_item(item: AgendaItem) -> str:
 
 def _snapshot_text(snapshot: StartupSnapshot) -> str:
     lines = [f"Upcoming · next {snapshot.window_hours}h"]
-    if not snapshot.upcoming:
+    if snapshot.warning and not snapshot.upcoming:
+        lines.append("  Live Task/Event data is unavailable.")
+    elif not snapshot.upcoming:
         lines.append("  (nothing scheduled in this window)")
     else:
         for item in snapshot.upcoming[:10]:

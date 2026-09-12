@@ -8,6 +8,7 @@ pass through to CalDAV and therefore can never report success from cached data.
 from __future__ import annotations
 
 from dataclasses import replace
+from threading import RLock
 from typing import Any, Mapping, Sequence
 
 from ...api import Event, Task
@@ -21,6 +22,18 @@ class OfflineFallbackCalDAVAdapter:
     def __init__(self, adapter: Any, sync: Any) -> None:
         self.adapter = adapter
         self.sync = sync
+        self._fallback_lock = RLock()
+        self._fallback_generation = 0
+
+    @property
+    def fallback_generation(self) -> int:
+        """Monotonic signal for callers that must label even an empty stale read."""
+        with self._fallback_lock:
+            return self._fallback_generation
+
+    def _record_fallback(self) -> None:
+        with self._fallback_lock:
+            self._fallback_generation += 1
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.adapter, name)
@@ -56,6 +69,7 @@ class OfflineFallbackCalDAVAdapter:
         except UnavailableError:
             if not self._snapshot_available():
                 raise
+            self._record_fallback()
             return self._cached_tasks(**filters)
 
     def get_task(self, task_id: str) -> Task:
@@ -64,6 +78,7 @@ class OfflineFallbackCalDAVAdapter:
         except UnavailableError:
             if not self._snapshot_available():
                 raise
+            self._record_fallback()
             wanted = str(task_id)
             for task in self.sync.cached_tasks():
                 if str(task.id) == wanted:
@@ -78,6 +93,7 @@ class OfflineFallbackCalDAVAdapter:
         except UnavailableError:
             if not self._snapshot_available():
                 raise
+            self._record_fallback()
             return self._cached_events(**filters)
 
     def list_events_between(self, start: Any, end: Any, **filters: Any) -> Sequence[Event]:
@@ -95,6 +111,7 @@ class OfflineFallbackCalDAVAdapter:
         except UnavailableError:
             if not self._snapshot_available():
                 raise
+            self._record_fallback()
             return self._cached_events(**filters)
 
     def get_event(self, event_id: str) -> Event:
@@ -103,6 +120,7 @@ class OfflineFallbackCalDAVAdapter:
         except UnavailableError:
             if not self._snapshot_available():
                 raise
+            self._record_fallback()
             wanted = str(event_id)
             for event in self.sync.cached_events():
                 if str(event.id) == wanted:

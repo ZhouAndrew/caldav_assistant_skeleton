@@ -128,6 +128,18 @@ def test_offline_bounded_event_read_stays_inside_fallback_boundary():
     assert events[0].stale is True
 
 
+def test_empty_offline_read_still_exposes_that_cache_fallback_was_used():
+    _, sync, wrapped = make_offline_after_verified_sync()
+    snapshot = dict(sync.cached_snapshot())
+    snapshot["tasks"] = []
+    sync.cache.set(sync.SNAPSHOT_KEY, snapshot)
+    before = wrapped.fallback_generation
+
+    assert list(wrapped.list_tasks()) == []
+
+    assert wrapped.fallback_generation == before + 1
+
+
 def test_no_verified_snapshot_keeps_unavailable_error_instead_of_inventing_data():
     adapter = FlakyAdapter()
     adapter.online = False

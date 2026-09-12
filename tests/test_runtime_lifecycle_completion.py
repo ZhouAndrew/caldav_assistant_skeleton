@@ -64,6 +64,7 @@ def make_service(scheduler=None):
         FakeDispatcher(),
         scheduler or BrokenDelayScheduler(),
         max_idle=0.1,
+        maintenance_startup_grace=0,
     )
 
 
@@ -327,6 +328,7 @@ def test_blocking_sync_does_not_starve_wordpress_or_reminder_processing():
         FakeDispatcher(),
         Scheduler(),
         max_idle=0.1,
+        maintenance_startup_grace=0,
     )
     try:
         service._maintenance_loop()
@@ -345,6 +347,77 @@ def test_blocking_sync_does_not_starve_wordpress_or_reminder_processing():
         assert "reminders.process_due" in status["last_success"]
     finally:
         release_sync.set()
+
+
+def test_startup_grace_keeps_maintenance_out_of_foreground_startup_window():
+    from time import monotonic, sleep
+
+    sync_started = Event()
+    reminders_started = Event()
+    wordpress_started = Event()
+
+    class Sync:
+        def incremental_sync(self):
+            sync_started.set()
+
+    class Reminders:
+        def process_due(self):
+            reminders_started.set()
+
+    class WordPress:
+        def flush(self):
+            wordpress_started.set()
+
+    class Scheduler:
+        def __init__(self):
+            self.now = 100.0
+            self.waits = 0
+
+        def monotonic(self):
+            return self.now
+
+        def reminder_delay(self, reminders, *, max_delay):
+            return max_delay
+
+        def wait(self, seconds, stop_event):
+            self.waits += 1
+            if self.waits == 1:
+                assert seconds == pytest.approx(7.0)
+                assert not sync_started.is_set()
+                assert not reminders_started.is_set()
+                assert not wordpress_started.is_set()
+                self.now += seconds
+                return False
+
+            deadline = monotonic() + 0.5
+            while monotonic() < deadline:
+                if (
+                    sync_started.is_set()
+                    and reminders_started.is_set()
+                    and wordpress_started.is_set()
+                ):
+                    break
+                sleep(0.005)
+            stop_event.set()
+            return True
+
+    scheduler = Scheduler()
+    service = AssistantService(
+        Sync(),
+        Reminders(),
+        WordPress(),
+        FakeIPCServer(),
+        FakeDispatcher(),
+        scheduler,
+        maintenance_startup_grace=7.0,
+    )
+
+    service._maintenance_loop()
+
+    assert scheduler.waits == 2
+    assert sync_started.is_set()
+    assert reminders_started.is_set()
+    assert wordpress_started.is_set()
 
 
 def test_overdue_reminder_retry_has_low_resource_floor():
@@ -373,6 +446,7 @@ def test_overdue_reminder_retry_has_low_resource_floor():
         FakeDispatcher(),
         ImmediateScheduler(),
         max_idle=5.0,
+        maintenance_startup_grace=0,
     )
     service._maintenance_loop()
     assert waits
@@ -417,6 +491,7 @@ def test_slow_next_due_never_blocks_scheduler_thread():
         FakeDispatcher(),
         Scheduler(),
         max_idle=0.2,
+        maintenance_startup_grace=0,
     )
     try:
         service._maintenance_loop()

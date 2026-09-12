@@ -44,3 +44,19 @@ def test_fresh_startup_snapshot_does_not_show_cache_warning(monkeypatch):
 
     assert "Cached Task/Event data" not in rendered
     monkeypatch.setattr(conversation_app, "_snapshot_text", original)
+
+
+def test_empty_cached_startup_snapshot_is_still_labelled_stale(monkeypatch):
+    original = conversation_app._snapshot_text
+    module = _module()
+    monkeypatch.delattr(module, "_stale_startup_notice_installed", raising=False)
+
+    stale_startup_notice.install(module)
+    snapshot = conversation_app.StartupSnapshot(window_hours=24, stale=True)
+
+    rendered = conversation_app._snapshot_text(snapshot)
+
+    assert "Cached Task/Event data" in rendered
+    assert "may be out of date" in rendered
+    assert "nothing scheduled in this window" in rendered
+    monkeypatch.setattr(conversation_app, "_snapshot_text", original)

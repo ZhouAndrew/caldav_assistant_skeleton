@@ -13,6 +13,8 @@ _NOTICE = "Warning: Cached Task/Event data — CalDAV is unavailable; this may b
 
 
 def _snapshot_has_stale_data(snapshot: Any) -> bool:
+    if bool(getattr(snapshot, "stale", False)):
+        return True
     values = [
         getattr(snapshot, "current_task", None),
         getattr(snapshot, "recommended", None),

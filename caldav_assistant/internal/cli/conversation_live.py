@@ -70,6 +70,7 @@ def _read_snapshot(app: Any) -> conversation.StartupSnapshot:
             raise RuntimeError("Invalid startup agenda response")
         agenda = bundle.get("agenda")
         recommendation = bundle.get("recommendation")
+        stale = bool(bundle.get("stale", False))
     else:
         # Deliberately small test contexts may have no Runtime connection.
         agenda = app.ctx.agenda.range(days=days)
@@ -77,6 +78,7 @@ def _read_snapshot(app: Any) -> conversation.StartupSnapshot:
             recommendation = app.ctx.agenda.next(kind="task")
         except TypeError:
             recommendation = app.ctx.agenda.next()
+        stale = False
 
     values = tuple(
         item
@@ -95,6 +97,7 @@ def _read_snapshot(app: Any) -> conversation.StartupSnapshot:
         upcoming=values,
         recommended=recommendation,
         window_hours=hours,
+        stale=stale,
     )
 
 

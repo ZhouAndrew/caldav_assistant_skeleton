@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from caldav_assistant.internal.agenda.service import AgendaService
 
 
@@ -125,3 +127,23 @@ def test_next_reuses_one_session_snapshot_from_already_fetched_tasks():
     assert session.calls == [["task"]]
     assert next_engine.calls[0][1]["current_task_uid"] == "task-current"
     assert next_engine.calls[0][1]["skipped_uids"] == ("task-paused",)
+
+
+def test_empty_startup_snapshot_preserves_offline_fallback_state():
+    adapter_state = SimpleNamespace(fallback_generation=0)
+
+    class OfflineTasks(Query):
+        adapter = adapter_state
+
+        def list(self, **filters):
+            adapter_state.fallback_generation += 1
+            return super().list(**filters)
+
+    tasks = OfflineTasks([])
+    events = Query([])
+    service = AgendaService(tasks, events, Engine(), Next(), {})
+
+    result = service.startup_snapshot(days=1, kind="task")
+
+    assert result["stale"] is True
+    assert result["agenda"] == "agenda"
