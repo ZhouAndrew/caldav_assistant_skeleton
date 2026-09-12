@@ -12,6 +12,7 @@ from ..runtime.build_identity import RUNTIME_BUILD_IDENTITY
 from . import conversation_live as monitor_app
 from .feature_demo import register_feature_demo_command
 from .latency_guard import install as install_latency_guards
+from .runtime_transparency import install as install_runtime_transparency
 from .smooth_home import install as install_smooth_home
 
 
@@ -32,12 +33,7 @@ def _is_background_admin(argv: Sequence[str]) -> bool:
 
 
 def ensure_current_background(app: Any) -> bool:
-    """Restart a running daemon when it loaded a different source generation.
-
-    A stopped daemon is left stopped; ordinary RuntimeClient behavior may start it
-    later when a command actually needs IPC. A running pre-handshake daemon has no
-    ``runtime_identity`` field and is intentionally treated as stale.
-    """
+    """Restart a running daemon when it loaded a different source generation."""
     runtime = getattr(app, "runtime", None)
     if runtime is None:
         return False
@@ -92,18 +88,14 @@ def run_cli(argv: Sequence[str] | None = None, *, app: Any = None) -> int:
 
         app = build_cli_application()
 
-    # Background administration commands must keep their existing semantics:
-    # `background status` is read-only, `stop` must be able to stop a legacy daemon,
-    # and explicit restart already performs the lifecycle transition itself.
     if not _is_background_admin(argv):
         ensure_current_background(app)
         install_latency_guards(monitor_app)
         install_smooth_home(monitor_app)
+        # Install after latency/smooth-home wrappers so the visible path and Ctrl-C
+        # boundary describe the final runtime structure rather than an inner layer.
+        install_runtime_transparency(monitor_app)
 
-    # Client diagnostics are a protected built-in rather than an optional Extension:
-    # if an Extension is broken or disabled, `demo` / `doctor` must still be available
-    # to identify the failing layer. Registration still goes through CommandRegistry.
-    # Narrow entrypoint/runtime test doubles are allowed to omit CommandService.
     commands = getattr(app, "commands", None)
     ctx = getattr(app, "ctx", None)
     if commands is not None and ctx is not None:
