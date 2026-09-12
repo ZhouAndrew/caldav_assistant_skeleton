@@ -12,6 +12,7 @@ from .agenda import AgendaEngine, AgendaService, NextEngine
 from .caldav import (
     CollectionRoutingCalDAVAdapter,
     ExperimentalCacheCalDAVAdapter,
+    OfflineFallbackCalDAVAdapter,
     SyncEngine,
 )
 from .caldav.library_adapter import LibraryCalDAVAdapter
@@ -126,13 +127,7 @@ def _builtin_extension_dir() -> Path:
 
 
 def _ensure_default_extension_settings(settings: SettingsService) -> None:
-    """Materialize bundled default-on state so Settings and ExtensionManager agree.
-
-    Explicit user choices always win.  Persisting only missing defaults keeps the
-    existing disable-persistence contract while making the ordinary Settings panel
-    truthful instead of reporting ``Enabled: none`` for an actually enabled bundled
-    extension.
-    """
+    """Materialize bundled default-on state so Settings and ExtensionManager agree."""
     state = settings.get(EXTENSIONS_ENABLED, None)
     if not isinstance(state, dict):
         state = {}
@@ -212,9 +207,6 @@ def _ordinary_cached_events(loader):
 
 
 def _register_builtin_commands(registry: CommandRegistry, ctx: AssistantContext) -> None:
-    # Service-side command registration stays deliberately small/headless.  The
-    # interactive CLI uses register_cli_builtin_commands() below so aliases and help
-    # metadata are installed atomically instead of being partially pre-registered.
     builtins = BuiltinActions(ctx)
     registry.register("today", builtins.today, protected=True)
     registry.register("next", builtins.next, protected=True)
@@ -233,10 +225,8 @@ def build_service_application() -> ServiceApplication:
     assistant_state = SQLiteKeyValueRepository(store, "assistant_state")
     undo_repo = SQLiteUndoRepository(store)
 
-    # Old builds stored current/paused UIDs as mutable local state.  Production now
-    # derives session state from Assistant Work VEVENTs when configured, otherwise
-    # from explicit Activity Journal lifecycle records, so stale duplicate keys are
-    # removed rather than trusted.
+    # Old builds stored current/paused UIDs as mutable local state. Production now
+    # derives session state from Work VEVENTs when configured, otherwise Activity.
     for deprecated_key in ("current_task_uid", "paused_task_uids"):
         try:
             assistant_state.delete(deprecated_key)
@@ -259,13 +249,16 @@ def build_service_application() -> ServiceApplication:
 
     routed_caldav = CollectionRoutingCalDAVAdapter(
         caldav,
-        task_collection_url=lambda: settings_service.get(CALDAV_TASK_COLLECTION_URL, None),
-        event_collection_url=lambda: settings_service.get(CALDAV_EVENT_COLLECTION_URL, None),
+        task_collection_url=lambda: settings_service.get(
+            CALDAV_TASK_COLLECTION_URL, None
+        ),
+        event_collection_url=lambda: settings_service.get(
+            CALDAV_EVENT_COLLECTION_URL, None
+        ),
     )
-    # Background synchronization must use the same configured collection roles as
-    # interactive traffic.  Otherwise each periodic "incremental" refresh falls
-    # back to a full cross-collection scan even though the user already selected the
-    # authoritative Task and Event collections.
+    # Sync owns the last verified snapshot. The fast-query layer remains opt-in and
+    # affects healthy read latency only. The outer offline layer is stable reliability:
+    # it activates solely when CalDAV is unavailable and marks returned facts stale.
     sync = SyncEngine(routed_caldav, cache)
     app_caldav = ExperimentalCacheCalDAVAdapter(
         routed_caldav,
@@ -274,7 +267,11 @@ def build_service_application() -> ServiceApplication:
             settings_service.get(EXPERIMENTAL_FAST_QUERY_CACHE, False)
         ),
     )
+    reliable_caldav = OfflineFallbackCalDAVAdapter(app_caldav, sync)
 
+    # WorkLog uses its own configured CalDAV collection and is not part of the normal
+    # Task/Event sync snapshot, so it must not pretend that snapshot can answer WorkLog
+    # reads. SessionService has its own Activity fallback for WorkLog outages.
     worklog = WorkLogService(
         app_caldav,
         lambda: settings_service.get(CALDAV_WORKLOG_COLLECTION_URL, None),
@@ -289,7 +286,7 @@ def build_service_application() -> ServiceApplication:
 
     session = CalDAVSessionService(worklog, activity=activity)
     tasks = WorkPeriodAwareTaskService(
-        app_caldav,
+        reliable_caldav,
         activity,
         undo,
         session,
@@ -298,7 +295,7 @@ def build_service_application() -> ServiceApplication:
     )
     session.bind_tasks(tasks)
 
-    events = EventService(app_caldav, activity, undo)
+    events = EventService(reliable_caldav, activity, undo)
     undo.bind(tasks=tasks, events=events)
     agenda = AgendaService(
         tasks,
@@ -440,9 +437,6 @@ def build_cli_application() -> CLIApplication:
     bind_current_context(ctx)
     _bind_hook_registrar(hooks)
 
-    # Register the complete interactive command contract in one pass.  This avoids
-    # the previous partial pre-registration that caused aliases such as `complete`
-    # and help descriptions to disappear from the final CLI registry.
     register_cli_builtin_commands(commands, ctx)
 
     extensions = _build_extension_manager(commands, hooks, settings)

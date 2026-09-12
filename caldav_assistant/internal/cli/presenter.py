@@ -12,6 +12,9 @@ from typing import Any, Iterable
 from ...api.v1.models import Agenda, AgendaItem, Event, Task
 
 
+_STALE_NOTICE = "Cached data — CalDAV is unavailable; this may be out of date."
+
+
 def _when(value: date | datetime | None) -> str:
     if value is None:
         return ""
@@ -25,6 +28,14 @@ def _local_when(value: date | datetime | None) -> str:
     if isinstance(value, datetime) and value.tzinfo is not None:
         value = value.astimezone()
     return _when(value)
+
+
+def _is_stale(value: Any) -> bool:
+    return bool(getattr(value, "stale", False))
+
+
+def _agenda_is_stale(agenda: Agenda) -> bool:
+    return any(_is_stale(item.value) for item in agenda.items)
 
 
 def _task_line(task: Task, *, index: int | None = None) -> str:
@@ -60,6 +71,8 @@ def _agenda_line(item: AgendaItem, index: int) -> str:
 
 def render_task(task: Task) -> list[str]:
     lines = [task.summary or "(untitled task)"]
+    if _is_stale(task):
+        lines.append(_STALE_NOTICE)
 
     # ``current`` attaches this transient field to a detached Task copy. It is
     # deliberately separate from Task.start, which is CalDAV DTSTART/planned time.
@@ -68,8 +81,6 @@ def render_task(task: Task) -> list[str]:
         lines.append(f"Working since: {_local_when(working_since)}")
 
     if task.start is not None:
-        # Avoid overloading the human command "start" (begin working now) with
-        # CalDAV DTSTART (the planned/scheduled start field).
         lines.append(f"Planned start: {_when(task.start)}")
     if task.due is not None:
         lines.append(f"Due: {_when(task.due)}")
@@ -85,6 +96,8 @@ def render_task(task: Task) -> list[str]:
 
 def render_event(event: Event) -> list[str]:
     lines = [event.summary or "(untitled event)"]
+    if _is_stale(event):
+        lines.append(_STALE_NOTICE)
     if event.start is not None:
         lines.append(f"Starts: {_when(event.start)}")
     if event.end is not None:
@@ -105,17 +118,32 @@ def render_agenda_item(item: AgendaItem) -> list[str]:
     elif isinstance(value, Event):
         line = _event_line(value)
     else:
-        label = getattr(value, "summary", None) or getattr(value, "title", None) or "(item)"
+        label = (
+            getattr(value, "summary", None)
+            or getattr(value, "title", None)
+            or "(item)"
+        )
         line = str(label)
-    return ["Next", f"  {line}"]
+    lines = ["Next", f"  {line}"]
+    if _is_stale(value):
+        lines.append(_STALE_NOTICE)
+    return lines
 
 
 def render_agenda(agenda: Agenda) -> list[str]:
     if not agenda.items:
         return ["Nothing scheduled."]
 
-    lines = [f"Agenda · {len(agenda.items)} item{'s' if len(agenda.items) != 1 else ''}", ""]
-    lines.extend(_agenda_line(item, index) for index, item in enumerate(agenda.items, start=1))
+    lines = [
+        f"Agenda · {len(agenda.items)} item{'s' if len(agenda.items) != 1 else ''}",
+        "",
+    ]
+    if _agenda_is_stale(agenda):
+        lines.extend([_STALE_NOTICE, ""])
+    lines.extend(
+        _agenda_line(item, index)
+        for index, item in enumerate(agenda.items, start=1)
+    )
     return lines
 
 
@@ -134,9 +162,7 @@ def render_lines(result: Any) -> list[str] | None:
 
 def _pager_input(app: Any, position: int, total: int) -> bool:
     try:
-        raw = app.io.read(
-            f"-- {position}/{total} -- [Enter] more, q stop: "
-        )
+        raw = app.io.read(f"-- {position}/{total} -- [Enter] more, q stop: ")
     except (EOFError, KeyboardInterrupt):
         return False
     answer = str(raw).strip()
@@ -146,13 +172,17 @@ def _pager_input(app: Any, position: int, total: int) -> bool:
     if not answer:
         return True
 
-    # Humans naturally type the next command at a pager prompt. Preserve it and
-    # hand it back to the REPL rather than consuming it as "show more".
     setattr(app, "_pending_repl_line", answer)
     return False
 
 
-def emit_agenda(app: Any, agenda: Agenda, *, paginate: bool = False, page_size: int = 10) -> None:
+def emit_agenda(
+    app: Any,
+    agenda: Agenda,
+    *,
+    paginate: bool = False,
+    page_size: int = 10,
+) -> None:
     total = len(agenda.items)
     if total == 0:
         app.ctx.ui.show("Nothing scheduled.")
@@ -160,6 +190,9 @@ def emit_agenda(app: Any, agenda: Agenda, *, paginate: bool = False, page_size: 
 
     app.ctx.ui.show(f"Agenda · {total} item{'s' if total != 1 else ''}")
     app.ctx.ui.show("")
+    if _agenda_is_stale(agenda):
+        app.ctx.ui.show(_STALE_NOTICE)
+        app.ctx.ui.show("")
 
     if not paginate or total <= page_size:
         for index, item in enumerate(agenda.items, start=1):
@@ -178,7 +211,13 @@ def emit_agenda(app: Any, agenda: Agenda, *, paginate: bool = False, page_size: 
             break
 
 
-def emit_lines(app: Any, lines: Iterable[str], *, paginate: bool = False, page_size: int = 10) -> None:
+def emit_lines(
+    app: Any,
+    lines: Iterable[str],
+    *,
+    paginate: bool = False,
+    page_size: int = 10,
+) -> None:
     materialized = list(lines)
     if not paginate or len(materialized) <= page_size:
         for line in materialized:

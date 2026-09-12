@@ -93,3 +93,4 @@ def test_repeated_upcoming_timeout_stays_inside_cli(monkeypatch):
     assert selected[0].warning is not None
     assert any("console is still usable" in line.lower() for line in shown)
     assert any("no Task/Event state was changed" in line for line in shown)
+    assert any("marked unavailable" in line for line in shown)

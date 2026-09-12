@@ -1,7 +1,7 @@
 """Stable public v1 domain objects.
 
-These are deliberately small data objects.  Validation and authoritative mutation
-remain in Core Services.  Convenience methods merely delegate to the service that
+These are deliberately small data objects. Validation and authoritative mutation
+remain in Core Services. Convenience methods merely delegate to the service that
 bound the object; they never reproduce Task/Event business rules.
 """
 from __future__ import annotations
@@ -38,6 +38,10 @@ class Task:
     # scaffold. Easy API itself never exposes a raw-CalDAV helper.
     raw: Any = None
     _service: Any = field(default=None, repr=False, compare=False)
+    # Additive v1 reliability metadata. Keyword-only avoids changing the positional
+    # constructor contract. True means the object came from the last verified cache
+    # because the authoritative CalDAV server was unavailable for this read.
+    stale: bool = field(default=False, kw_only=True)
 
     def _bound_service(self) -> Any:
         if self._service is None:
@@ -84,6 +88,7 @@ class Event:
     categories: list[str] = field(default_factory=list)
     raw: Any = None
     _service: Any = field(default=None, repr=False, compare=False)
+    stale: bool = field(default=False, kw_only=True)
 
     def _bound_service(self) -> Any:
         if self._service is None:

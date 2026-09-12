@@ -11,6 +11,9 @@ import pytest
 
 from caldav_assistant.internal.runtime.client import RuntimeClient
 from caldav_assistant.internal.runtime.ipc_platform import UnixSocketIPCClient
+from caldav_assistant.internal.runtime.service import (
+    DEFAULT_MAINTENANCE_STARTUP_GRACE_SECONDS,
+)
 
 
 pytestmark = pytest.mark.skipif(os.name == "nt", reason="AF_UNIX production-process test")
@@ -73,9 +76,15 @@ def test_real_background_process_autostart_status_shutdown_restart(tmp_path):
         assert client.call("runtime.events.list", after=0, limit=10) == []
 
         # The production background loop must be wired to the durable Outbox, not
-        # the scaffold stub that rejected pending(limit=...).
+        # the scaffold stub that rejected pending(limit=...). Normal maintenance is
+        # intentionally deferred while a just-started CLI gets its foreground live
+        # read window, so wait through that bounded grace period here.
         from time import monotonic, sleep
-        deadline = monotonic() + 1.0
+        deadline = (
+            monotonic()
+            + DEFAULT_MAINTENANCE_STARTUP_GRACE_SECONDS
+            + 1.0
+        )
         observed = first
         while (
             "wordpress.flush" not in observed.get("last_success", {})

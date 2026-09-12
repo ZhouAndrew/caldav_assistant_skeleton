@@ -1,7 +1,7 @@
 """SQLite repositories for Assistant local auxiliary state.
 
-SQLite is local cache/auxiliary storage only.  It is not a Task/Event source of
-truth.  Business rules belong in Core services, not in this module.
+SQLite is local cache/auxiliary storage only. It is not a Task/Event source of
+truth. Business rules belong in Core services, not in this module.
 """
 from __future__ import annotations
 
@@ -19,9 +19,26 @@ class SQLiteStore:
     def __init__(self, path: str | Path):
         self.path = Path(path)
 
+    def _protect_local_state(self) -> None:
+        """Best-effort private permissions for settings, credentials and journals."""
+        try:
+            self.path.parent.chmod(0o700)
+        except OSError:
+            pass
+        if self.path.exists():
+            try:
+                self.path.chmod(0o600)
+            except OSError:
+                pass
+
     def connect(self) -> sqlite3.Connection:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        return sqlite3.connect(self.path)
+        self._protect_local_state()
+        db = sqlite3.connect(self.path)
+        # sqlite3 may have created the file during connect(). Tighten it immediately;
+        # the private parent directory also protects transient journal files.
+        self._protect_local_state()
+        return db
 
     def migrate(self) -> None:
         with self.connect() as db:

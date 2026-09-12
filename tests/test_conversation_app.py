@@ -59,6 +59,18 @@ def test_upcoming_text_distinguishes_tasks_and_events():
     assert "◷ English class" in text
 
 
+def test_unavailable_upcoming_is_never_rendered_as_an_empty_live_window():
+    snapshot = conversation_app.StartupSnapshot(
+        window_hours=24,
+        warning="Live agenda is unavailable",
+    )
+
+    text = conversation_app._snapshot_text(snapshot)
+
+    assert "Live Task/Event data is unavailable" in text
+    assert "nothing scheduled" not in text
+
+
 def test_waiting_line_shows_start_end_remaining_without_claiming_task_percent():
     now = datetime.now(timezone.utc).astimezone()
     task = Task(id="t1", summary="Anki", status="IN-PROCESS")

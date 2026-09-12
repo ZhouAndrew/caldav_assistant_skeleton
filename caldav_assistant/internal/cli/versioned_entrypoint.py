@@ -13,6 +13,7 @@ from . import conversation_live as monitor_app
 from .feature_demo import register_feature_demo_command
 from .latency_guard import install as install_latency_guards
 from .smooth_home import install as install_smooth_home
+from .stale_startup_notice import install as install_stale_startup_notice
 
 
 def _show(app: Any, text: str) -> None:
@@ -99,6 +100,7 @@ def run_cli(argv: Sequence[str] | None = None, *, app: Any = None) -> int:
         ensure_current_background(app)
         install_latency_guards(monitor_app)
         install_smooth_home(monitor_app)
+        install_stale_startup_notice(monitor_app)
 
     # Client diagnostics are a protected built-in rather than an optional Extension:
     # if an Extension is broken or disabled, `demo` / `doctor` must still be available

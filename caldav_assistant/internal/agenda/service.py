@@ -1,7 +1,9 @@
 """Application-facing Agenda orchestration service."""
 from __future__ import annotations
 
+from concurrent.futures import Future
 from datetime import datetime, timedelta
+from threading import RLock
 
 
 _WORK_CATEGORY = "caldav-assistant-work"
@@ -15,6 +17,13 @@ class AgendaService:
         self.next_engine = next_engine
         self.state = state
         self.session = session
+        # IPC clients may retry the bounded startup read after their presentation
+        # timeout while the first server-side CalDAV traversal is still finishing.
+        # Coalesce only those overlapping calls so retries cannot multiply network
+        # load.  The completed value is not retained as a cache: a later call starts
+        # a new authoritative read.
+        self._startup_lock = RLock()
+        self._startup_flights: dict[tuple[int, str | None], Future] = {}
 
     @staticmethod
     def _ordinary_events(items):
@@ -57,6 +66,12 @@ class AgendaService:
             list(self.tasks.list(**task_filters)),
             self._ordinary_events(event_values),
         )
+
+    def _fallback_generation(self) -> int | None:
+        """Read the optional reliability-layer generation without depending on it."""
+        adapter = getattr(self.tasks, "adapter", None)
+        value = getattr(adapter, "fallback_generation", None)
+        return value if isinstance(value, int) else None
 
     def today(self):
         now = datetime.now().astimezone()
@@ -178,7 +193,7 @@ class AgendaService:
             values.setdefault("skipped_uids", session_snapshot["paused_task_ids"])
         return self._choose_next(tasks, events, kind=kind, **values)
 
-    def startup_snapshot(self, days=1, kind="task"):
+    def _startup_snapshot_once(self, days=1, kind="task"):
         """Return startup current work + Agenda + recommendation from one source set.
 
         Task/Event objects are fetched once.  When the production Session service
@@ -194,7 +209,14 @@ class AgendaService:
         """
         now = datetime.now().astimezone()
         event_window = self._event_window(now, days) if kind == "task" else None
+        fallback_before = self._fallback_generation()
         tasks, events = self._sources(event_window=event_window)
+        fallback_after = self._fallback_generation()
+        stale = (
+            fallback_before is not None
+            and fallback_after is not None
+            and fallback_after != fallback_before
+        ) or any(bool(getattr(item, "stale", False)) for item in (*tasks, *events))
         session_snapshot = self._session_snapshot(tasks)
         current_uid = session_snapshot["current_task_id"]
         paused_uids = session_snapshot["paused_task_ids"]
@@ -217,7 +239,35 @@ class AgendaService:
             "agenda": agenda,
             "recommendation": recommendation,
             "current_task": current_task,
+            "stale": stale,
         }
+
+    def startup_snapshot(self, days=1, kind="task"):
+        """Coalesce overlapping IPC retries around one authoritative live read."""
+        key = (days, kind)
+        with self._startup_lock:
+            flight = self._startup_flights.get(key)
+            owner = flight is None
+            if owner:
+                flight = Future()
+                self._startup_flights[key] = flight
+
+        assert flight is not None
+        if not owner:
+            return flight.result()
+
+        try:
+            result = self._startup_snapshot_once(days=days, kind=kind)
+        except BaseException as exc:
+            flight.set_exception(exc)
+            raise
+        else:
+            flight.set_result(result)
+            return result
+        finally:
+            with self._startup_lock:
+                if self._startup_flights.get(key) is flight:
+                    self._startup_flights.pop(key, None)
 
     def overdue(self):
         return self.tasks.list(overdue=True)

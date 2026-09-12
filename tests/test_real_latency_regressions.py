@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from threading import get_ident
+from threading import Event as ThreadEvent, get_ident
 from time import sleep
 from types import SimpleNamespace
 
 import pytest
 
-from caldav_assistant.api import Event, Task
+from caldav_assistant.api import Agenda, Event, Task
 from caldav_assistant.api.v1.errors import UnavailableError
 from caldav_assistant.internal.agenda.service import AgendaService
 from caldav_assistant.internal.caldav.routing import CollectionRoutingCalDAVAdapter
@@ -241,6 +241,64 @@ def test_agenda_startup_reuses_one_source_set_and_one_session_snapshot():
     assert next_engine.kwargs["skipped_uids"] == ("paused",)
 
 
+def test_overlapping_startup_retries_share_one_authoritative_read():
+    from concurrent.futures import ThreadPoolExecutor
+    from time import sleep
+
+    entered = ThreadEvent()
+    release = ThreadEvent()
+
+    class SlowTasks(_Query):
+        def list(self, **filters):
+            self.calls += 1
+            entered.set()
+            assert release.wait(1.0)
+            return list(self.values)
+
+    tasks = SlowTasks([Task(id="t1", summary="One")])
+    events = _Query([])
+    service = AgendaService(
+        tasks,
+        events,
+        _AgendaEngine(),
+        _NextEngine(),
+        {},
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(service.startup_snapshot, days=1, kind="task")
+        assert entered.wait(0.5)
+        second = pool.submit(service.startup_snapshot, days=1, kind="task")
+        sleep(0.03)
+        assert tasks.calls == 1
+        release.set()
+        first_result = first.result(timeout=1.0)
+        second_result = second.result(timeout=1.0)
+
+    assert first_result is second_result
+    assert tasks.calls == 1
+    assert events.calls == 1
+
+
+def test_different_startup_windows_never_share_a_snapshot():
+    tasks = _Query([Task(id="t1", summary="One")])
+    events = _Query([])
+    service = AgendaService(
+        tasks,
+        events,
+        _AgendaEngine(),
+        _NextEngine(),
+        {},
+    )
+
+    first = service.startup_snapshot(days=1, kind="task")
+    second = service.startup_snapshot(days=7, kind="task")
+
+    assert first is not second
+    assert tasks.calls == 2
+    assert events.calls == 2
+
+
 class _WorkSnapshot:
     def __init__(self, events):
         self.events = list(events)
@@ -350,6 +408,35 @@ def test_startup_read_has_a_separate_read_only_latency_budget():
 
     assert latency_guard._bounded_read_call(app, "agenda.startup_snapshot") == {"ok": True}
     assert runtime.timeout == latency_guard.STARTUP_READ_TIMEOUT_SECONDS
+
+
+def test_startup_read_propagates_empty_stale_snapshot_state():
+    from caldav_assistant.internal.cli import conversation_app
+
+    class Runtime:
+        def ping(self, *, timeout=None):
+            return True
+
+        def call(self, method, **payload):
+            raise AssertionError("bounded startup path must use _execute")
+
+        def _execute(self, method, payload, *, timeout=None):
+            return {
+                "agenda": Agenda(),
+                "recommendation": None,
+                "current_task": None,
+                "stale": True,
+            }
+
+    app = SimpleNamespace(runtime=Runtime(), ctx=SimpleNamespace(settings=None))
+
+    snapshot = latency_guard._read_snapshot(
+        SimpleNamespace(conversation=conversation_app),
+        app,
+    )
+
+    assert snapshot.upcoming == ()
+    assert snapshot.stale is True
 
 
 def test_startup_read_timeout_is_reported_as_unavailable_not_a_fake_empty_agenda():
