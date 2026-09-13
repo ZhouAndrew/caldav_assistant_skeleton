@@ -52,16 +52,32 @@ def _can_live_revalidate(app: Any) -> bool:
     )
 
 
-def _fresh_equivalent(task: Any, tasks: Any) -> Any:
-    if task is None:
+def _live_current_task_id(app: Any) -> str | None:
+    """Read only authoritative current-work identity, never the whole startup bundle.
+
+    This is an early UX preflight. The actual ``tasks.start`` Core action still owns
+    authorization and re-checks both the target Task and open Work state before any
+    mutation. A stale Agenda/Recommendation therefore cannot disable Start merely
+    because the home-screen latency budget was exceeded.
+    """
+    runtime = getattr(app, "runtime", None)
+    execute = getattr(runtime, "_execute", None)
+    if callable(execute):
+        value = execute(
+            "session.current_task_id",
+            {},
+            timeout=latency_guard.STARTUP_READ_TIMEOUT_SECONDS,
+        )
+    else:
+        call = getattr(runtime, "call", None)
+        if not callable(call):
+            raise RuntimeError("This client has no background Runtime connection")
+        value = call("session.current_task_id")
+
+    if value is None:
         return None
-    wanted = str(getattr(task, "id", "") or "").strip()
-    if not wanted:
-        return None
-    for candidate in tasks or ():
-        if str(getattr(candidate, "id", "") or "").strip() == wanted:
-            return candidate
-    return None
+    clean = str(value).strip()
+    return clean or None
 
 
 def install(module: Any) -> None:
@@ -85,7 +101,7 @@ def install(module: Any) -> None:
         def show_welcome(app: Any):
             """Never translate an unverified stale Work fact into the word 'No'.
 
-            The live read and its heartbeat remain visible immediately.  Only the small
+            The live read and its heartbeat remain visible immediately. Only the small
             finished home-screen block beginning at ``Now`` is held until the returned
             snapshot tells us whether it is stale, then replayed in the same order.
             """
@@ -122,13 +138,16 @@ def install(module: Any) -> None:
 
     if callable(original_guided_start):
         def guided_start(app: Any, task: Any = None, **options: Any):
-            """A stale menu may propose a Task, but it may not authorize ``start``.
+            """Use a narrow live Work preflight when the menu was built from cache.
 
-            Work VEVENT state is not part of the Task/Event cache.  Before asking the
-            human for a duration or confirmation, refresh the same bounded live startup
-            bundle.  If live current-work truth is still unavailable, fail closed without
-            changing Task state instead of discovering the conflict deep inside a slow
-            mutation path.
+            Startup's three-second budget applies to the home-screen bundle, not to
+            authorization of a later explicit Start action. Re-reading Tasks, Events,
+            recommendation and Work here created a deterministic stale->retry->stale
+            loop on machines where the complete bundle takes just over that budget.
+
+            The preflight below only answers whether another Work interval is open.
+            The Core Start action remains the authority: it refreshes the selected
+            Task by id and reads open Work again before it writes anything.
             """
             if (
                 not _guided_start_uses_stale_input(task, options)
@@ -138,42 +157,44 @@ def install(module: Any) -> None:
 
             conversation._show(
                 app,
-                "Cached data cannot safely confirm current work; verifying live CalDAV before Start…",
+                "Cached data cannot safely confirm current work; checking live current work before Start…",
             )
             try:
-                refreshed = conversation._visible_call(
+                current_id = conversation._visible_call(
                     app,
-                    "Verifying current work, Tasks and Events…",
-                    lambda: latency_guard._read_snapshot(module, app),
+                    "Checking live current work…",
+                    lambda: _live_current_task_id(app),
                 )
             except Exception as exc:
+                # This check is an early convenience only. Do not turn its latency
+                # budget into a second authorization gate: the Core Start action has
+                # the mutation-safe authoritative preflight and will fail before any
+                # write if live Task/Work truth is unavailable.
                 conversation._show(
                     app,
-                    "Current work is still unavailable. Start was not attempted and no Task state changed. "
+                    "Current-work precheck did not finish in the interactive budget; "
+                    "Start itself will verify live Task and Work state before changing anything. "
                     f"{type(exc).__name__}: {exc}",
                 )
-                return "console"
+                current_id = None
 
-            if getattr(refreshed, "warning", None) or _snapshot_is_stale(refreshed):
+            if current_id is not None:
                 conversation._show(
                     app,
-                    "Live current-work state is still unverified. Start was not attempted and no Task state changed.",
+                    "Live CalDAV reports that a Task is already being worked on.",
                 )
-                return "console"
-
-            fresh_tasks = tuple(getattr(refreshed, "tasks", ()) or ())
-            fresh_task = _fresh_equivalent(task, fresh_tasks) if task is not None else None
-            if task is not None and fresh_task is None:
                 conversation._show(
                     app,
-                    "That cached Task is no longer available in the verified live snapshot. Start was not attempted.",
+                    "Pause or complete it before starting another Task.",
                 )
-                return "console"
+                return "wait"
 
             updated = dict(options)
-            updated["known_current"] = getattr(refreshed, "current_task", None)
-            updated["task_choices"] = fresh_tasks
-            return original_guided_start(app, fresh_task, **updated)
+            # A verified empty current-work identity is sufficient for the guided
+            # prompt. Keep the cached Task only as a selection/display object; Core
+            # refreshes that Task by id before mutation.
+            updated["known_current"] = None
+            return original_guided_start(app, task, **updated)
 
         conversation._guided_start = guided_start
 
