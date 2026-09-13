@@ -298,6 +298,16 @@ def main() -> int:
                 "Choose a Task to work on",
                 "Enter -> 1 reached Task selection without another live Task read",
             )
+            # ``0`` in the nested Task chooser means Back, so it returns to the
+            # already-open guided menu.  Exit that parent menu explicitly before
+            # opening a second visit; otherwise an empty line is merely another menu
+            # answer and no fresh snapshot should be expected.
+            child.sendline("0")
+            _expect(
+                child,
+                r"What do you want to do\?",
+                "Task chooser Back returned to the guided menu",
+            )
             child.sendline("0")
             child.expect(r"> ")
 
