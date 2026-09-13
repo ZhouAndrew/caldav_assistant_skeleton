@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 import math
+from queue import Empty, Queue
+from threading import Event, Thread
 from typing import Any
 
 from ...api.v1.errors import UnavailableError
@@ -29,10 +31,82 @@ from ..runtime.ipc import (
 
 
 STARTUP_READ_TIMEOUT_SECONDS = 3.0
-STARTUP_CACHE_FALLBACK_TIMEOUT_SECONDS = 0.75
+# The cache request starts before the live deadline is exhausted, so this is not
+# added in full to foreground latency.  It gives slow local SQLite/serialization a
+# fair budget on old hardware while keeping the visible live deadline unchanged.
+STARTUP_CACHE_FALLBACK_TIMEOUT_SECONDS = 1.75
+_CACHE_PREFETCH_LEAD_SECONDS = 1.0
+_CACHE_FALLBACK_COMPLETION_WAIT_SECONDS = 0.75
 _MAIN_THREAD_SHELLS = frozenset({"history", "menu", "settings"})
 _UPCOMING_REFRESH_LABEL = "Refreshing Upcoming…"
 _HOME_REFRESH_LABEL = "Refreshing current work, Tasks and Events…"
+
+
+def _start_cache_prefetch(execute: Any, body: dict[str, Any]):
+    """Prepare the cache-only recovery route before the live deadline expires.
+
+    The request is delayed until the live read is already suspiciously slow, so a
+    normal fast startup does not pay cache I/O.  If the live call times out earlier
+    than expected (as in tests or a transport failure), ``wake`` starts the fallback
+    immediately.  The fallback is still a separate Local IPC request and remains
+    explicitly stale; it never becomes the Task/Event source of truth.
+    """
+    result: Queue[tuple[bool, Any]] = Queue(maxsize=1)
+    wake = Event()
+    cancel = Event()
+    delay = max(0.0, STARTUP_READ_TIMEOUT_SECONDS - _CACHE_PREFETCH_LEAD_SECONDS)
+
+    def worker() -> None:
+        wake.wait(delay)
+        if cancel.is_set():
+            return
+        try:
+            value = execute(
+                "agenda.cached_startup_snapshot",
+                body,
+                timeout=STARTUP_CACHE_FALLBACK_TIMEOUT_SECONDS,
+            )
+        except BaseException as exc:
+            outcome = (False, exc)
+        else:
+            outcome = (True, value)
+        try:
+            result.put_nowait(outcome)
+        except Exception:
+            pass
+
+    Thread(
+        target=worker,
+        name="caldav-assistant-startup-cache-prefetch",
+        daemon=True,
+    ).start()
+    return result, wake, cancel
+
+
+def _fallback_from_prefetch(
+    execute: Any,
+    body: dict[str, Any],
+    prefetched: Queue[tuple[bool, Any]] | None,
+    wake: Event | None,
+) -> Any:
+    if prefetched is None:
+        return execute(
+            "agenda.cached_startup_snapshot",
+            body,
+            timeout=STARTUP_CACHE_FALLBACK_TIMEOUT_SECONDS,
+        )
+
+    if wake is not None:
+        wake.set()
+    try:
+        ok, value = prefetched.get(timeout=_CACHE_FALLBACK_COMPLETION_WAIT_SECONDS)
+    except Empty as exc:
+        raise IPCTimeoutError(
+            "Runtime request timed out: agenda.cached_startup_snapshot"
+        ) from exc
+    if ok:
+        return value
+    raise value
 
 
 def _bounded_read_call(app: Any, method: str, **payload: Any) -> Any:
@@ -52,43 +126,53 @@ def _bounded_read_call(app: Any, method: str, **payload: Any) -> Any:
 
     ping = getattr(runtime, "ping", None)
     ensure = getattr(runtime, "ensure_running", None)
+    prefetched = None
+    wake = None
+    cancel = None
     try:
         if callable(ping) and not ping(timeout=0.25):
             if not callable(ensure):
                 raise UnavailableError("Background service is not running")
             ensure()
-        return execute(clean, body, timeout=STARTUP_READ_TIMEOUT_SECONDS)
-    except IPCTimeoutError as exc:
-        # The server-side live request is still allowed to finish and is coalesced
-        # with later retries.  Keep the foreground usable now by asking for the last
-        # verified local snapshot through a separate cache-only IPC route.
+
+        if clean == "agenda.startup_snapshot":
+            prefetched, wake, cancel = _start_cache_prefetch(execute, body)
+
         try:
-            cached = execute(
-                "agenda.cached_startup_snapshot",
-                body,
-                timeout=STARTUP_CACHE_FALLBACK_TIMEOUT_SECONDS,
+            return execute(clean, body, timeout=STARTUP_READ_TIMEOUT_SECONDS)
+        except IPCTimeoutError as exc:
+            # The server-side live request is still allowed to finish and is
+            # coalesced with later retries.  The cache-only request was already
+            # prepared while the live call was approaching its deadline, so recovery
+            # does not begin from zero after the terminal has already waited 3s.
+            try:
+                cached = _fallback_from_prefetch(execute, body, prefetched, wake)
+            except Exception as cache_exc:
+                raise UnavailableError(
+                    f"Startup live read exceeded {STARTUP_READ_TIMEOUT_SECONDS:g}s: "
+                    f"{clean}; no verified cache fallback was available "
+                    f"({type(cache_exc).__name__}: {cache_exc})"
+                ) from exc
+            if not isinstance(cached, dict):
+                raise UnavailableError(
+                    f"Startup live read exceeded {STARTUP_READ_TIMEOUT_SECONDS:g}s: "
+                    f"{clean}; cache fallback returned an invalid response"
+                ) from exc
+            value = dict(cached)
+            value["stale"] = True
+            value["fallback_reason"] = (
+                f"live read exceeded {STARTUP_READ_TIMEOUT_SECONDS:g}s"
             )
-        except Exception as cache_exc:
-            raise UnavailableError(
-                f"Startup live read exceeded {STARTUP_READ_TIMEOUT_SECONDS:g}s: "
-                f"{clean}; no verified cache fallback was available "
-                f"({type(cache_exc).__name__}: {cache_exc})"
-            ) from exc
-        if not isinstance(cached, dict):
-            raise UnavailableError(
-                f"Startup live read exceeded {STARTUP_READ_TIMEOUT_SECONDS:g}s: "
-                f"{clean}; cache fallback returned an invalid response"
-            ) from exc
-        value = dict(cached)
-        value["stale"] = True
-        value["fallback_reason"] = (
-            f"live read exceeded {STARTUP_READ_TIMEOUT_SECONDS:g}s"
-        )
-        return value
+            return value
     except IPCUnavailableError as exc:
         raise UnavailableError(
             f"Background service became unavailable during startup read: {clean}"
         ) from exc
+    finally:
+        if cancel is not None:
+            cancel.set()
+        if wake is not None:
+            wake.set()
 
 
 def _read_snapshot(module: Any, app: Any) -> Any:
