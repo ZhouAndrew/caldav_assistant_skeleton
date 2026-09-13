@@ -80,13 +80,54 @@ def _live_current_task_id(app: Any) -> str | None:
     return clean or None
 
 
+def _wrap_show_welcome(conversation: Any, original_show_welcome: Any):
+    """Wrap one welcome renderer without assuming which composition layer owns it."""
+    def show_welcome(app: Any):
+        """Never translate an unverified stale Work fact into the word 'No'.
+
+        The installed client composes ``conversation_live`` into ``conversation_app``
+        only when ``run_cli`` begins.  Therefore both the composition-layer function
+        and the current conversation function may need this wrapper; otherwise the
+        later live install can overwrite the guard before the first screen is drawn.
+        """
+        original_show = conversation._show
+        buffered: list[Any] = []
+        buffering = False
+
+        def capture(current_app: Any, value: Any = "") -> None:
+            nonlocal buffering
+            if str(value) == "Now":
+                buffering = True
+            if buffering:
+                buffered.append(value)
+            else:
+                original_show(current_app, value)
+
+        conversation._show = capture
+        try:
+            snapshot = original_show_welcome(app)
+        finally:
+            conversation._show = original_show
+
+        stale = _snapshot_is_stale(snapshot)
+        for value in buffered:
+            text = str(value)
+            if stale and text == "  No Task is currently being worked on.":
+                value = _UNVERIFIED_CURRENT
+            elif stale and text.startswith("  ▶ "):
+                value = f"{text}  [cached; live current-work state unverified]"
+            original_show(app, value)
+        return snapshot
+
+    return show_welcome
+
+
 def install(module: Any) -> None:
     if bool(getattr(module, "_stale_startup_notice_installed", False)):
         return
 
     conversation = module.conversation
     original_snapshot_text = conversation._snapshot_text
-    original_show_welcome = getattr(conversation, "_show_welcome", None)
     original_guided_start = getattr(conversation, "_guided_start", None)
 
     def snapshot_text(snapshot: Any) -> str:
@@ -97,44 +138,20 @@ def install(module: Any) -> None:
 
     conversation._snapshot_text = snapshot_text
 
-    if callable(original_show_welcome):
-        def show_welcome(app: Any):
-            """Never translate an unverified stale Work fact into the word 'No'.
+    # ``versioned_entrypoint`` installs this layer before ``conversation_live.run_cli``.
+    # That later run calls ``conversation_live._install()``, which copies
+    # module._show_welcome over conversation._show_welcome. Guard both owners so the
+    # stale-current wording survives that real installed-client composition order.
+    module_show_welcome = getattr(module, "_show_welcome", None)
+    if callable(module_show_welcome):
+        module._show_welcome = _wrap_show_welcome(conversation, module_show_welcome)
 
-            The live read and its heartbeat remain visible immediately. Only the small
-            finished home-screen block beginning at ``Now`` is held until the returned
-            snapshot tells us whether it is stale, then replayed in the same order.
-            """
-            original_show = conversation._show
-            buffered: list[Any] = []
-            buffering = False
-
-            def capture(current_app: Any, value: Any = "") -> None:
-                nonlocal buffering
-                if str(value) == "Now":
-                    buffering = True
-                if buffering:
-                    buffered.append(value)
-                else:
-                    original_show(current_app, value)
-
-            conversation._show = capture
-            try:
-                snapshot = original_show_welcome(app)
-            finally:
-                conversation._show = original_show
-
-            stale = _snapshot_is_stale(snapshot)
-            for value in buffered:
-                text = str(value)
-                if stale and text == "  No Task is currently being worked on.":
-                    value = _UNVERIFIED_CURRENT
-                elif stale and text.startswith("  ▶ "):
-                    value = f"{text}  [cached; live current-work state unverified]"
-                original_show(app, value)
-            return snapshot
-
-        conversation._show_welcome = show_welcome
+    conversation_show_welcome = getattr(conversation, "_show_welcome", None)
+    if callable(conversation_show_welcome):
+        conversation._show_welcome = _wrap_show_welcome(
+            conversation,
+            conversation_show_welcome,
+        )
 
     if callable(original_guided_start):
         def guided_start(app: Any, task: Any = None, **options: Any):
