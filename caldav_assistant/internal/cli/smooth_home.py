@@ -78,7 +78,10 @@ def install(module: Any) -> None:
 
     conversation = module.conversation
     original_home_menu = conversation._home_menu
-    original_execute_user = module._execute_user
+    # Small public/unit-test compositions may exercise only the home-menu brick and
+    # intentionally omit the command executor. Preserve that replacement contract;
+    # numeric console support is installed only when the real executor exists.
+    original_execute_user = getattr(module, "_execute_user", None)
 
     def persistent_home_menu(app: Any, snapshot: Any):
         ui = getattr(getattr(app, "ctx", None), "ui", None)
@@ -147,52 +150,54 @@ def install(module: Any) -> None:
 
     conversation._home_menu = persistent_home_menu
 
-    def execute_user(app: Any, parsed: Any, *, paginate: bool = True):
-        raw = str(getattr(parsed, "raw", "") or "").strip()
-        if not raw.isdigit() or tuple(getattr(parsed, "args", ()) or ()):
-            return original_execute_user(app, parsed, paginate=paginate)
+    if callable(original_execute_user):
+        def execute_user(app: Any, parsed: Any, *, paginate: bool = True):
+            raw = str(getattr(parsed, "raw", "") or "").strip()
+            if not raw.isdigit() or tuple(getattr(parsed, "args", ()) or ()):
+                return original_execute_user(app, parsed, paginate=paginate)
 
-        number = int(raw)
-        if number == 0:
+            number = int(raw)
+            if number == 0:
+                return 0, False
+
+            ui = getattr(getattr(app, "ctx", None), "ui", None)
+            choose = getattr(ui, "choose", None)
+            if not callable(choose):
+                return original_execute_user(app, parsed, paginate=paginate)
+
+            used = False
+            bound_choose = choose
+
+            def seeded_choose(title: str, items: Any, **kwargs: Any):
+                nonlocal used
+                if str(title) == _HOME_TITLE and not used:
+                    used = True
+                    visible = _stable_home_items(items)
+                    if 1 <= number <= len(visible):
+                        return visible[number - 1]
+                    conversation._show(
+                        app,
+                        f"Invalid home-menu number: {number}. Choose one of the visible numbers.",
+                    )
+                return bound_choose(title, items, **kwargs)
+
+            restore_choose = _replace_instance_attribute(ui, "choose", seeded_choose)
+            try:
+                action = conversation._home_menu(app, None)
+            finally:
+                restore_choose()
+
+            if action == "exit":
+                return 0, True
+            if action == "wait":
+                waiting = getattr(module, "_waiting_mode", None)
+                if callable(waiting):
+                    follow = waiting(app)
+                    return 0, follow == "exit"
             return 0, False
 
-        ui = getattr(getattr(app, "ctx", None), "ui", None)
-        choose = getattr(ui, "choose", None)
-        if not callable(choose):
-            return original_execute_user(app, parsed, paginate=paginate)
+        module._execute_user = execute_user
 
-        used = False
-        bound_choose = choose
-
-        def seeded_choose(title: str, items: Any, **kwargs: Any):
-            nonlocal used
-            if str(title) == _HOME_TITLE and not used:
-                used = True
-                visible = _stable_home_items(items)
-                if 1 <= number <= len(visible):
-                    return visible[number - 1]
-                conversation._show(
-                    app,
-                    f"Invalid home-menu number: {number}. Choose one of the visible numbers.",
-                )
-            return bound_choose(title, items, **kwargs)
-
-        restore_choose = _replace_instance_attribute(ui, "choose", seeded_choose)
-        try:
-            action = conversation._home_menu(app, None)
-        finally:
-            restore_choose()
-
-        if action == "exit":
-            return 0, True
-        if action == "wait":
-            waiting = getattr(module, "_waiting_mode", None)
-            if callable(waiting):
-                follow = waiting(app)
-                return 0, follow == "exit"
-        return 0, False
-
-    module._execute_user = execute_user
     module._smooth_home_installed = True
 
 
