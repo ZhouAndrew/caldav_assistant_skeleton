@@ -2,11 +2,11 @@
 """Real request-budget acceptance for live Task/Event conditional writes.
 
 The test runs the production CalDAV adapter stack against disposable Radicale and
-counts DAVClient.request calls.  The optimized configured-collection UID lookup asks
+counts DAVClient.request calls. The optimized configured-collection UID lookup asks
 for calendar-data and DAV:getetag in the same calendar-query REPORT, so a normal edit
-must be exactly one REPORT followed by one If-Match PUT, with no HTTP GET.  It also
-proves a stale fast snapshot falls back to one fresh authoritative read and preserves
-unrelated remote changes.
+must be exactly one REPORT followed by one If-Match PUT, with no HTTP GET. It also
+proves a stale fast snapshot is rejected without a hidden retry, then succeeds only
+after an explicit fresh authoritative read.
 """
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ import urllib.request
 
 from caldav.davclient import DAVClient
 
+from caldav_assistant.api.v1.errors import ConflictError
 from caldav_assistant.internal.caldav import (
     CollectionRoutingCalDAVAdapter,
     ExperimentalCacheCalDAVAdapter,
@@ -231,30 +232,42 @@ def main() -> int:
             remote.save()
 
             calls.clear()
-            merged = tasks.update(stale, summary="Merged after stale snapshot")
+            try:
+                tasks.update(stale, summary="Must not apply from stale snapshot")
+            except ConflictError:
+                pass
+            else:
+                raise AssertionError("stale conditional write did not surface ConflictError")
+
             methods = [method for method, _url, _headers in calls]
-            if methods.count("PUT") != 2 or methods.count("REPORT") != 1 or methods.count("GET") != 0:
+            if methods.count("PUT") != 1 or methods.count("REPORT") != 0 or methods.count("GET") != 0:
                 raise AssertionError(
-                    "stale fast write did not fall back through exactly one fresh read: "
+                    "stale fast write must stop after the failed If-Match PUT: "
                     f"{methods}"
                 )
             put_headers = [headers for method, _url, headers in calls if method == "PUT"]
-            if len(put_headers) != 2 or not all(headers.get("if-match") for headers in put_headers):
+            if len(put_headers) != 1 or not put_headers[0].get("if-match"):
                 raise AssertionError(
-                    "stale path must protect both attempted writes with If-Match: "
+                    "stale write must still be protected by If-Match: "
                     f"{put_headers}"
                 )
+            print("PASS: stale ETag stopped after one protected PUT with no hidden retry")
+
+            calls.clear()
+            fresh = tasks.get("conditional-task")
+            merged = tasks.update(fresh, summary="Merged after explicit revalidation")
+            _assert_normal_edit_budget(calls, "Task retry after explicit revalidation")
 
             current = tasks.get("conditional-task")
-            if current.summary != "Merged after stale snapshot":
-                raise AssertionError("stale fallback did not apply requested field")
+            if current.summary != "Merged after explicit revalidation":
+                raise AssertionError("revalidated retry did not apply requested field")
             if current.description != "remote detail preserved":
                 raise AssertionError(
-                    "stale fallback overwrote an unrelated newer server field"
+                    "revalidated retry overwrote an unrelated newer server field"
                 )
             if merged.affected.summary != current.summary:
-                raise AssertionError("stale fallback returned an inconsistent Task")
-            print("PASS: stale ETag used one fresh REPORT and preserved remote detail")
+                raise AssertionError("revalidated retry returned an inconsistent Task")
+            print("PASS: explicit fresh revalidation used one REPORT + one If-Match PUT")
             print("REAL CONDITIONAL WRITE ACCEPTANCE: PASS")
             return 0
         finally:
