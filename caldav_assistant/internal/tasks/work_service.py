@@ -107,32 +107,44 @@ class CalDAVWorkTaskService(TaskService):
                 continue
         return tuple(paused)
 
+    @staticmethod
+    def _start_lookup(task: Task | str) -> Task | str:
+        """Never let a cached Task object itself become Start authorization."""
+        if isinstance(task, Task):
+            return TaskService._require_id(task)
+        return task
+
+    @staticmethod
+    def _require_live_start_task(task: Task) -> Task:
+        if bool(getattr(task, "stale", False)):
+            raise UnavailableError(
+                "Live Task state is unavailable; Start cannot use cached Task data"
+            )
+        return task
+
     def start(self, task: Task | str) -> ActionResult:
+        lookup = self._start_lookup(task)
+
         if not self._worklog_configured():
-            return super().start(task)
+            # Work history is optional, but the CalDAV Task source-of-truth rule is
+            # not. Refresh a Task selected from cached UI before delegating to the
+            # base lifecycle implementation.
+            obj = self._require_live_start_task(self.get(lookup))
+            return super().start(obj)
 
         # A guided menu may legitimately pass a Task object that came from the
-        # explicitly stale startup cache.  Convert it back to its stable id before
+        # explicitly stale startup cache. Convert it back to its stable id before
         # the command-local read so ``self.get`` cannot treat that object itself as
-        # current truth.  The Task refresh and open-Work query are independent
+        # current truth. The Task refresh and open-Work query are independent
         # authoritative reads and therefore remain parallel.
-        lookup: Task | str = self._require_id(task) if isinstance(task, Task) else task
         with ThreadPoolExecutor(
             max_workers=2,
             thread_name_prefix="caldav-assistant-start-preflight",
         ) as pool:
             task_future = pool.submit(self.get, lookup)
             work_future = pool.submit(self._open_work_snapshot)
-            obj = task_future.result()
+            obj = self._require_live_start_task(task_future.result())
             open_snapshot = work_future.result()
-
-        # OfflineFallbackCalDAVAdapter may serve a clearly marked stale object for a
-        # read. That is useful for display, but it is not authorization for a Start
-        # mutation. Fail before creating a Work interval or changing VTODO state.
-        if bool(getattr(obj, "stale", False)):
-            raise UnavailableError(
-                "Live Task state is unavailable; Start cannot use cached Task data"
-            )
 
         task_id = self._require_id(obj)
         if obj.completed or obj.status in {"COMPLETED", "CANCELLED"}:
