@@ -33,6 +33,19 @@ class WorkPeriodAwareTaskService(CompletionLoggingTaskService):
             return super().get(task_id)
         return super().get(task)
 
+    def _update_session_snapshot(self, method: str, task: Any) -> None:
+        """Patch only auxiliary current-work cache after authoritative lifecycle I/O."""
+        session = getattr(self, "session", None)
+        writer = getattr(session, method, None)
+        if not callable(writer):
+            return
+        try:
+            writer(task)
+        except Exception:
+            # The Work VEVENT / Task action has already succeeded.  A local snapshot
+            # write must never roll that authoritative action back.
+            return
+
     def _cancel_work_period(self, task: Any, *, reason: str) -> None:
         service = self.work_periods
         cancel = getattr(service, "cancel_for", None)
@@ -77,19 +90,32 @@ class WorkPeriodAwareTaskService(CompletionLoggingTaskService):
             cancelled=cancelled,
         )
 
+    def start(self, task: Any):
+        result = super().start(task)
+        self._update_session_snapshot("set_current", result.affected)
+        return result
+
     def pause(self, task: Any):
         result = super().pause(task)
+        self._update_session_snapshot("mark_paused", result.affected)
         self._cancel_work_period(result.affected, reason="task_paused")
+        return result
+
+    def resume(self, task: Any):
+        result = super().resume(task)
+        self._update_session_snapshot("set_current", result.affected)
         return result
 
     def complete(self, task: Any):
         result = super().complete(task)
+        self._update_session_snapshot("forget", result.affected)
         self._cancel_work_period(result.affected, reason="task_completed")
         return result
 
     def delete(self, task: Any):
         obj = self.get(task)
         result = super().delete(obj)
+        self._update_session_snapshot("forget", obj)
         self._cancel_work_period(obj, reason="task_deleted")
         return result
 

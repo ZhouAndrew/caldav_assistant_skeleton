@@ -55,10 +55,6 @@ def _stable_home_items(items: Any) -> tuple[Any, ...]:
     return (first, second, *remainder)
 
 
-# These actions may change Task/Event/configuration state through nested shells. The
-# current snapshot must not be silently reused afterwards. Until the home menu owns
-# an explicit invalidation/refresh brick, return to the visibly labelled command
-# console instead of showing stale live state.
 _INVALIDATES_HOME_SNAPSHOT = frozenset(
     {
         "Task / Event management",
@@ -88,12 +84,13 @@ def _replace_instance_attribute(obj: Any, name: str, value: Any):
 
 
 def install(module: Any) -> None:
-    """Make one guided-home visit persistent without changing command semantics."""
+    """Keep menu mode stable and make bare console numbers select that same menu."""
     if bool(getattr(module, "_smooth_home_installed", False)):
         return
 
     conversation = module.conversation
     original_home_menu = conversation._home_menu
+    original_console = getattr(conversation, "_console", None)
 
     def persistent_home_menu(app: Any, snapshot: Any):
         ui = getattr(getattr(app, "ctx", None), "ui", None)
@@ -147,7 +144,6 @@ def install(module: Any) -> None:
             if action != "console":
                 return action
 
-            # If the home prompt was never reached, preserve the original behavior.
             if not selection["seen"]:
                 return action
 
@@ -162,12 +158,72 @@ def install(module: Any) -> None:
                 )
                 return "console"
 
-            # Read-only screens, documentation, and cancelled/blocked guided-start
-            # attempts stay in the same numbered-menu mode. If an explicit Upcoming
-            # refresh succeeded, tracking_visible_call already replaced the degraded
-            # snapshot with that fresh result.
-
     conversation._home_menu = persistent_home_menu
+
+    if callable(original_console):
+        def numeric_console(app: Any, snapshot: Any):
+            """Treat a bare console number exactly like Enter + that menu choice.
+
+            The original console still owns ``first_menu_snapshot``. Converting a
+            top-level number to an empty line lets it pass that exact snapshot into
+            _home_menu. Numeric input typed *inside* PromptKit menus is never
+            intercepted and remains normal menu input.
+            """
+            io = getattr(app, "io", None)
+            ui = getattr(getattr(app, "ctx", None), "ui", None)
+            read = getattr(io, "read", None)
+            choose = getattr(ui, "choose", None)
+            if not callable(read) or not callable(choose):
+                return original_console(app, snapshot)
+
+            pending: dict[str, int | None] = {"number": None}
+            state = {"inside_choose": False}
+            bound_read = read
+            bound_choose = choose
+
+            def numeric_read(prompt: str = ""):
+                value = bound_read(prompt)
+                if state["inside_choose"]:
+                    return value
+                text = str(value).strip()
+                if text.isdigit():
+                    pending["number"] = int(text)
+                    # Reuse the console's existing Enter -> _home_menu path so the
+                    # exact visible startup snapshot is retained.
+                    return ""
+                return value
+
+            def numeric_choose(title: str, items: Any, **kwargs: Any):
+                number = pending["number"]
+                if str(title) == _HOME_TITLE and number is not None:
+                    pending["number"] = None
+                    visible = tuple(items)
+                    if number == 0:
+                        return None
+                    if 1 <= number <= len(visible):
+                        return visible[number - 1]
+                    conversation._show(
+                        app,
+                        f"Invalid home-menu number: {number}. Choose one of the visible numbers.",
+                    )
+                    return None
+
+                state["inside_choose"] = True
+                try:
+                    return bound_choose(title, items, **kwargs)
+                finally:
+                    state["inside_choose"] = False
+
+            restore_read = _replace_instance_attribute(io, "read", numeric_read)
+            restore_choose = _replace_instance_attribute(ui, "choose", numeric_choose)
+            try:
+                return original_console(app, snapshot)
+            finally:
+                restore_choose()
+                restore_read()
+
+        conversation._console = numeric_console
+
     module._smooth_home_installed = True
 
 
