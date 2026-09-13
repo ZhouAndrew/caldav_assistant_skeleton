@@ -17,14 +17,13 @@ def install(module: Any) -> None:
     def transparent_read_snapshot(app: Any):
         conversation._show(
             app,
-            "Path: CLI → Local IPC → AgendaService → CalDAV "
-            "[Tasks ∥ Events ∥ Work].",
+            "Path: CLI → Local IPC → AgendaService → verified local snapshot.",
         )
         conversation._show(
             app,
-            "Primary source: live CalDAV; independent reads run in parallel. "
-            "If the interactive deadline is missed, the last verified snapshot is "
-            "shown only with an explicit stale warning.",
+            "Startup source: the last snapshot verified by the background Assistant; "
+            "opening the CLI does not wait for CalDAV network I/O. Background sync "
+            "refreshes CalDAV independently.",
         )
         return original_read_snapshot(app)
 
@@ -33,7 +32,7 @@ def install(module: Any) -> None:
             hours = getattr(snapshot, "window_hours", 24)
             return (
                 f"Upcoming · next {hours}h\n"
-                "  Live Task/Event state is unavailable (unknown, not empty)."
+                "  The background Task/Event snapshot is unavailable (unknown, not empty)."
             )
         return original_snapshot_text(snapshot)
 
