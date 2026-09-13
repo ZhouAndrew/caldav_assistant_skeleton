@@ -1,16 +1,8 @@
 """Keep the zero-learning home menu in one coherent interaction mode.
 
-The conversation client intentionally supports both a numbered guided menu and direct
-canonical commands. A guided-menu selection must not silently switch the terminal
-back to command mode after every read-only action, and the two most common numeric
-slots must not change merely because live recommendation state appeared/disappeared.
-
-This module is presentation/composition only. It does not cache Task/Event truth,
-does not change Core actions, and does not change CalDAV ownership. During one home
-menu visit it reuses the same presentation snapshot already owned by the latency
-guard. A successful explicit refresh replaces that snapshot for the rest of the
-visit. The user leaves menu mode only by choosing the explicit console item,
-back/cancel, or an action that genuinely changes interaction mode.
+The conversation client supports both a numbered guided menu and direct canonical
+commands. Number input at the top-level prompt follows the same visible home menu,
+instead of being misrouted to CommandRegistry as an unsupported command.
 """
 from __future__ import annotations
 
@@ -20,10 +12,7 @@ from typing import Any
 _HOME_TITLE = "What do you want to do?"
 _LEAVE_HOME = "Stay in console"
 
-# The first slot is always the current primary-work action (return/start/choose).
-# Upcoming is always slot 2. Optional recommendation/manual alternatives are placed
-# after Upcoming so a live refresh cannot silently turn the user's next `2` into a
-# different action.
+
 def _stable_home_items(items: Any) -> tuple[Any, ...]:
     values = list(items)
     if len(values) < 2:
@@ -55,10 +44,6 @@ def _stable_home_items(items: Any) -> tuple[Any, ...]:
     return (first, second, *remainder)
 
 
-# These actions may change Task/Event/configuration state through nested shells. The
-# current snapshot must not be silently reused afterwards. Until the home menu owns
-# an explicit invalidation/refresh brick, return to the visibly labelled command
-# console instead of showing stale live state.
 _INVALIDATES_HOME_SNAPSHOT = frozenset(
     {
         "Task / Event management",
@@ -69,7 +54,6 @@ _INVALIDATES_HOME_SNAPSHOT = frozenset(
 
 
 def _replace_instance_attribute(obj: Any, name: str, value: Any):
-    """Temporarily replace a normal instance attribute without leaving a shadow."""
     values = getattr(obj, "__dict__", None)
     had_instance_value = isinstance(values, dict) and name in values
     previous_instance_value = values.get(name) if had_instance_value else None
@@ -88,12 +72,13 @@ def _replace_instance_attribute(obj: Any, name: str, value: Any):
 
 
 def install(module: Any) -> None:
-    """Make one guided-home visit persistent without changing command semantics."""
+    """Keep menu mode stable and make bare top-level numbers select that menu."""
     if bool(getattr(module, "_smooth_home_installed", False)):
         return
 
     conversation = module.conversation
     original_home_menu = conversation._home_menu
+    original_execute_user = module._execute_user
 
     def persistent_home_menu(app: Any, snapshot: Any):
         ui = getattr(getattr(app, "ctx", None), "ui", None)
@@ -146,8 +131,6 @@ def install(module: Any) -> None:
 
             if action != "console":
                 return action
-
-            # If the home prompt was never reached, preserve the original behavior.
             if not selection["seen"]:
                 return action
 
@@ -162,12 +145,54 @@ def install(module: Any) -> None:
                 )
                 return "console"
 
-            # Read-only screens, documentation, and cancelled/blocked guided-start
-            # attempts stay in the same numbered-menu mode. If an explicit Upcoming
-            # refresh succeeded, tracking_visible_call already replaced the degraded
-            # snapshot with that fresh result.
-
     conversation._home_menu = persistent_home_menu
+
+    def execute_user(app: Any, parsed: Any, *, paginate: bool = True):
+        raw = str(getattr(parsed, "raw", "") or "").strip()
+        if not raw.isdigit() or tuple(getattr(parsed, "args", ()) or ()):
+            return original_execute_user(app, parsed, paginate=paginate)
+
+        number = int(raw)
+        if number == 0:
+            return 0, False
+
+        ui = getattr(getattr(app, "ctx", None), "ui", None)
+        choose = getattr(ui, "choose", None)
+        if not callable(choose):
+            return original_execute_user(app, parsed, paginate=paginate)
+
+        used = False
+        bound_choose = choose
+
+        def seeded_choose(title: str, items: Any, **kwargs: Any):
+            nonlocal used
+            if str(title) == _HOME_TITLE and not used:
+                used = True
+                visible = _stable_home_items(items)
+                if 1 <= number <= len(visible):
+                    return visible[number - 1]
+                conversation._show(
+                    app,
+                    f"Invalid home-menu number: {number}. Choose one of the visible numbers.",
+                )
+            return bound_choose(title, items, **kwargs)
+
+        restore_choose = _replace_instance_attribute(ui, "choose", seeded_choose)
+        try:
+            action = conversation._home_menu(app, None)
+        finally:
+            restore_choose()
+
+        if action == "exit":
+            return 0, True
+        if action == "wait":
+            waiting = getattr(module, "_waiting_mode", None)
+            if callable(waiting):
+                follow = waiting(app)
+                return 0, follow == "exit"
+        return 0, False
+
+    module._execute_user = execute_user
     module._smooth_home_installed = True
 
 
