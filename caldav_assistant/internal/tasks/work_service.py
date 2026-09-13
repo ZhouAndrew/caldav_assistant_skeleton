@@ -7,6 +7,7 @@ fall back to the base TaskService and its Activity Journal records.
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from ...api import ActionResult, Task
@@ -110,12 +111,25 @@ class CalDAVWorkTaskService(TaskService):
         if not self._worklog_configured():
             return super().start(task)
 
-        obj = self.get(task)
+        # The Task refresh and open-Work query are independent authoritative reads.
+        # Performing them serially made a rejected Start pay two full network waits
+        # before it could report an already-active Task.  Read both concurrently,
+        # then make the exact same validation and mutation decisions from the two
+        # command-local results.  No cache becomes authoritative and no write is
+        # issued until both reads have completed successfully.
+        with ThreadPoolExecutor(
+            max_workers=2,
+            thread_name_prefix="caldav-assistant-start-preflight",
+        ) as pool:
+            task_future = pool.submit(self.get, task)
+            work_future = pool.submit(self._open_work_snapshot)
+            obj = task_future.result()
+            open_snapshot = work_future.result()
+
         task_id = self._require_id(obj)
         if obj.completed or obj.status in {"COMPLETED", "CANCELLED"}:
             raise ValidationError("A completed or cancelled Task cannot be started")
 
-        open_snapshot = self._open_work_snapshot()
         current_id = self._work_call(
             "current_task_id",
             snapshot=open_snapshot,
