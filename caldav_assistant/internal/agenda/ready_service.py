@@ -18,7 +18,7 @@ _TERMINAL_STATUSES = frozenset({"COMPLETED", "CANCELLED"})
 
 
 class AgendaService(_LiveAgendaService):
-    """Production AgendaService whose startup path is local and non-networking."""
+    """Production AgendaService whose installed startup path is local-only."""
 
     @staticmethod
     def _actionable_startup_tasks(items: Any) -> list[Any]:
@@ -29,6 +29,12 @@ class AgendaService(_LiveAgendaService):
             if not bool(getattr(task, "completed", False))
             and str(getattr(task, "status", "") or "") not in _TERMINAL_STATUSES
         ]
+
+    def _has_startup_cache_capability(self) -> bool:
+        adapter = getattr(self.tasks, "adapter", None)
+        if callable(getattr(adapter, "cached_startup_items", None)):
+            return True
+        return callable(self.cached_tasks) and callable(self.cached_events)
 
     def _cached_startup_sources(self) -> tuple[list[Any], list[Any]]:
         """Read Task+Event startup facts from one verified local snapshot when able."""
@@ -41,8 +47,7 @@ class AgendaService(_LiveAgendaService):
                 self._ordinary_events(events),
             )
 
-        # Compatibility for replacement adapters used by tests/extensions.  This is
-        # still cache-only and never falls through to self.tasks.list/events.list.
+        # Compatibility for replacement adapters which provide separate cache bricks.
         if not callable(self.cached_tasks) or not callable(self.cached_events):
             raise UnavailableError("No verified Task/Event snapshot is available")
         try:
@@ -59,12 +64,16 @@ class AgendaService(_LiveAgendaService):
     def startup_snapshot(self, days: int = 1, kind: str = "task"):
         """Return the background-maintained verified snapshot without live I/O.
 
-        A missing snapshot is reported immediately as unavailable.  It is deliberately
-        not repaired by making the foreground wait for CalDAV; background maintenance
-        owns refresh and will populate the snapshot independently.
+        The installed application always supplies the cache capability.  Deliberately
+        tiny replacement/test compositions that have no cache brick retain the base
+        live behavior rather than being forced to emulate production infrastructure.
+        If a cache capability exists but contains no verified snapshot, startup fails
+        immediately as unknown/unavailable and never falls through to network I/O.
         """
-        tasks, events = self._cached_startup_sources()
+        if not self._has_startup_cache_capability():
+            return super().startup_snapshot(days=days, kind=kind)
 
+        tasks, events = self._cached_startup_sources()
         cached_session = getattr(self.session, "cached_startup_snapshot", None)
         work_facts = cached_session(tasks) if callable(cached_session) else None
         return self._startup_result(
@@ -77,8 +86,20 @@ class AgendaService(_LiveAgendaService):
         )
 
     def cached_startup_snapshot(self, days: int = 1, kind: str = "task"):
-        """Compatibility alias: startup already is the cache-only snapshot route."""
-        return self.startup_snapshot(days=days, kind=kind)
+        """Read the cache route explicitly; never fall through to live CalDAV."""
+        if not self._has_startup_cache_capability():
+            raise UnavailableError("No verified Task/Event snapshot is available")
+        tasks, events = self._cached_startup_sources()
+        cached_session = getattr(self.session, "cached_startup_snapshot", None)
+        work_facts = cached_session(tasks) if callable(cached_session) else None
+        return self._startup_result(
+            tasks,
+            events,
+            days=days,
+            kind=kind,
+            work_facts=work_facts,
+            stale=True,
+        )
 
     def live_startup_snapshot(self, days: int = 1, kind: str = "task"):
         """Explicit old live traversal for diagnostics/manual refresh only."""
