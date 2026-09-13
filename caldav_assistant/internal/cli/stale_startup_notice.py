@@ -7,12 +7,12 @@ from . import latency_guard
 
 
 _NOTICE = (
-    "Notice: Background snapshot — this is the last locally verified Task/Event "
-    "state; background sync refreshes CalDAV independently."
+    "Notice: Cached Task/Event data from the background snapshot — this is the last "
+    "locally verified state; background sync refreshes CalDAV independently."
 )
 _UNVERIFIED_CURRENT = (
-    "  Current work is not live-verified on the startup screen; the background "
-    "snapshot cannot prove that no Task is active."
+    "  Current work could not be verified live on the startup screen; cached "
+    "background Task/Event data cannot prove that no Task is active."
 )
 
 
@@ -157,7 +157,7 @@ def install(module: Any) -> None:
             """Use a narrow live Work preflight before a Start chosen from snapshot.
 
             Startup itself is deliberately cache-only and must stay independent of
-            CalDAV latency.  An explicit Start is different: before a mutation, a
+            CalDAV latency. An explicit Start is different: before a mutation, a
             narrow current-work check is useful UX and the Core Start action remains
             the final authority by refreshing both the selected Task and Work state.
             """
@@ -169,7 +169,7 @@ def install(module: Any) -> None:
 
             conversation._show(
                 app,
-                "Background snapshot cannot authorize Start; checking live current work…",
+                "Background snapshot cannot authorize Start; checking live current work before Start…",
             )
             try:
                 current_id = conversation._visible_call(
