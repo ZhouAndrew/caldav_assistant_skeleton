@@ -15,7 +15,11 @@ from .ipc import IPCAlreadyRunningError
 from .scheduler import PlatformWakeScheduler
 
 
-DEFAULT_MAINTENANCE_STARTUP_GRACE_SECONDS = 10.0
+# Default to no startup grace.  A grace period remains available as an explicit
+# tuning knob for constrained installations, but production lifecycle semantics
+# require maintenance (notably the WordPress Outbox) to become observable promptly
+# after the daemon reports ready.
+DEFAULT_MAINTENANCE_STARTUP_GRACE_SECONDS = 0.0
 
 
 class AssistantService:
@@ -168,10 +172,10 @@ class AssistantService:
         self._run_one("wordpress.flush", getattr(self.wordpress, "flush", None))
 
     def _maintenance_loop(self) -> None:
-        # A daemon restart is normally followed immediately by the foreground
-        # startup snapshot.  Do not launch cache sync, reminder evaluation and
-        # WordPress flushing into the same CalDAV/CPU window.  This bounded grace
-        # changes only scheduling order; explicit maintenance remains immediate.
+        # A daemon restart may be followed immediately by a foreground startup
+        # snapshot.  Installations that explicitly configure a grace period can
+        # postpone background CalDAV work to reduce contention.  The default is zero
+        # so the existing background lifecycle contract remains prompt and visible.
         maintenance_ready: float | None = None
         next_sync = 0.0
         next_wordpress = 0.0
