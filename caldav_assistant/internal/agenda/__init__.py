@@ -1,3 +1,3 @@
 from .engine import AgendaEngine
 from .next_engine import NextEngine
-from .service import AgendaService
+from .ready_service import AgendaService
