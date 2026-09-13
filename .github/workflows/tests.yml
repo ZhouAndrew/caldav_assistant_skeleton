@@ -79,6 +79,12 @@ jobs:
         run: |
           set -o pipefail
           python scripts/acceptance_waiting_interrupt_ready_snapshot_real.py 2>&1 | tee waiting-mode-acceptance-${{ matrix.python-version }}.log
+      - name: Assistant-operated relaunch + bare-number acceptance
+        if: matrix.python-version == '3.12'
+        shell: bash
+        run: |
+          set -o pipefail
+          python scripts/acceptance_relaunch_numeric_current_real.py 2>&1 | tee assistant-operated-relaunch-acceptance.log
       - name: Verify live lifecycle transcript ordering
         run: >-
           python scripts/assert_live_transcript.py
@@ -102,6 +108,7 @@ jobs:
             feature-demo-acceptance-${{ matrix.python-version }}.log
             waiting-mode-acceptance-${{ matrix.python-version }}.log
             waiting-mode-transcript-${{ matrix.python-version }}.log
+            assistant-operated-relaunch-acceptance.log
 
   windows-pytest:
     runs-on: windows-latest
