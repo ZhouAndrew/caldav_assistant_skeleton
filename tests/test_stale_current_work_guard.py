@@ -71,6 +71,34 @@ def test_stale_welcome_never_claims_that_no_task_is_active():
     )
 
 
+def test_stale_welcome_guard_survives_installed_live_composition_order():
+    cached = Task(id="t1", summary="Cached", stale=True)
+    snapshot = _Snapshot(tasks=(cached,), recommended=cached, stale=True)
+    module, app, shown, _calls = _module(welcome_snapshot=snapshot)
+    conversation = module.conversation
+
+    # The installed entrypoint installs stale guards first. conversation_live.run_cli
+    # then copies its own module-level renderer over conversation._show_welcome.
+    # Model that exact ordering: the guard must be attached to both owners.
+    def live_show_welcome(current_app):
+        conversation._show(current_app, "CalDAV Assistant")
+        conversation._show(current_app, "Now")
+        conversation._show(current_app, "  No Task is currently being worked on.")
+        conversation._show(current_app, conversation._snapshot_text(snapshot))
+        return snapshot
+
+    module._show_welcome = live_show_welcome
+    stale_startup_notice.install(module)
+    conversation._show_welcome = module._show_welcome
+
+    returned = conversation._show_welcome(app)
+
+    assert returned is snapshot
+    assert "  No Task is currently being worked on." not in shown
+    assert any("Current work could not be verified live" in line for line in shown)
+    assert any("Warning: Cached Task/Event data" in line for line in shown)
+
+
 def test_stale_guided_start_checks_only_live_current_work_then_continues(monkeypatch):
     cached = Task(id="t1", summary="Anki", stale=True)
     module, app, shown, guided_calls = _module(
