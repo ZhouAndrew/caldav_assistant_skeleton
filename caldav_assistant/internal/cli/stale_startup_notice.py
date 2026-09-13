@@ -7,7 +7,7 @@ from . import latency_guard
 
 
 _NOTICE = (
-    "Notice: Cached Task/Event data from the background snapshot — this is the last "
+    "Warning: Cached Task/Event data from the background snapshot — this is the last "
     "locally verified state; background sync refreshes CalDAV independently."
 )
 _UNVERIFIED_CURRENT = (
