@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 import math
 from queue import Empty, Queue
 from threading import Event, Thread
+from time import monotonic
 from typing import Any
 
 from ...api.v1.errors import UnavailableError
@@ -37,6 +38,11 @@ STARTUP_READ_TIMEOUT_SECONDS = 3.0
 STARTUP_CACHE_FALLBACK_TIMEOUT_SECONDS = 1.75
 _CACHE_PREFETCH_LEAD_SECONDS = 1.0
 _CACHE_FALLBACK_COMPLETION_WAIT_SECONDS = 0.75
+# RuntimeClient and its IPC worker each hand results across a thread/queue boundary.
+# The old foreground wait ended at effectively the same instant as the cache
+# transport timeout.  A small scheduling delay could therefore manufacture a cache
+# timeout even though the cache request was still inside its own valid budget.
+_CACHE_FALLBACK_HANDOFF_GRACE_SECONDS = 0.25
 _MAIN_THREAD_SHELLS = frozenset({"history", "menu", "settings"})
 _UPCOMING_REFRESH_LABEL = "Refreshing Upcoming…"
 _HOME_REFRESH_LABEL = "Refreshing current work, Tasks and Events…"
@@ -54,12 +60,16 @@ def _start_cache_prefetch(execute: Any, body: dict[str, Any]):
     result: Queue[tuple[bool, Any]] = Queue(maxsize=1)
     wake = Event()
     cancel = Event()
+    started = Event()
+    started_at: list[float | None] = [None]
     delay = max(0.0, STARTUP_READ_TIMEOUT_SECONDS - _CACHE_PREFETCH_LEAD_SECONDS)
 
     def worker() -> None:
         wake.wait(delay)
         if cancel.is_set():
             return
+        started_at[0] = monotonic()
+        started.set()
         try:
             value = execute(
                 "agenda.cached_startup_snapshot",
@@ -80,7 +90,7 @@ def _start_cache_prefetch(execute: Any, body: dict[str, Any]):
         name="caldav-assistant-startup-cache-prefetch",
         daemon=True,
     ).start()
-    return result, wake, cancel
+    return result, wake, cancel, started, started_at
 
 
 def _fallback_from_prefetch(
@@ -88,6 +98,8 @@ def _fallback_from_prefetch(
     body: dict[str, Any],
     prefetched: Queue[tuple[bool, Any]] | None,
     wake: Event | None,
+    started: Event | None = None,
+    started_at: list[float | None] | None = None,
 ) -> Any:
     if prefetched is None:
         return execute(
@@ -98,8 +110,30 @@ def _fallback_from_prefetch(
 
     if wake is not None:
         wake.set()
+
+    # The foreground must never give up *before* the already-running cache request's
+    # own transport deadline.  Previously the fixed 0.75s foreground wait and the
+    # 1.75s cache timeout met at almost exactly the same wall-clock instant because
+    # prefetch normally began 1s before the 3s live deadline.  On a loaded/old PC,
+    # normal scheduling jitter let the foreground queue timeout win that race and
+    # falsely report that no cache existed.  Compute the remaining budget from the
+    # worker's real start time and add only a small result-handoff grace.
+    if started is not None and not started.is_set():
+        started.wait(min(0.05, STARTUP_CACHE_FALLBACK_TIMEOUT_SECONDS))
+    began = (
+        started_at[0]
+        if started_at is not None and started_at and started_at[0] is not None
+        else monotonic()
+    )
+    elapsed = max(0.0, monotonic() - float(began))
+    remaining = max(0.0, STARTUP_CACHE_FALLBACK_TIMEOUT_SECONDS - elapsed)
+    completion_wait = max(
+        _CACHE_FALLBACK_COMPLETION_WAIT_SECONDS,
+        remaining + _CACHE_FALLBACK_HANDOFF_GRACE_SECONDS,
+    )
+
     try:
-        ok, value = prefetched.get(timeout=_CACHE_FALLBACK_COMPLETION_WAIT_SECONDS)
+        ok, value = prefetched.get(timeout=completion_wait)
     except Empty as exc:
         raise IPCTimeoutError(
             "Runtime request timed out: agenda.cached_startup_snapshot"
@@ -129,6 +163,8 @@ def _bounded_read_call(app: Any, method: str, **payload: Any) -> Any:
     prefetched = None
     wake = None
     cancel = None
+    started = None
+    started_at = None
     try:
         if callable(ping) and not ping(timeout=0.25):
             if not callable(ensure):
@@ -136,7 +172,10 @@ def _bounded_read_call(app: Any, method: str, **payload: Any) -> Any:
             ensure()
 
         if clean == "agenda.startup_snapshot":
-            prefetched, wake, cancel = _start_cache_prefetch(execute, body)
+            prefetched, wake, cancel, started, started_at = _start_cache_prefetch(
+                execute,
+                body,
+            )
 
         try:
             return execute(clean, body, timeout=STARTUP_READ_TIMEOUT_SECONDS)
@@ -146,7 +185,14 @@ def _bounded_read_call(app: Any, method: str, **payload: Any) -> Any:
             # prepared while the live call was approaching its deadline, so recovery
             # does not begin from zero after the terminal has already waited 3s.
             try:
-                cached = _fallback_from_prefetch(execute, body, prefetched, wake)
+                cached = _fallback_from_prefetch(
+                    execute,
+                    body,
+                    prefetched,
+                    wake,
+                    started,
+                    started_at,
+                )
             except Exception as cache_exc:
                 raise UnavailableError(
                     f"Startup live read exceeded {STARTUP_READ_TIMEOUT_SECONDS:g}s: "

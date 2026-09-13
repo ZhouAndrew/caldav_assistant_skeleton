@@ -61,6 +61,48 @@ def test_slow_live_read_has_cache_recovery_already_in_flight(monkeypatch):
     ]
 
 
+def test_cache_prefetch_gets_its_full_transport_budget_after_live_deadline(monkeypatch):
+    """Do not let the foreground queue timeout beat a valid cache IPC request."""
+    monkeypatch.setattr(latency_guard, "STARTUP_READ_TIMEOUT_SECONDS", 0.08)
+    monkeypatch.setattr(latency_guard, "STARTUP_CACHE_FALLBACK_TIMEOUT_SECONDS", 0.18)
+    monkeypatch.setattr(latency_guard, "_CACHE_PREFETCH_LEAD_SECONDS", 0.04)
+    monkeypatch.setattr(latency_guard, "_CACHE_FALLBACK_COMPLETION_WAIT_SECONDS", 0.04)
+    monkeypatch.setattr(latency_guard, "_CACHE_FALLBACK_HANDOFF_GRACE_SECONDS", 0.03)
+
+    class Runtime:
+        def __init__(self):
+            self.calls = []
+
+        def ping(self, *, timeout=None):
+            return True
+
+        def _execute(self, method, payload, *, timeout=None):
+            self.calls.append((method, timeout))
+            if method == "agenda.startup_snapshot":
+                sleep(0.08)
+                raise IPCTimeoutError("slow live read")
+            assert method == "agenda.cached_startup_snapshot"
+            # Cache starts about 0.04s before the live deadline.  At the point the
+            # live call fails it still needs roughly 0.06s, longer than the old
+            # fixed 0.04s foreground wait but well inside its 0.18s IPC budget.
+            sleep(0.10)
+            return _cached_bundle()
+
+    runtime = Runtime()
+    value = latency_guard._bounded_read_call(
+        SimpleNamespace(runtime=runtime),
+        "agenda.startup_snapshot",
+        days=1,
+        kind="task",
+    )
+
+    assert value["stale"] is True
+    assert [method for method, _ in runtime.calls] == [
+        "agenda.startup_snapshot",
+        "agenda.cached_startup_snapshot",
+    ]
+
+
 def test_fast_live_read_cancels_delayed_cache_prefetch(monkeypatch):
     monkeypatch.setattr(latency_guard, "STARTUP_READ_TIMEOUT_SECONDS", 0.10)
     monkeypatch.setattr(latency_guard, "_CACHE_PREFETCH_LEAD_SECONDS", 0.05)
