@@ -1,4 +1,4 @@
-"""Keep stale startup data useful without turning it into current-work truth."""
+"""Keep background startup snapshots useful without turning them into live truth."""
 from __future__ import annotations
 
 from typing import Any
@@ -7,12 +7,12 @@ from . import latency_guard
 
 
 _NOTICE = (
-    "Warning: Cached Task/Event data — the live read missed the interactive "
-    "deadline; this may be out of date."
+    "Notice: Background snapshot — this is the last locally verified Task/Event "
+    "state; background sync refreshes CalDAV independently."
 )
 _UNVERIFIED_CURRENT = (
-    "  Current work could not be verified live; cached Task/Event data cannot prove "
-    "that no Task is active."
+    "  Current work is not live-verified on the startup screen; the background "
+    "snapshot cannot prove that no Task is active."
 )
 
 
@@ -57,8 +57,7 @@ def _live_current_task_id(app: Any) -> str | None:
 
     This is an early UX preflight. The actual ``tasks.start`` Core action still owns
     authorization and re-checks both the target Task and open Work state before any
-    mutation. A stale Agenda/Recommendation therefore cannot disable Start merely
-    because the home-screen latency budget was exceeded.
+    mutation. A background Agenda/Recommendation therefore cannot authorize Start.
     """
     runtime = getattr(app, "runtime", None)
     execute = getattr(runtime, "_execute", None)
@@ -83,10 +82,10 @@ def _live_current_task_id(app: Any) -> str | None:
 def _wrap_show_welcome(conversation: Any, original_show_welcome: Any):
     """Wrap one welcome renderer without assuming which composition layer owns it."""
     def show_welcome(app: Any):
-        """Never translate an unverified stale Work fact into the word 'No'.
+        """Never translate an unverified background Work fact into the word 'No'.
 
         The installed client composes ``conversation_live`` into ``conversation_app``
-        only when ``run_cli`` begins.  Therefore both the composition-layer function
+        only when ``run_cli`` begins. Therefore both the composition-layer function
         and the current conversation function may need this wrapper; otherwise the
         later live install can overwrite the guard before the first screen is drawn.
         """
@@ -115,7 +114,7 @@ def _wrap_show_welcome(conversation: Any, original_show_welcome: Any):
             if stale and text == "  No Task is currently being worked on.":
                 value = _UNVERIFIED_CURRENT
             elif stale and text.startswith("  ▶ "):
-                value = f"{text}  [cached; live current-work state unverified]"
+                value = f"{text}  [background snapshot; live current-work state unverified]"
             original_show(app, value)
         return snapshot
 
@@ -141,7 +140,7 @@ def install(module: Any) -> None:
     # ``versioned_entrypoint`` installs this layer before ``conversation_live.run_cli``.
     # That later run calls ``conversation_live._install()``, which copies
     # module._show_welcome over conversation._show_welcome. Guard both owners so the
-    # stale-current wording survives that real installed-client composition order.
+    # background-current wording survives that real installed-client composition order.
     module_show_welcome = getattr(module, "_show_welcome", None)
     if callable(module_show_welcome):
         module._show_welcome = _wrap_show_welcome(conversation, module_show_welcome)
@@ -155,16 +154,12 @@ def install(module: Any) -> None:
 
     if callable(original_guided_start):
         def guided_start(app: Any, task: Any = None, **options: Any):
-            """Use a narrow live Work preflight when the menu was built from cache.
+            """Use a narrow live Work preflight before a Start chosen from snapshot.
 
-            Startup's three-second budget applies to the home-screen bundle, not to
-            authorization of a later explicit Start action. Re-reading Tasks, Events,
-            recommendation and Work here created a deterministic stale->retry->stale
-            loop on machines where the complete bundle takes just over that budget.
-
-            The preflight below only answers whether another Work interval is open.
-            The Core Start action remains the authority: it refreshes the selected
-            Task by id and reads open Work again before it writes anything.
+            Startup itself is deliberately cache-only and must stay independent of
+            CalDAV latency.  An explicit Start is different: before a mutation, a
+            narrow current-work check is useful UX and the Core Start action remains
+            the final authority by refreshing both the selected Task and Work state.
             """
             if (
                 not _guided_start_uses_stale_input(task, options)
@@ -174,7 +169,7 @@ def install(module: Any) -> None:
 
             conversation._show(
                 app,
-                "Cached data cannot safely confirm current work; checking live current work before Start…",
+                "Background snapshot cannot authorize Start; checking live current work…",
             )
             try:
                 current_id = conversation._visible_call(
