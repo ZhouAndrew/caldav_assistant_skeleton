@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from ...api import ActionResult, Task
-from ...api.v1.errors import ValidationError
+from ...api.v1.errors import UnavailableError, ValidationError
 from .service import TaskService
 
 
@@ -107,23 +107,43 @@ class CalDAVWorkTaskService(TaskService):
                 continue
         return tuple(paused)
 
-    def start(self, task: Task | str) -> ActionResult:
-        if not self._worklog_configured():
-            return super().start(task)
+    @staticmethod
+    def _start_lookup(task: Task | str) -> Task | str:
+        """Never let a cached Task object itself become Start authorization."""
+        if isinstance(task, Task):
+            return TaskService._require_id(task)
+        return task
 
-        # The Task refresh and open-Work query are independent authoritative reads.
-        # Performing them serially made a rejected Start pay two full network waits
-        # before it could report an already-active Task.  Read both concurrently,
-        # then make the exact same validation and mutation decisions from the two
-        # command-local results.  No cache becomes authoritative and no write is
-        # issued until both reads have completed successfully.
+    @staticmethod
+    def _require_live_start_task(task: Task) -> Task:
+        if bool(getattr(task, "stale", False)):
+            raise UnavailableError(
+                "Live Task state is unavailable; Start cannot use cached Task data"
+            )
+        return task
+
+    def start(self, task: Task | str) -> ActionResult:
+        lookup = self._start_lookup(task)
+
+        if not self._worklog_configured():
+            # Work history is optional, but the CalDAV Task source-of-truth rule is
+            # not. Refresh a Task selected from cached UI before delegating to the
+            # base lifecycle implementation.
+            obj = self._require_live_start_task(self.get(lookup))
+            return super().start(obj)
+
+        # A guided menu may legitimately pass a Task object that came from the
+        # explicitly stale startup cache. Convert it back to its stable id before
+        # the command-local read so ``self.get`` cannot treat that object itself as
+        # current truth. The Task refresh and open-Work query are independent
+        # authoritative reads and therefore remain parallel.
         with ThreadPoolExecutor(
             max_workers=2,
             thread_name_prefix="caldav-assistant-start-preflight",
         ) as pool:
-            task_future = pool.submit(self.get, task)
+            task_future = pool.submit(self.get, lookup)
             work_future = pool.submit(self._open_work_snapshot)
-            obj = task_future.result()
+            obj = self._require_live_start_task(task_future.result())
             open_snapshot = work_future.result()
 
         task_id = self._require_id(obj)
