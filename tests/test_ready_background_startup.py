@@ -153,11 +153,11 @@ class CountingSync:
 
     @staticmethod
     def _cached_task(data):
-        return Task(**data)
+        return SyncEngine._cached_task(data)
 
     @staticmethod
     def _cached_event(data):
-        return Event(**data)
+        return SyncEngine._cached_event(data)
 
 
 class NeverLiveAdapter:
