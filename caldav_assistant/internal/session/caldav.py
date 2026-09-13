@@ -77,6 +77,36 @@ class CalDAVSessionService:
         )
         return str(getattr(latest, "action", "") or "") or None
 
+    def _activity_work_facts(self, tasks: Iterable[Any]) -> dict[str, Any]:
+        """Return last locally observed work state without network access."""
+        current: list[str] = []
+        worked: list[str] = []
+        for task in tasks:
+            if not self._is_in_progress(task):
+                continue
+            task_id = str(getattr(task, "id", "") or "").strip()
+            if not task_id:
+                continue
+            action = self._latest_activity_action(task)
+            if action in _CURRENT_ACTIONS:
+                current.append(task_id)
+                worked.append(task_id)
+            elif action == _PAUSED_ACTION:
+                worked.append(task_id)
+        if len(current) > 1:
+            raise AmbiguousError(
+                "More than one Task is marked current by the Activity Journal; "
+                "pause or complete the extra Task before continuing."
+            )
+        return {
+            "current_task_id": current[0] if current else None,
+            "worked_task_ids": tuple(dict.fromkeys(worked)),
+        }
+
+    def cached_startup_snapshot(self, tasks: Iterable[Any]) -> dict[str, Any]:
+        """Return cache-only work facts for the bounded startup fallback."""
+        return self._activity_work_facts(tasks)
+
     @staticmethod
     def _task_by_id(tasks: Iterable[Any], task_id: str | None) -> Any:
         if not task_id:
@@ -123,16 +153,32 @@ class CalDAVSessionService:
 
         return tuple(paused)
 
-    def startup_work_facts(self) -> dict[str, Any] | None:
-        """Read Work VEVENT facts without waiting for the Task query first.
+    def startup_work_facts(
+        self,
+        *,
+        include_history: bool = False,
+    ) -> dict[str, Any] | None:
+        """Read only open Work VEVENT facts during interactive startup.
 
-        Agenda startup can execute this independent CalDAV read concurrently with the
-        Task and Event REPORTs.  The returned IDs are still live Work VEVENT facts;
-        this method is not a cache and does not decide which Tasks are valid.
+        Loading every closed interval made startup grow with Work history.  Current
+        work needs only the open marker.  Other IN-PROCESS Tasks are conservatively
+        excluded from the startup recommendation without claiming their exact paused
+        history was read.
         """
         if not self._worklog_configured():
             return None
-        reader = getattr(self.worklog, "_all_work_events", None)
+        reader = (
+            getattr(self.worklog, "_all_work_events", None)
+            if include_history
+            else getattr(self.worklog, "open_snapshot", None)
+        )
+        full_history = include_history
+        if not callable(reader):
+            # Replacement WorkLog implementations retain their historical single
+            # snapshot behavior.  Production exposes open_snapshot and stays
+            # bounded independently of closed-history size.
+            reader = getattr(self.worklog, "_all_work_events", None)
+            full_history = True
         is_open = getattr(self.worklog, "_is_open", None)
         task_id_from_event = getattr(self.worklog, "_task_id_from_event", None)
         if not callable(reader) or not callable(is_open) or not callable(task_id_from_event):
@@ -150,14 +196,18 @@ class CalDAVSessionService:
                 "More than one open CalDAV work interval exists; "
                 "close the extra interval before starting another Task."
             )
-        worked_ids = {
-            task_id_from_event(item)
-            for item in work_events
-            if task_id_from_event(item) is not None
-        }
+        worked_ids = (
+            tuple(
+                str(task_id_from_event(item))
+                for item in work_events
+                if task_id_from_event(item) is not None
+            )
+            if full_history
+            else None
+        )
         return {
             "current_task_id": next(iter(current_ids)) if current_ids else None,
-            "worked_task_ids": tuple(str(value) for value in worked_ids if value is not None),
+            "worked_task_ids": worked_ids,
         }
 
     def startup_snapshot(
@@ -177,13 +227,22 @@ class CalDAVSessionService:
         if self._worklog_configured():
             if isinstance(work_facts, dict):
                 current_id = work_facts.get("current_task_id")
-                worked_ids = {str(value) for value in work_facts.get("worked_task_ids", ())}
-                paused_ids = tuple(
-                    task_id
-                    for task in in_progress
-                    for task_id in [str(getattr(task, "id", "") or "").strip()]
-                    if task_id and task_id != current_id and task_id in worked_ids
-                )
+                worked_values = work_facts.get("worked_task_ids")
+                if worked_values is None:
+                    paused_ids = tuple(
+                        task_id
+                        for task in in_progress
+                        for task_id in [str(getattr(task, "id", "") or "").strip()]
+                        if task_id and task_id != current_id
+                    )
+                else:
+                    worked_ids = {str(value) for value in worked_values}
+                    paused_ids = tuple(
+                        task_id
+                        for task in in_progress
+                        for task_id in [str(getattr(task, "id", "") or "").strip()]
+                        if task_id and task_id != current_id and task_id in worked_ids
+                    )
             else:
                 reader = getattr(self.worklog, "_all_work_events", None)
                 if not callable(reader):
@@ -193,7 +252,10 @@ class CalDAVSessionService:
                         current_id=current_id,
                     )
                 else:
-                    facts = self.startup_work_facts()
+                    # Exact paused-state commands deliberately read closed Work
+                    # history.  Only interactive startup uses the bounded OPEN
+                    # query supplied through ``work_facts``.
+                    facts = self.startup_work_facts(include_history=True)
                     if facts is None:
                         current_id = self.current_task_id()
                         paused_ids = self._fallback_paused_ids(

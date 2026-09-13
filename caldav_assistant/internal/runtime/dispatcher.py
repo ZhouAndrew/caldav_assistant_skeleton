@@ -63,6 +63,9 @@ class RuntimeDispatcher:
         startup_snapshot = getattr(ctx.agenda, "startup_snapshot", None)
         if callable(startup_snapshot):
             self._routes["agenda.startup_snapshot"] = startup_snapshot
+        cached_startup_snapshot = getattr(ctx.agenda, "cached_startup_snapshot", None)
+        if callable(cached_startup_snapshot):
+            self._routes["agenda.cached_startup_snapshot"] = cached_startup_snapshot
 
         # CLI-only observability intentionally stays outside the frozen public
         # WordPressAPI. Small test contexts can omit it without becoming invalid.

@@ -3,10 +3,9 @@
 
 This is deliberately a human-path acceptance, not a mocked benchmark. It creates
 separate Task/Event/Work collections plus decoy collections, writes production
-Settings, launches the installed executable in a PTY, measures healthy startup to the
-usable console, exercises the guided-menu Upcoming path twice, then leaves the History
-menu unanswered for several seconds and proves that human think-time is not reported
-as background work.
+Settings, restarts the background service and immediately launches the installed
+executable in a PTY.  It measures startup, enters the exact ``Enter -> 1`` Task path,
+exercises guided Upcoming, then proves human think-time is not reported as work.
 """
 from __future__ import annotations
 
@@ -40,8 +39,9 @@ from caldav_assistant.internal.settings.service import SettingsService
 from caldav_assistant.internal.storage.sqlite import SQLiteKeyValueRepository, SQLiteStore
 
 
-STARTUP_BUDGET_SECONDS = 8.0
+STARTUP_BUDGET_SECONDS = 4.5
 HUMAN_THINK_SECONDS = 4.0
+WORK_HISTORY_EVENTS = 250
 
 
 def _free_port() -> int:
@@ -68,7 +68,7 @@ def _stamp(value: datetime) -> str:
     return value.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
-def _todo_ics(now: datetime) -> str:
+def _todo_ics(now: datetime, *, status: str = "NEEDS-ACTION") -> str:
     due = now + timedelta(hours=2)
     return "\r\n".join(
         [
@@ -80,7 +80,7 @@ def _todo_ics(now: datetime) -> str:
             f"DTSTAMP:{_stamp(now)}",
             f"DUE:{_stamp(due)}",
             "SUMMARY:Latency acceptance Task",
-            "STATUS:NEEDS-ACTION",
+            f"STATUS:{status}",
             "PRIORITY:1",
             "END:VTODO",
             "END:VCALENDAR",
@@ -103,6 +103,29 @@ def _event_ics(now: datetime) -> str:
             f"DTSTART:{_stamp(start)}",
             f"DTEND:{_stamp(end)}",
             "SUMMARY:Latency acceptance Event",
+            "END:VEVENT",
+            "END:VCALENDAR",
+            "",
+        ]
+    )
+
+
+def _closed_work_ics(index: int, now: datetime) -> str:
+    start = now - timedelta(days=index + 1)
+    end = start + timedelta(minutes=25)
+    return "\r\n".join(
+        [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "PRODID:-//CalDAV Assistant Latency Acceptance//EN",
+            "BEGIN:VEVENT",
+            f"UID:latency-closed-work-{index}",
+            f"DTSTAMP:{_stamp(now)}",
+            f"DTSTART:{_stamp(start)}",
+            f"DTEND:{_stamp(end)}",
+            f"SUMMARY:Closed work interval {index}",
+            "CATEGORIES:caldav-assistant-work",
+            f"DESCRIPTION:CALDAV-ASSISTANT-TASK-ID:historical-{index}",
             "END:VEVENT",
             "END:VCALENDAR",
             "",
@@ -200,8 +223,13 @@ def main() -> int:
                 principal.make_calendar(name=f"Decoy {index + 1}")
 
             now = datetime.now(timezone.utc)
-            task_calendar.save_todo(_todo_ics(now))
+            # IN-PROCESS without an open Work interval is intentionally excluded
+            # from recommendation, making "Choose a Task and start" item 1 exactly
+            # as in the reported degraded-startup transcript.
+            task_calendar.save_todo(_todo_ics(now, status="IN-PROCESS"))
             event_calendar.save_event(_event_ics(now))
+            for index in range(WORK_HISTORY_EVENTS):
+                work_calendar.save_event(_closed_work_ics(index, now))
             _configure(
                 home,
                 base_url=base_url,
@@ -209,7 +237,10 @@ def main() -> int:
                 event_url=str(event_calendar.url),
                 work_url=str(work_calendar.url),
             )
-            print("PASS: real Radicale seeded with 3 role collections + 5 decoys")
+            print(
+                "PASS: real Radicale seeded with 3 role collections + 5 decoys + "
+                f"{WORK_HISTORY_EVENTS} closed Work intervals"
+            )
 
             transcript_raw = os.environ.get("CALDAV_ASSISTANT_LATENCY_TRANSCRIPT")
             transcript_path = Path(transcript_raw) if transcript_raw else tmp / "latency.txt"
@@ -217,6 +248,22 @@ def main() -> int:
                 transcript_path = root / transcript_path
             transcript_path.parent.mkdir(parents=True, exist_ok=True)
             transcript = transcript_path.open("w", encoding="utf-8")
+
+            restarted = subprocess.run(
+                [executable, "background", "restart"],
+                cwd=root,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=15,
+                check=False,
+            )
+            if restarted.returncode != 0:
+                raise AssertionError(
+                    "Background restart failed before latency path: "
+                    f"{restarted.stdout}{restarted.stderr}"
+                )
+            print("PASS: background restarted immediately before foreground CLI")
 
             started = time.monotonic()
             child = pexpect.spawn(
@@ -240,27 +287,44 @@ def main() -> int:
                 f"<= {STARTUP_BUDGET_SECONDS:.1f}s"
             )
 
-            # First menu consumes the welcome snapshot. Back out, then enter a second
-            # time so the exact field path performs a fresh live read before the menu
-            # is built. Selecting Upcoming must reuse that same coherent snapshot and
-            # remain in numbered-menu mode instead of silently switching to commands.
+            # Reproduce the reported field path exactly.  The menu action must reuse
+            # the welcome snapshot and reach Task selection instead of becoming
+            # permanently disabled after a startup deadline.
             child.sendline("")
-            _expect(child, "What do you want to do\?", "first guided menu opened")
+            _expect(child, r"What do you want to do\?", "first guided menu opened")
+            child.sendline("1")
+            _expect(
+                child,
+                "Choose a Task to work on",
+                "Enter -> 1 reached Task selection without another live Task read",
+            )
+            # ``0`` in the nested Task chooser means Back, so it returns to the
+            # already-open guided menu.  Exit that parent menu explicitly before
+            # opening a second visit; otherwise an empty line is merely another menu
+            # answer and no fresh snapshot should be expected.
+            child.sendline("0")
+            _expect(
+                child,
+                r"What do you want to do\?",
+                "Task chooser Back returned to the guided menu",
+            )
             child.sendline("0")
             child.expect(r"> ")
 
+            # The next menu performs a fresh read. Selecting Upcoming must reuse it
+            # and remain in numbered-menu mode instead of switching to commands.
             child.sendline("")
             _expect(
                 child,
                 "Refreshing current work, Tasks and Events",
                 "second guided menu performed one visible live read",
             )
-            _expect(child, "What do you want to do\?", "second guided menu opened")
+            _expect(child, r"What do you want to do\?", "second guided menu opened")
             child.sendline("Upcoming — next 24h")
             _expect(child, "Upcoming · next 24h", "guided Upcoming displayed")
             _expect(
                 child,
-                "What do you want to do\?",
+                r"What do you want to do\?",
                 "guided menu stayed active after Upcoming",
             )
             child.sendline("0")
@@ -290,6 +354,8 @@ def main() -> int:
             startup_text, _, after_console = text.partition("Console ready")
             if "Live agenda is unavailable" in startup_text or "startup_snapshot" in startup_text and "failed" in startup_text:
                 raise AssertionError("Healthy startup fell back to unavailable live data")
+            if "Cached Task/Event data" in startup_text:
+                raise AssertionError("Healthy local startup unexpectedly used stale cache")
             if "Latency acceptance Task" not in startup_text:
                 raise AssertionError("Role-selected Task was not shown during startup")
             if "Latency acceptance Event" not in startup_text:
@@ -310,6 +376,8 @@ def main() -> int:
                 )
             if "Traceback (most recent call last)" in after_console:
                 raise AssertionError("Interactive CLI leaked a traceback during the human path")
+            if "Current Task state is unavailable" in after_console:
+                raise AssertionError("Enter -> 1 remained disabled after healthy startup")
 
             marker = "Working: history"
             end_marker = "Menu/selection finished"

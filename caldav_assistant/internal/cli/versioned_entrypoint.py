@@ -14,6 +14,7 @@ from .feature_demo import register_feature_demo_command
 from .latency_guard import install as install_latency_guards
 from .runtime_transparency import install as install_runtime_transparency
 from .smooth_home import install as install_smooth_home
+from .stale_startup_notice import install as install_stale_startup_notice
 
 
 def _show(app: Any, text: str) -> None:
@@ -95,6 +96,9 @@ def run_cli(argv: Sequence[str] | None = None, *, app: Any = None) -> int:
         # Install after latency/smooth-home wrappers so the visible path and Ctrl-C
         # boundary describe the final runtime structure rather than an inner layer.
         install_runtime_transparency(monitor_app)
+        # Wrap the final snapshot renderer so stale state cannot be hidden by any
+        # of the composition layers above.
+        install_stale_startup_notice(monitor_app)
 
     commands = getattr(app, "commands", None)
     ctx = getattr(app, "ctx", None)

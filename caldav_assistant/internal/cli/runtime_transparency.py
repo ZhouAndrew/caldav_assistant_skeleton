@@ -22,8 +22,9 @@ def install(module: Any) -> None:
         )
         conversation._show(
             app,
-            "Source: live CalDAV; independent reads run in parallel. "
-            "No cache is being presented as current truth.",
+            "Primary source: live CalDAV; independent reads run in parallel. "
+            "If the interactive deadline is missed, the last verified snapshot is "
+            "shown only with an explicit stale warning.",
         )
         return original_read_snapshot(app)
 

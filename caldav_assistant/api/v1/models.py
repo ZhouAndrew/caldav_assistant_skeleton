@@ -38,6 +38,10 @@ class Task:
     # scaffold. Easy API itself never exposes a raw-CalDAV helper.
     raw: Any = None
     _service: Any = field(default=None, repr=False, compare=False)
+    # Reliability metadata only.  True means this object came from the last
+    # verified local snapshot because a live CalDAV read missed the interactive
+    # availability boundary.  Keyword-only preserves the frozen positional API.
+    stale: bool = field(default=False, kw_only=True)
 
     def _bound_service(self) -> Any:
         if self._service is None:
@@ -84,6 +88,7 @@ class Event:
     categories: list[str] = field(default_factory=list)
     raw: Any = None
     _service: Any = field(default=None, repr=False, compare=False)
+    stale: bool = field(default=False, kw_only=True)
 
     def _bound_service(self) -> Any:
         if self._service is None:
@@ -109,6 +114,7 @@ class AgendaItem:
 @dataclass
 class Agenda:
     items: list[AgendaItem] = field(default_factory=list)
+    stale: bool = field(default=False, kw_only=True)
 
     def __iter__(self) -> Iterator[AgendaItem]:
         return iter(self.items)
