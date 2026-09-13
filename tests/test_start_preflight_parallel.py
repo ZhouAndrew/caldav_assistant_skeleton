@@ -86,3 +86,33 @@ def test_start_refuses_stale_fallback_before_any_work_mutation():
     assert adapter.get_calls == 1
     assert worklog.open_reads == 1
     assert worklog.start_calls == 0
+
+
+def test_start_without_work_collection_still_refreshes_cached_task_before_mutation():
+    class StaleOnlyAdapter:
+        def __init__(self) -> None:
+            self.get_calls = 0
+            self.update_calls = 0
+
+        def get_task(self, task_id: str) -> Task:
+            self.get_calls += 1
+            return Task(
+                id=task_id,
+                summary="Cached fallback",
+                status="NEEDS-ACTION",
+                stale=True,
+            )
+
+        def update_task(self, task_id: str, changes):
+            self.update_calls += 1
+            raise AssertionError("stale Start must fail before update_task")
+
+    adapter = StaleOnlyAdapter()
+    service = CalDAVWorkTaskService(adapter, worklog=None)
+    cached = Task(id="requested", summary="Cached requested", stale=True)
+
+    with pytest.raises(UnavailableError, match="cannot use cached Task data"):
+        service.start(cached)
+
+    assert adapter.get_calls == 1
+    assert adapter.update_calls == 0
