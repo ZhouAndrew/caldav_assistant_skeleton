@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Real latency acceptance for the background-ready startup architecture.
 
-This intentionally drives the installed executable against real local Radicale.  It
+This intentionally drives the installed executable against real local Radicale. It
 proves the contract that matters after the startup redesign:
 
 * the background Assistant first publishes a verified Task/Event snapshot;
@@ -13,6 +13,7 @@ proves the contract that matters after the startup redesign:
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 import os
 import shutil
@@ -67,19 +68,29 @@ def _wait_for_verified_snapshot(home: Path, timeout: float = 10.0) -> dict:
 
 
 def _return_to_console(child: pexpect.spawn) -> None:
-    """Back out from duration/Task/home menus without assuming auto-selection."""
-    for _ in range(4):
+    """Back out from Start submenus after their current prompt was consumed."""
+    child.sendline("0")
+    index = child.expect(
+        [
+            "Choose a Task to work on",
+            r"What do you want to do\?",
+            r"\r\n> ",
+        ]
+    )
+    if index == 2:
+        return
+    if index == 0:
+        # Consume the Task chooser's prompt before sending Back. Otherwise a later
+        # expect could accidentally match this old prompt and claim we are in console.
+        child.expect(r"\r\n> ")
         child.sendline("0")
-        index = child.expect(
-            [
-                r"What do you want to do\?",
-                "Choose a Task to work on",
-                r"> ",
-            ]
-        )
-        if index == 2:
-            return
-    raise AssertionError("Could not return from guided Start path to the console")
+        child.expect(r"What do you want to do\?")
+
+    # We are now in the guided home menu. Consume *its* prompt, then Back once more
+    # and wait for the fresh console prompt produced after that input is processed.
+    child.expect(r"\r\n> ")
+    child.sendline("0")
+    child.expect(r"\r\n> ")
 
 
 def main() -> int:
@@ -133,7 +144,7 @@ def main() -> int:
             for index in range(5):
                 principal.make_calendar(name=f"Decoy {index + 1}")
 
-            now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+            now = datetime.now(timezone.utc)
             task_calendar.save_todo(_todo_ics(now, status="IN-PROCESS"))
             event_calendar.save_event(_event_ics(now))
             for index in range(WORK_HISTORY_EVENTS):
@@ -231,6 +242,8 @@ def main() -> int:
                 child.expect("How long do you want to work")
             else:
                 print("PASS: single actionable Task was auto-selected")
+            # Consume the duration menu's current prompt before navigating Back.
+            child.expect(r"\r\n> ")
             print("PASS: guided Start reached duration menu without startup live refresh")
             _return_to_console(child)
 
