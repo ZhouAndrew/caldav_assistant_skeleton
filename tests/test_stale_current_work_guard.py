@@ -40,7 +40,8 @@ def _module(*, welcome_snapshot: _Snapshot | None = None):
     conversation._show_welcome = show_welcome
     conversation._guided_start = guided_start
     module = SimpleNamespace(conversation=conversation)
-    return module, SimpleNamespace(), shown, guided_calls
+    runtime = SimpleNamespace(call=lambda *args, **kwargs: None)
+    return module, SimpleNamespace(runtime=runtime), shown, guided_calls
 
 
 def test_stale_welcome_never_claims_that_no_task_is_active():
