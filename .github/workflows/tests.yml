@@ -78,7 +78,7 @@ jobs:
           CALDAV_ASSISTANT_WAIT_ACCEPTANCE_TRANSCRIPT: waiting-mode-transcript-${{ matrix.python-version }}.log
         run: |
           set -o pipefail
-          python scripts/acceptance_waiting_interrupt_real.py 2>&1 | tee waiting-mode-acceptance-${{ matrix.python-version }}.log
+          python scripts/acceptance_waiting_interrupt_ready_snapshot_real.py 2>&1 | tee waiting-mode-acceptance-${{ matrix.python-version }}.log
       - name: Verify live lifecycle transcript ordering
         run: >-
           python scripts/assert_live_transcript.py
