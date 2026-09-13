@@ -164,10 +164,10 @@ def install(module: Any) -> None:
         def numeric_console(app: Any, snapshot: Any):
             """Treat a bare console number exactly like Enter + that menu choice.
 
-            The original console still owns ``first_menu_snapshot``.  Converting the
-            number to an empty line lets it pass that exact snapshot into _home_menu;
-            the temporary PromptKit wrapper then selects the numbered visible item.
-            Direct named commands are untouched.
+            The original console still owns ``first_menu_snapshot``. Converting a
+            top-level number to an empty line lets it pass that exact snapshot into
+            _home_menu. Numeric input typed *inside* PromptKit menus is never
+            intercepted and remains normal menu input.
             """
             io = getattr(app, "io", None)
             ui = getattr(getattr(app, "ctx", None), "ui", None)
@@ -177,11 +177,14 @@ def install(module: Any) -> None:
                 return original_console(app, snapshot)
 
             pending: dict[str, int | None] = {"number": None}
+            state = {"inside_choose": False}
             bound_read = read
             bound_choose = choose
 
             def numeric_read(prompt: str = ""):
                 value = bound_read(prompt)
+                if state["inside_choose"]:
+                    return value
                 text = str(value).strip()
                 if text.isdigit():
                     pending["number"] = int(text)
@@ -204,7 +207,12 @@ def install(module: Any) -> None:
                         f"Invalid home-menu number: {number}. Choose one of the visible numbers.",
                     )
                     return None
-                return bound_choose(title, items, **kwargs)
+
+                state["inside_choose"] = True
+                try:
+                    return bound_choose(title, items, **kwargs)
+                finally:
+                    state["inside_choose"] = False
 
             restore_read = _replace_instance_attribute(io, "read", numeric_read)
             restore_choose = _replace_instance_attribute(ui, "choose", numeric_choose)
