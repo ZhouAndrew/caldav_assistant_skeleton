@@ -1,6 +1,6 @@
 {
   "seq": 0,
-  "phase": "NOT_STARTED",
+  "phase": "SETUP_READY",
   "command": "NONE",
-  "transcript": ""
+  "transcript": "Background service: Running\nBackground reminders: Off\nMaintenance: Running\nPID: 2147\nBackground service: Running\nBackground reminders: Off\nMaintenance: Running\nPID: 2147\n\n[RELAY] SETUP_READY base_commit=d2a585ff877d2efd092e2be97cc2a58316517a51\n\n[RELAY] REAL_RADICALE_READY url=http://127.0.0.1:38527/\n\n[RELAY] WAITING_FOR_COMMAND seq>0\n"
 }
