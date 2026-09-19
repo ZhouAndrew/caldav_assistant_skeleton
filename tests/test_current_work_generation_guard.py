@@ -6,7 +6,7 @@ import pytest
 
 from caldav_assistant.api import Task
 from caldav_assistant.internal.caldav import SyncEngine
-from caldav_assistant.internal.cli import conversation_app, conversation_live
+from caldav_assistant.internal.cli import conversation_app, conversation_live, latency_guard
 from caldav_assistant.internal.session import CalDAVSessionService
 from caldav_assistant.internal.agenda.service import AgendaService
 
@@ -113,7 +113,7 @@ class CaptureUI:
         return None
 
 
-def test_unverified_home_cannot_offer_start_actions_or_recommendation_path():
+def test_unverified_home_puts_read_only_task_selection_first_without_recommendation():
     ui = CaptureUI()
     app = SimpleNamespace(ctx=SimpleNamespace(ui=ui))
     candidate = Task(id="anki", summary="Anki")
@@ -127,9 +127,9 @@ def test_unverified_home_cannot_offer_start_actions_or_recommendation_path():
 
     assert conversation_app._home_menu(app, snapshot) == "console"
     assert ui.items is not None
-    assert ui.items[0] == "Refresh current work"
+    assert ui.items[0] == "Choose a Task to work on"
+    assert "Refresh current work" in ui.items
     assert not any(item.startswith("Start recommended Task") for item in ui.items)
-    assert "Choose a Task and start" not in ui.items
 
 
 def test_unverified_startup_enters_console_without_live_session_probe(monkeypatch):
@@ -213,7 +213,8 @@ def test_failed_current_work_refresh_stays_in_cli(monkeypatch):
 
     class UI:
         def choose(self, title, items, **kwargs):
-            assert items[0] == "Refresh current work"
+            assert items[0] == "Choose a Task to work on"
+            assert "Refresh current work" in items
             return "Refresh current work"
 
         def show(self, value):
@@ -235,6 +236,87 @@ def test_failed_current_work_refresh_stays_in_cli(monkeypatch):
     assert conversation_app._home_menu(app, snapshot) == "console"
     assert any("console remains usable" in line for line in shown)
     assert any("No Task was started" in line for line in shown)
+
+
+def test_unverified_guided_start_chooses_before_retry_and_uses_refreshed_task(monkeypatch):
+    events = []
+    cached = Task(id="t1", summary="Cached Task")
+    refreshed = Task(id="t1", summary="Refreshed Task")
+    initial = conversation_app.StartupSnapshot(
+        tasks=(cached,),
+        current_work_verified=False,
+        stale=True,
+    )
+    healthy = conversation_app.StartupSnapshot(
+        tasks=(refreshed,),
+        current_work_verified=True,
+        stale=False,
+    )
+
+    class UI:
+        def choose(self, title, items, **kwargs):
+            events.append(("choose", title, tuple(items)))
+            return tuple(items)[0]
+
+    conversation = SimpleNamespace()
+    conversation.StartupSnapshot = conversation_app.StartupSnapshot
+    conversation._show = lambda app, value="": events.append(("show", str(value)))
+    conversation._visible_call = (
+        lambda app, label, fn, *args, **kwargs: (
+            events.append(("visible", label)),
+            fn(),
+        )[1]
+    )
+    conversation._window_hours = lambda app: 24
+    conversation._item_in_window = lambda item, now, end: True
+    conversation._choose_task_for_work = conversation_app._choose_task_for_work
+
+    def original_guided_start(app, task=None, **options):
+        events.append(("guided", task, options))
+        return "wait"
+
+    conversation._guided_start = original_guided_start
+
+    def original_home_menu(app, snapshot):
+        return conversation._guided_start(
+            app,
+            known_current=snapshot.current_task,
+            task_choices=snapshot.tasks,
+        )
+
+    conversation._home_menu = original_home_menu
+    module = SimpleNamespace(
+        conversation=conversation,
+        _execute_user=lambda app, parsed, paginate=True: (0, False),
+        legacy=SimpleNamespace(_split_lifecycle_duration=lambda parsed: (parsed, None)),
+        base=SimpleNamespace(
+            execute_command=lambda app, parsed: None,
+            _render_result=lambda app, result, paginate=True: None,
+        ),
+    )
+    app = SimpleNamespace(ctx=SimpleNamespace(ui=UI()), runtime=None)
+
+    def read_snapshot(current_module, current_app):
+        events.append(("read",))
+        return healthy
+
+    monkeypatch.setattr(latency_guard, "_read_snapshot", read_snapshot)
+    latency_guard.install(module)
+
+    assert conversation._home_menu(app, initial) == "wait"
+
+    choose_index = next(i for i, event in enumerate(events) if event[0] == "choose")
+    retry_index = next(
+        i
+        for i, event in enumerate(events)
+        if event[0] == "visible" and event[1] == "Retrying current Task state…"
+    )
+    guided = next(event for event in events if event[0] == "guided")
+
+    assert choose_index < retry_index
+    assert guided[1] is refreshed
+    assert guided[2]["known_current"] is None
+    assert guided[2]["task_choices"] == (refreshed,)
 
 
 def test_verified_open_work_uid_missing_from_task_snapshot_becomes_unknown():
