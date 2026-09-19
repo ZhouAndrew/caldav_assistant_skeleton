@@ -195,7 +195,14 @@ def main() -> int:
             first.sendline("")
             _expect(first, "What do you want to do", "first guided home opened")
             first.sendline("1")
-            _expect(first, "How long do you want to work", "recommended Task selected")
+            _expect(
+                first,
+                "Choose by number; type /keyword to search",
+                "primary action entered Task picker",
+            )
+            _expect(first, "Choose a Task to work on", "Task chooser shown")
+            first.sendline("1")
+            _expect(first, "How long do you want to work", "Task selected")
             first.sendline("7")
             _expect(first, "Planned end: not set", "open-ended work period selected")
             _expect(first, "Start now", "real Start confirmation shown")
