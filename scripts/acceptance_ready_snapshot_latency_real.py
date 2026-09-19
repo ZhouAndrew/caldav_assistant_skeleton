@@ -234,31 +234,47 @@ def main() -> int:
                 )
             print(f"PASS: guided menu opened in {menu_elapsed:.2f}s")
 
-            child.sendline("1")
-            index = child.expect(
-                [
-                    "Refreshing current work, Tasks and Events",
-                    "Choose a Task to work on",
-                    "How long do you want to work",
-                ]
-            )
-            if index == 0:
-                print("PASS: daemon-restart UNKNOWN state used explicit safe refresh")
+            # Immediately after a daemon restart, Task/Event cache startup can be
+            # fast while this daemon generation is still verifying current Work.
+            # UNKNOWN is intentionally safe: slot 1 remains Refresh until verification
+            # succeeds. Retry that explicit action within a bounded total window
+            # instead of assuming one background round-trip is always enough.
+            refresh_deadline = time.monotonic() + 20.0
+            refresh_count = 0
+            while True:
+                child.sendline("1")
+                remaining = max(0.1, refresh_deadline - time.monotonic())
+                child.timeout = min(15.0, remaining)
+                index = child.expect(
+                    [
+                        "Refreshing current work, Tasks and Events",
+                        "Choose a Task to work on",
+                        "How long do you want to work",
+                    ]
+                )
+                if index != 0:
+                    child.timeout = 15
+                    index -= 1
+                    break
+
+                refresh_count += 1
+                print(
+                    "PASS: daemon-restart UNKNOWN state used explicit safe refresh "
+                    f"(attempt {refresh_count})"
+                )
                 child.expect(r"What do you want to do\?")
                 child.expect(r"\r\n> ")
-                child.sendline("1")
-                index = child.expect(
-                    ["Choose a Task to work on", "How long do you want to work"]
-                )
-            else:
-                index -= 1
+                if time.monotonic() >= refresh_deadline:
+                    raise AssertionError(
+                        "current-work verification did not become ready within 20s"
+                    )
 
             if index == 0:
-                print("PASS: guided Start displayed Task chooser")
+                print("PASS: guided Start displayed Task chooser only after verification")
                 child.sendline("1")
                 child.expect("How long do you want to work")
             else:
-                print("PASS: single actionable Task was auto-selected")
+                print("PASS: single actionable Task was auto-selected only after verification")
             # Consume the duration menu's current prompt before navigating Back.
             child.expect(r"\r\n> ")
             print("PASS: guided Start reached duration menu without startup live refresh")
