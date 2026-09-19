@@ -18,25 +18,3 @@ jobs:
           python -m pip install -e . "radicale==3.5.4" pexpect
       - name: Drive the installed CLI through the numbered human path
         run: python scripts/acceptance_real_use_smoothness.py
-
-      # TEMPORARY: export the exact PR head + offline dependencies so the assistant
-      # can perform a separate manual PTY acceptance outside GitHub Actions.
-      - name: Prepare offline manual-acceptance bundle
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-          cache: pip
-      - name: Build offline manual-acceptance bundle
-        run: |
-          rm -rf manual-wheelhouse manual-source.tar.gz
-          mkdir -p manual-wheelhouse
-          python -m pip install --upgrade pip
-          python -m pip wheel --wheel-dir manual-wheelhouse . "radicale==3.5.4" pexpect
-          git archive --format=tar.gz --output=manual-source.tar.gz HEAD
-      - name: Upload offline manual-acceptance bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: manual-acceptance-bundle
-          path: |
-            manual-wheelhouse/
-            manual-source.tar.gz
