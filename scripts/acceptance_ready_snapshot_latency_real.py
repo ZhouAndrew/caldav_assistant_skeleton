@@ -235,7 +235,24 @@ def main() -> int:
             print(f"PASS: guided menu opened in {menu_elapsed:.2f}s")
 
             child.sendline("1")
-            index = child.expect(["Choose a Task to work on", "How long do you want to work"])
+            index = child.expect(
+                [
+                    "Refreshing current work, Tasks and Events",
+                    "Choose a Task to work on",
+                    "How long do you want to work",
+                ]
+            )
+            if index == 0:
+                print("PASS: daemon-restart UNKNOWN state used explicit safe refresh")
+                child.expect(r"What do you want to do\?")
+                child.expect(r"\r\n> ")
+                child.sendline("1")
+                index = child.expect(
+                    ["Choose a Task to work on", "How long do you want to work"]
+                )
+            else:
+                index -= 1
+
             if index == 0:
                 print("PASS: guided Start displayed Task chooser")
                 child.sendline("1")
