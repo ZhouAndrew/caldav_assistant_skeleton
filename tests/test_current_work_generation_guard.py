@@ -175,6 +175,9 @@ def test_console_prompt_does_not_live_probe_unknown_current_work(monkeypatch):
         def write(self, text=""):
             return None
 
-    app = SimpleNamespace(io=EOFIO())
+    app = SimpleNamespace(
+        io=EOFIO(),
+        ctx=SimpleNamespace(ui=SimpleNamespace(show=lambda value: None)),
+    )
     code, action = conversation_app._console(app, snapshot)
     assert (code, action) == (0, "exit")
