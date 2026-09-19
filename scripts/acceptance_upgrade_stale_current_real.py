@@ -375,7 +375,26 @@ def main() -> int:
             _expect(first, "Console ready", "CLI remained usable from stale Task/Event cache")
             first.sendline("")
             _expect(first, "What do you want to do", "guided home opened while current work unknown")
-            _expect(first, "Refresh current work", "unknown state exposes safe refresh action")
+            _expect(
+                first,
+                "Choose a Task to work on",
+                "unknown state still exposes read-only Task choice first",
+            )
+            _expect(first, "Refresh current work", "unknown state still exposes explicit refresh")
+            first.sendline("1")
+            _expect(
+                first,
+                "Choose by number; type /keyword to search",
+                "cached Task can be selected before verification",
+            )
+            _expect(first, "Choose a Task to work on", "cached Task chooser shown")
+            first.sendline("1")
+            _expect(
+                first,
+                r"Current Task state is still unavailable|Current work is still unverified",
+                "verification blocks lifecycle start while Current Work is unknown",
+            )
+            _expect(first, "What do you want to do", "safe failure returns to guided home")
             first.sendline("0")
             first.sendline("exit")
             first.expect(pexpect.EOF)
@@ -387,7 +406,6 @@ def main() -> int:
             forbidden_early = (
                 "Background snapshot has no current Task",
                 "Start recommended Task",
-                "Choose a Task and start",
                 "Ready to start",
             )
             for marker in forbidden_early:

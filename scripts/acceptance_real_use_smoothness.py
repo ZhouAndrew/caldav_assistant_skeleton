@@ -150,31 +150,56 @@ def main() -> int:
 
             started = time.monotonic()
             verify_deadline = time.monotonic() + 20.0
-            refreshes = 0
+            verification_retries = 0
             while True:
+                # The primary home action is human Task choice, even while a newly
+                # restarted background generation is still verifying Current Work.
                 child.sendline("1")
                 child.timeout = min(
                     30,
                     max(0.1, verify_deadline - time.monotonic()),
                 )
-                index = child.expect(
+                entered = child.expect(
                     [
-                        r"Refreshing current work, Tasks and Events",
-                        r"How long do you want to work",
+                        r"Choose by number; type /keyword to search",
+                        r"What do you want to do\?",
                     ]
                 )
-                if index == 1:
+                if entered == 1:
+                    verification_retries += 1
+                    if time.monotonic() >= verify_deadline:
+                        raise AssertionError(
+                            "current-work verification did not become ready within 20s"
+                        )
+                    continue
+
+                # Consume the actual nested Task-picker title, not the identical
+                # home-menu label that may still be present in pexpect's buffer.
+                child.expect(r"Choose a Task to work on")
+
+                # Exercise the normal PromptKit convenience path too: search, wait
+                # for the filtered menu to render again, then choose by number.
+                child.sendline("/Latency")
+                child.expect(r"Choose a Task to work on")
+                child.sendline("1")
+
+                index = child.expect(
+                    [
+                        r"How long do you want to work",
+                        r"What do you want to do\?",
+                    ]
+                )
+                if index == 0:
                     child.timeout = 30
                     break
-                refreshes += 1
-                child.expect(r"What do you want to do\?")
+                verification_retries += 1
                 if time.monotonic() >= verify_deadline:
                     raise AssertionError(
                         "current-work verification did not become ready within 20s"
                     )
             print(
                 f"REAL-USE: choose_start_to_duration={_elapsed(started):.3f}s "
-                f"(safe_refreshes={refreshes})"
+                f"(verification_retries={verification_retries})"
             )
 
             # `0 Back` is deliberately the only numeric exit assumption here. It is

@@ -34,6 +34,7 @@ def _stable_home_items(items: Any) -> tuple[Any, ...]:
         return (
             text.startswith("Return to Waiting Mode")
             or text.startswith("Start recommended Task")
+            or text == "Choose a Task to work on"
             or text == "Choose a Task and start"
             or text == "Refresh current work"
         )

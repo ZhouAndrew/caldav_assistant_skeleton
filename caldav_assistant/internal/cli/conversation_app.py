@@ -362,6 +362,37 @@ def _execute_user(app: Any, parsed: base.ParsedCommand, *, paginate: bool = True
     return code, should_exit
 
 
+def _choose_task_for_work(
+    app: Any,
+    task_choices: Sequence[Task] | None = None,
+) -> Any:
+    """Choose one Task with the shared searchable/paged PromptKit menu."""
+    _show(
+        app,
+        "Choose by number; type /keyword to search; use n/p for pages; 0 goes back.",
+    )
+    if task_choices is not None:
+        if not task_choices:
+            _show(app, "No actionable Tasks are available in this snapshot.")
+            return None
+        chooser = getattr(app.ctx.ui, "choose", None)
+        if not callable(chooser):
+            raise ValidationError("Guided start requires Task selection")
+        return chooser(
+            "Choose a Task to work on",
+            task_choices,
+            help_text=(
+                "Number = choose · /keyword = search · n/next and p/prev = page · "
+                "0/back = return."
+            ),
+        )
+
+    chooser = getattr(app.ctx.ui, "choose_task", None)
+    if not callable(chooser):
+        raise ValidationError("Guided start requires Task selection")
+    return chooser(title="Choose a Task to work on")
+
+
 def _guided_start(
     app: Any,
     task: Any = None,
@@ -381,19 +412,7 @@ def _guided_start(
         return "wait"
 
     if task is None:
-        if task_choices is not None:
-            if not task_choices:
-                _show(app, "No actionable Tasks are available in this snapshot.")
-                return "console"
-            chooser = getattr(app.ctx.ui, "choose", None)
-            if not callable(chooser):
-                raise ValidationError("Guided start requires Task selection")
-            task = chooser("Choose a Task to work on", task_choices)
-        else:
-            chooser = getattr(app.ctx.ui, "choose_task", None)
-            if not callable(chooser):
-                raise ValidationError("Guided start requires Task selection")
-            task = chooser(title="Choose a Task to work on")
+        task = _choose_task_for_work(app, task_choices)
     if task is None:
         return "console"
 
@@ -612,14 +631,18 @@ def _home_menu(app: Any, snapshot: StartupSnapshot | None) -> str:
     current = snapshot.current_task
     verified = bool(snapshot.current_work_verified)
     labels: list[str] = []
-    if not verified:
-        labels.append("Refresh current work")
-    elif current is not None:
+    if verified and current is not None:
         labels.append(f"Return to Waiting Mode — {_summary(current)}")
-    if verified and snapshot.recommended is not None and current is None:
-        labels.append(f"Start recommended Task — {_summary(snapshot.recommended)}")
-    if verified and current is None:
-        labels.append("Choose a Task and start")
+    else:
+        # Human choice is the primary path. Even while a newly restarted background
+        # generation is verifying Current Work, selecting a Task is read-only and may
+        # happen first; the guarded start path verifies authoritative current-work
+        # state immediately before any lifecycle write.
+        labels.append("Choose a Task to work on")
+        if verified and snapshot.recommended is not None:
+            labels.append(f"Start recommended Task — {_summary(snapshot.recommended)}")
+        if not verified:
+            labels.append("Refresh current work")
     labels.extend(
         [
             f"Upcoming — next {snapshot.window_hours}h",
@@ -670,7 +693,7 @@ def _home_menu(app: Any, snapshot: StartupSnapshot | None) -> str:
             known_current=snapshot.current_task,
             task_choices=snapshot.tasks,
         )
-    if text == "Choose a Task and start":
+    if text in {"Choose a Task to work on", "Choose a Task and start"}:
         return _guided_start(
             app,
             known_current=snapshot.current_task,

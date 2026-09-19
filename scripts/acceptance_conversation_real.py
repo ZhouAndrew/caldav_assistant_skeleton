@@ -295,9 +295,16 @@ def main() -> int:
             _expect(child, "Recommended", label="recommendation section shown")
             _expect(child, "Console ready", label="unified console entered")
 
-            # Zero-learning path: Enter -> recommended Task -> 15 minutes -> confirm.
+            # Zero-learning path: Enter -> choose Task -> 15 minutes -> confirm.
             child.sendline("")
             _expect(child, "What do you want to do", label="Enter opens guided menu")
+            child.sendline("1")
+            _expect(
+                child,
+                "Choose by number; type /keyword to search",
+                label="Task picker entered",
+            )
+            _expect(child, "Choose a Task to work on", label="Task chooser shown")
             child.sendline("1")
             _expect(child, "How long do you want to work", label="duration menu shown")
             child.sendline("1")

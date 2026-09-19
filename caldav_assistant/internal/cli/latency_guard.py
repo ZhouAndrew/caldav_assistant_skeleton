@@ -397,7 +397,19 @@ def install(module: Any) -> None:
 
     def guarded_guided_start(app: Any, task: Any = None, **options: Any):
         snapshot = menu_state["snapshot"]
-        # A timeout must not permanently disable the primary Task action.  Retry the
+        # Selection is read-only, so let the human choose first from the last verified
+        # Task snapshot. Verification still happens before any lifecycle write.
+        if snapshot is not None and task is None and (
+            getattr(snapshot, "warning", None) is not None
+            or not bool(getattr(snapshot, "current_work_verified", True))
+        ):
+            cached_choices = tuple(getattr(snapshot, "tasks", ()) or ())
+            if cached_choices:
+                task = conversation._choose_task_for_work(app, cached_choices)
+                if task is None:
+                    return "console"
+
+        # A timeout must not permanently disable the primary Task action. Retry the
         # coalesced snapshot explicitly; if it is still unavailable, remain safe and
         # change nothing.
         if snapshot is not None and (
@@ -425,8 +437,31 @@ def install(module: Any) -> None:
                     "Current work is still unverified. No Task was started.",
                 )
                 return "console"
+
+            recovered_choices = tuple(getattr(recovered, "tasks", ()) or ())
+            if task is not None:
+                selected_uid = str(getattr(task, "id", "") or "")
+                refreshed_task = next(
+                    (
+                        candidate
+                        for candidate in recovered_choices
+                        if selected_uid
+                        and str(getattr(candidate, "id", "") or "") == selected_uid
+                    ),
+                    None,
+                )
+                if refreshed_task is None:
+                    conversation._show(
+                        app,
+                        "The selected Task changed or is no longer actionable. "
+                        "Choose again from the refreshed Task list.",
+                    )
+                    task = None
+                else:
+                    task = refreshed_task
+
             options["known_current"] = getattr(recovered, "current_task", None)
-            options["task_choices"] = tuple(getattr(recovered, "tasks", ()) or ())
+            options["task_choices"] = recovered_choices
         try:
             assert callable(original_guided_start)
             return original_guided_start(app, task, **options)
