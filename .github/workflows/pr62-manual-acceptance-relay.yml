@@ -8,7 +8,7 @@ on:
       - .github/workflows/pr62-manual-acceptance-relay.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   relay:
@@ -30,6 +30,7 @@ jobs:
       - name: Run assistant-operated PTY relay
         env:
           CONTROL_URL: https://api.github.com/repos/${{ github.repository }}/contents/.github/manual-acceptance/control.json
+          STATUS_URL: https://api.github.com/repos/${{ github.repository }}/contents/.github/manual-acceptance/status.json
           CONTROL_REF: ${{ github.ref_name }}
           GITHUB_TOKEN: ${{ github.token }}
           PYTHONUNBUFFERED: "1"
