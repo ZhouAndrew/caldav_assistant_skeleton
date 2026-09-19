@@ -155,18 +155,34 @@ def main() -> int:
                 # The primary home action is human Task choice, even while a newly
                 # restarted background generation is still verifying Current Work.
                 child.sendline("1")
-                child.expect(r"Choose a Task to work on")
-
-                # Exercise the normal PromptKit convenience path too: search, then
-                # choose by number. Selection itself is read-only.
-                child.sendline("/Latency")
-                child.expect(r"Latency acceptance Task")
-                child.sendline("1")
-
                 child.timeout = min(
                     30,
                     max(0.1, verify_deadline - time.monotonic()),
                 )
+                entered = child.expect(
+                    [
+                        r"Choose by number; type /keyword to search",
+                        r"What do you want to do\?",
+                    ]
+                )
+                if entered == 1:
+                    verification_retries += 1
+                    if time.monotonic() >= verify_deadline:
+                        raise AssertionError(
+                            "current-work verification did not become ready within 20s"
+                        )
+                    continue
+
+                # Consume the actual nested Task-picker title, not the identical
+                # home-menu label that may still be present in pexpect's buffer.
+                child.expect(r"Choose a Task to work on")
+
+                # Exercise the normal PromptKit convenience path too: search, wait
+                # for the filtered menu to render again, then choose by number.
+                child.sendline("/Latency")
+                child.expect(r"Choose a Task to work on")
+                child.sendline("1")
+
                 index = child.expect(
                     [
                         r"How long do you want to work",
