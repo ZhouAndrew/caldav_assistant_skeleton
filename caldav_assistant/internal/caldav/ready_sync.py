@@ -38,10 +38,21 @@ class SyncEngine(_BaseSyncEngine):
     def refresh_ready_state(self) -> dict[str, int]:
         """Refresh ready-state independently and report failures to maintenance."""
         completed = 0
+        errors: list[BaseException] = []
         with self._ready_lock:
             for hook in tuple(self._post_sync_hooks):
-                hook()
-                completed += 1
+                try:
+                    hook()
+                except BaseException as exc:
+                    errors.append(exc)
+                else:
+                    completed += 1
+        if errors:
+            first = errors[0]
+            raise RuntimeError(
+                f"{len(errors)} ready-state refresh hook(s) failed; "
+                f"first: {type(first).__name__}: {first}"
+            ) from first
         return {"hooks": completed}
 
     def refresh(self):
