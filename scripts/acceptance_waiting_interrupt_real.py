@@ -235,9 +235,16 @@ def main() -> int:
             _expect(child, TASK_SUMMARY, "acceptance Task visible")
             _expect(child, "Console ready", "console entered")
 
-            # Enter -> Start recommended Task -> custom 8-second period -> confirm.
+            # Enter -> choose Task -> custom 8-second period -> confirm.
             child.sendline("")
             _expect(child, "What do you want to do", "guided menu opened")
+            child.sendline("1")
+            _expect(
+                child,
+                "Choose by number; type /keyword to search",
+                "Task picker entered",
+            )
+            _expect(child, "Choose a Task to work on", "Task chooser shown")
             child.sendline("1")
             _expect(child, "How long do you want to work", "duration menu opened")
             child.sendline("6")
