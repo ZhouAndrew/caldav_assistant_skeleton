@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -34,10 +35,17 @@ from caldav_assistant.internal.storage.sqlite import SQLiteKeyValueRepository, S
 
 TASK_UID = "manual-pr62-task"
 TASK_TITLE = "Manual PR62 acceptance task"
+TRANSCRIPT: list[str] = []
+
+
+def record(text: str) -> None:
+    TRANSCRIPT.append(text)
+    sys.stdout.write(text)
+    sys.stdout.flush()
 
 
 def mark(message: str) -> None:
-    print(f"\n[RELAY] {message}", flush=True)
+    record(f"\n[RELAY] {message}\n")
 
 
 def stamp(value: datetime) -> str:
@@ -156,6 +164,53 @@ def read_control() -> dict[str, object]:
     return value
 
 
+def publish_status(seq: int, phase: str, command: str) -> None:
+    status_url = os.environ["STATUS_URL"]
+    control_ref = os.environ["CONTROL_REF"]
+    token = os.environ["GITHUB_TOKEN"]
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    separator = "&" if "?" in status_url else "?"
+    read_url = f"{status_url}{separator}ref={urllib.parse.quote(control_ref, safe='')}"
+    sha = None
+    try:
+        with urllib.request.urlopen(
+            urllib.request.Request(read_url, headers=headers), timeout=5
+        ) as response:
+            current = json.load(response)
+        sha = current.get("sha")
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            raise
+
+    status = {
+        "seq": seq,
+        "phase": phase,
+        "command": command,
+        "transcript": "".join(TRANSCRIPT)[-60000:],
+    }
+    body: dict[str, object] = {
+        "message": f"Record PR62 manual acceptance status {seq}: {phase}",
+        "content": base64.b64encode(
+            (json.dumps(status, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+        ).decode("ascii"),
+        "branch": control_ref,
+    }
+    if sha:
+        body["sha"] = sha
+    request = urllib.request.Request(
+        status_url,
+        data=json.dumps(body).encode("utf-8"),
+        headers={**headers, "Content-Type": "application/json"},
+        method="PUT",
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        json.load(response)
+
+
 def pump(child: pexpect.spawn | None) -> tuple[pexpect.spawn | None, bool]:
     if child is None:
         return None, False
@@ -169,13 +224,39 @@ def pump(child: pexpect.spawn | None) -> tuple[pexpect.spawn | None, bool]:
             saw_eof = True
             break
         else:
-            sys.stdout.write(text)
-            sys.stdout.flush()
+            record(text)
     if saw_eof:
         child.close()
         mark(f"SESSION_EXITED status={child.exitstatus} signal={child.signalstatus}")
         return None, True
     return child, False
+
+
+def settle(
+    child: pexpect.spawn | None,
+    *,
+    max_seconds: float = 15.0,
+    idle_seconds: float = 1.0,
+) -> pexpect.spawn | None:
+    if child is None:
+        return None
+    deadline = time.monotonic() + max_seconds
+    last_output = time.monotonic()
+    while time.monotonic() < deadline:
+        try:
+            text = child.read_nonblocking(size=4096, timeout=0.25)
+        except pexpect.TIMEOUT:
+            if time.monotonic() - last_output >= idle_seconds:
+                return child
+        except pexpect.EOF:
+            child.close()
+            mark(f"SESSION_EXITED status={child.exitstatus} signal={child.signalstatus}")
+            return None
+        else:
+            record(text)
+            last_output = time.monotonic()
+    mark("OUTPUT_STILL_ACTIVE_AFTER_SETTLE_WINDOW")
+    return child
 
 
 def spawn_cli(executable: str, root: Path, env: dict[str, str]) -> pexpect.spawn:
@@ -281,8 +362,7 @@ def main() -> int:
                 timeout=15,
                 check=False,
             )
-            sys.stdout.write(started.stdout)
-            sys.stdout.flush()
+            record(started.stdout)
             if started.returncode != 0:
                 raise AssertionError("background start failed")
             status = subprocess.run(
@@ -295,13 +375,13 @@ def main() -> int:
                 timeout=10,
                 check=False,
             )
-            sys.stdout.write(status.stdout)
-            sys.stdout.flush()
+            record(status.stdout)
             if status.returncode != 0:
                 raise AssertionError("background status failed")
             mark(f"SETUP_READY base_commit=77212fcaef06f845cbb19d4877a6f6f393216950")
             mark(f"REAL_RADICALE_READY url={base_url}")
             mark("WAITING_FOR_COMMAND seq>0")
+            publish_status(0, "SETUP_READY", "NONE")
 
             last_seq = 0
             deadline = time.monotonic() + 22 * 60
@@ -347,11 +427,16 @@ def main() -> int:
                     if not verified:
                         raise AssertionError("CLEANUP refused before CalDAV verification")
                     mark("CLEANUP_ACCEPTED")
+                    publish_status(seq, "CLEANUP_ACCEPTED", command)
                     return 0
                 else:
                     raise AssertionError(f"unsupported relay command: {command}")
                 mark(f"COMMAND_APPLIED seq={seq}")
-                child, _ = pump(child)
+                child = settle(child)
+                phase = "VERIFIED" if verified else (
+                    "SESSION_ACTIVE" if child is not None else "SESSION_IDLE"
+                )
+                publish_status(seq, phase, command)
             raise TimeoutError("relay timed out waiting for assistant-operated commands")
         finally:
             if child is not None and child.isalive():
