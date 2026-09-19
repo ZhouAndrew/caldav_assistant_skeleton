@@ -1,0 +1,37 @@
+name: pr63-manual-acceptance-relay
+
+on:
+  push:
+    branches:
+      - chore/pr63-human-acceptance-relay-20260919
+    paths:
+      - .github/workflows/pr63-manual-acceptance-relay.yml
+
+permissions:
+  contents: write
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify application source is exact merged main
+        run: |
+          git cat-file -e 4e9bc0a2b21cf803ff374e8e7dbd3764f373963d^{commit}
+          git diff --exit-code 4e9bc0a2b21cf803ff374e8e7dbd3764f373963d -- caldav_assistant pyproject.toml
+      - name: Install merged package and real acceptance dependencies
+        run: python -m pip install . "radicale>=3,<4" "pexpect>=4,<5"
+      - name: Run assistant-operated PTY relay
+        env:
+          CONTROL_URL: https://api.github.com/repos/${{ github.repository }}/contents/.github/manual-acceptance/control.json
+          STATUS_URL: https://api.github.com/repos/${{ github.repository }}/contents/.github/manual-acceptance/status.json
+          CONTROL_REF: ${{ github.ref_name }}
+          GITHUB_TOKEN: ${{ github.token }}
+          PYTHONUNBUFFERED: "1"
+        run: python .github/manual-acceptance/pr63_manual_relay.py
