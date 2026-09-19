@@ -205,3 +205,32 @@ def test_interactive_exit_never_probes_live_current_work(monkeypatch):
     )
 
     assert conversation_live._execute_user(app, parsed) == (0, True)
+
+
+def test_failed_current_work_refresh_stays_in_cli(monkeypatch):
+    shown = []
+
+    class UI:
+        def choose(self, title, items, **kwargs):
+            assert items[0] == "Refresh current work"
+            return "Refresh current work"
+
+        def show(self, value):
+            shown.append(str(value))
+
+    app = SimpleNamespace(ctx=SimpleNamespace(ui=UI()))
+    snapshot = conversation_app.StartupSnapshot(
+        current_work_verified=False,
+        stale=True,
+    )
+    monkeypatch.setattr(
+        conversation_app,
+        "_visible_call",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("temporary read failure")
+        ),
+    )
+
+    assert conversation_app._home_menu(app, snapshot) == "console"
+    assert any("console remains usable" in line for line in shown)
+    assert any("No Task was started" in line for line in shown)
