@@ -250,8 +250,19 @@ class AgendaService:
         session_snapshot = self._session_snapshot(tasks, work_facts=work_facts)
         current_work_verified = bool(session_snapshot.get("current_work_verified", True))
         current_uid = session_snapshot["current_task_id"] if current_work_verified else None
-        paused_uids = session_snapshot["paused_task_ids"] if current_work_verified else ()
         current_task = session_snapshot["current_task"] if current_work_verified else None
+
+        # A verified open Work VEVENT proves that some Task is current, but the
+        # accompanying Task snapshot may still lag behind (for example, another
+        # client started a newly-created Task before the next Task sync). Until the
+        # UID can be resolved to the same snapshot, the foreground state is UNKNOWN:
+        # never render "No Task" or advertise another Start action.
+        if current_work_verified and current_uid and current_task is None:
+            current_work_verified = False
+            current_uid = None
+            current_task = None
+
+        paused_uids = session_snapshot["paused_task_ids"] if current_work_verified else ()
 
         agenda = self.engine.build(
             tasks,
