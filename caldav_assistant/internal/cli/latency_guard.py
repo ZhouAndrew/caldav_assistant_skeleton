@@ -245,6 +245,7 @@ def _read_snapshot(module: Any, app: Any) -> Any:
         current = bundle.get("current_task")
         tasks = tuple(bundle.get("tasks") or ())
         stale = bool(bundle.get("stale", False))
+        current_work_verified = bool(bundle.get("current_work_verified", True))
     else:
         # Deliberately small test contexts may have no Runtime connection.
         session = getattr(app.ctx, "session", None)
@@ -257,6 +258,7 @@ def _read_snapshot(module: Any, app: Any) -> Any:
             recommendation = app.ctx.agenda.next()
         tasks = ()
         stale = False
+        current_work_verified = True
 
     values = tuple(
         item
@@ -277,6 +279,7 @@ def _read_snapshot(module: Any, app: Any) -> Any:
         tasks=tasks,
         window_hours=hours,
         stale=stale,
+        current_work_verified=current_work_verified,
     )
 
 
@@ -284,6 +287,7 @@ def _unavailable_snapshot(conversation: Any, app: Any, exc: Exception) -> Any:
     """Create presentation-only degraded state after a live read failed."""
     return conversation.StartupSnapshot(
         window_hours=conversation._window_hours(app),
+        current_work_verified=False,
         warning=(
             "Live Task/Event data is temporarily unavailable; no Task/Event state "
             f"was changed. {type(exc).__name__}: {exc}"
@@ -389,7 +393,10 @@ def install(module: Any) -> None:
         # A timeout must not permanently disable the primary Task action.  Retry the
         # coalesced snapshot explicitly; if it is still unavailable, remain safe and
         # change nothing.
-        if snapshot is not None and getattr(snapshot, "warning", None) is not None:
+        if snapshot is not None and (
+            getattr(snapshot, "warning", None) is not None
+            or not bool(getattr(snapshot, "current_work_verified", True))
+        ):
             try:
                 recovered = original_visible_call(
                     app,
@@ -405,6 +412,12 @@ def install(module: Any) -> None:
                 )
                 return "console"
             menu_state["snapshot"] = recovered
+            if not bool(getattr(recovered, "current_work_verified", True)):
+                conversation._show(
+                    app,
+                    "Current work is still unverified. No Task was started.",
+                )
+                return "console"
             options["known_current"] = getattr(recovered, "current_task", None)
             options["task_choices"] = tuple(getattr(recovered, "tasks", ()) or ())
         try:
