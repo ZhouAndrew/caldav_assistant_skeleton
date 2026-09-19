@@ -179,6 +179,7 @@ class AssistantService:
         # postpone background CalDAV work to reduce contention.  The default is zero
         # so the existing background lifecycle contract remains prompt and visible.
         maintenance_ready: float | None = None
+        ready_interval = min(self.sync_interval, 15.0)
         next_ready = 0.0
         next_sync = 0.0
         next_wordpress = 0.0
@@ -200,7 +201,7 @@ class AssistantService:
                         "sync.ready",
                         getattr(self.sync, "refresh_ready_state", None),
                     )
-                    next_ready = now + self.sync_interval
+                    next_ready = now + ready_interval
 
                 if now >= next_sync:
                     incremental = getattr(self.sync, "incremental_sync", None) or getattr(
