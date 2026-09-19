@@ -1,6 +1,6 @@
 {
-  "seq": 0,
-  "phase": "SETUP_READY",
-  "command": "NONE",
-  "transcript": "Background service: Running\nBackground reminders: Off\nMaintenance: Running\nPID: 2147\nBackground service: Running\nBackground reminders: Off\nMaintenance: Running\nPID: 2147\n\n[RELAY] SETUP_READY base_commit=d2a585ff877d2efd092e2be97cc2a58316517a51\n\n[RELAY] REAL_RADICALE_READY url=http://127.0.0.1:38527/\n\n[RELAY] WAITING_FOR_COMMAND seq>0\n"
+  "seq": 1,
+  "phase": "SESSION_ACTIVE",
+  "command": "LAUNCH",
+  "transcript": "Background service: Running\nBackground reminders: Off\nMaintenance: Running\nPID: 2147\nBackground service: Running\nBackground reminders: Off\nMaintenance: Running\nPID: 2147\n\n[RELAY] SETUP_READY base_commit=d2a585ff877d2efd092e2be97cc2a58316517a51\n\n[RELAY] REAL_RADICALE_READY url=http://127.0.0.1:38527/\n\n[RELAY] WAITING_FOR_COMMAND seq>0\n\n[RELAY] COMMAND_RECEIVED seq=1 command='LAUNCH'\n\n[RELAY] CLI_SESSION_STARTED pid=2176\n\n[RELAY] COMMAND_APPLIED seq=1\nCalDAV Assistant\r\nHello.\r\n\r\nReading current work, Tasks and Events…\r\nPath: CLI → Local IPC → AgendaService → verified local snapshot.\r\nStartup source: the last snapshot verified by the background Assistant; opening the CLI does not wait for CalDAV network I/O. Background sync refreshes CalDAV independently.\r\n✓ Done (0.0s)\r\n\r\nNow\r\n  Background snapshot has no current Task. Start still verifies live CalDAV before any write.\r\n\r\nWarning: Cached Task/Event data from the background snapshot — this is the last locally verified state; background sync refreshes CalDAV independently.\r\nUpcoming · next 24h\r\n  □ Manual PR63 acceptance task — today 05:23\r\n  ◷ Manual PR63 acceptance event — today 06:23\r\n\r\nRecommended\r\n  → Manual PR63 acceptance task — due today 05:23\r\n\r\nPress Enter for the guided menu, or type a command directly.\r\nGuide Book: guide    Developing Docs: dev    Help: help\r\n\r\nConsole ready. Enter opens the guided menu; commands are optional shortcuts.\r\nType guide for the Guide Book, dev for Developing Docs, or help for command help.\r\n> "
 }
