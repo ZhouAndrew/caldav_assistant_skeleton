@@ -189,6 +189,19 @@ def _execute_user(
     """Execute one command with factual milestones and truthful liveness."""
     original = parsed
     effective, period_seconds = legacy._split_lifecycle_duration(parsed)
+
+    # Exit is an in-process REPL control action. It must remain instantaneous even
+    # when CalDAV or the background event feed is unavailable; live-progress setup
+    # would otherwise probe current Session state before executing the local exit.
+    if (
+        str(getattr(effective, "name", "") or "").casefold() in {"exit", "quit", "q"}
+        and not tuple(getattr(effective, "args", ()) or ())
+    ):
+        outcome = base.execute_command(app, effective)
+        if outcome.result is not None:
+            base._render_result(app, outcome.result, paginate=paginate)
+        return outcome.exit_code, outcome.should_exit
+
     conversation._show(app, "")
     conversation._show(app, f"Working: {original.raw}")
     conversation._show(
