@@ -54,7 +54,6 @@ def _read_snapshot(app: Any) -> conversation.StartupSnapshot:
 
     session = getattr(app.ctx, "session", None)
     current_getter = getattr(session, "current_task", None)
-    current = current_getter() if callable(current_getter) else None
 
     days = max(1, int(math.ceil(hours / 24.0)) + 1)
     runtime = getattr(app, "runtime", None)
@@ -70,10 +69,13 @@ def _read_snapshot(app: Any) -> conversation.StartupSnapshot:
             raise RuntimeError("Invalid startup agenda response")
         agenda = bundle.get("agenda")
         recommendation = bundle.get("recommendation")
+        current = bundle.get("current_task")
         tasks = tuple(bundle.get("tasks") or ())
         stale = bool(bundle.get("stale", False))
+        current_work_verified = bool(bundle.get("current_work_verified", True))
     else:
         # Deliberately small test contexts may have no Runtime connection.
+        current = current_getter() if callable(current_getter) else None
         agenda = app.ctx.agenda.range(days=days)
         try:
             recommendation = app.ctx.agenda.next(kind="task")
@@ -81,6 +83,7 @@ def _read_snapshot(app: Any) -> conversation.StartupSnapshot:
             recommendation = app.ctx.agenda.next()
         tasks = ()
         stale = False
+        current_work_verified = True
 
     values = tuple(
         item
@@ -101,6 +104,7 @@ def _read_snapshot(app: Any) -> conversation.StartupSnapshot:
         tasks=tasks,
         window_hours=hours,
         stale=stale,
+        current_work_verified=current_work_verified,
     )
 
 
@@ -128,6 +132,11 @@ def _show_welcome(app: Any) -> conversation.StartupSnapshot:
     conversation._show(app, "Now")
     if error is not None:
         conversation._show(app, "  Live current-work state is unavailable.")
+    elif not snapshot.current_work_verified:
+        conversation._show(
+            app,
+            "  Current Task is still being verified by the background Assistant.",
+        )
     elif snapshot.current_task is None:
         conversation._show(app, "  No Task is currently being worked on.")
     else:
@@ -144,6 +153,11 @@ def _show_welcome(app: Any) -> conversation.StartupSnapshot:
     conversation._show(app, "Recommended")
     if error is not None:
         conversation._show(app, "  Live recommendation is unavailable.")
+    elif not snapshot.current_work_verified:
+        conversation._show(
+            app,
+            "  Waiting for current-work verification before recommending a Task.",
+        )
     elif snapshot.recommended is None:
         conversation._show(app, "  No actionable Task is recommended right now.")
     else:
@@ -175,6 +189,19 @@ def _execute_user(
     """Execute one command with factual milestones and truthful liveness."""
     original = parsed
     effective, period_seconds = legacy._split_lifecycle_duration(parsed)
+
+    # Exit is an in-process REPL control action. It must remain instantaneous even
+    # when CalDAV or the background event feed is unavailable; live-progress setup
+    # would otherwise probe current Session state before executing the local exit.
+    if (
+        str(getattr(effective, "name", "") or "").casefold() in {"exit", "quit", "q"}
+        and not tuple(getattr(effective, "args", ()) or ())
+    ):
+        outcome = base.execute_command(app, effective)
+        if outcome.result is not None:
+            base._render_result(app, outcome.result, paginate=paginate)
+        return outcome.exit_code, outcome.should_exit
+
     conversation._show(app, "")
     conversation._show(app, f"Working: {original.raw}")
     conversation._show(

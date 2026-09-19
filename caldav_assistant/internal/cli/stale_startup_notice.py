@@ -12,6 +12,10 @@ _BACKGROUND_NO_CURRENT = (
     "  Background snapshot has no current Task. Start still verifies live CalDAV "
     "before any write."
 )
+_BACKGROUND_UNVERIFIED_CURRENT = (
+    "  Current Task is not yet verified by this background Assistant generation. "
+    "No Task will be started until verification succeeds."
+)
 
 
 def _value_is_stale(value: Any) -> bool:
@@ -55,9 +59,15 @@ def _wrap_show_welcome(conversation: Any, original_show_welcome: Any):
             conversation._show = original_show
 
         stale = _snapshot_is_stale(snapshot)
+        verified = bool(getattr(snapshot, "current_work_verified", True))
         for value in buffered:
             text = str(value)
-            if stale and text == "  No Task is currently being worked on.":
+            if not verified and (
+                text == "  No Task is currently being worked on."
+                or text.startswith("  Current Task is still being verified")
+            ):
+                value = _BACKGROUND_UNVERIFIED_CURRENT
+            elif stale and text == "  No Task is currently being worked on.":
                 value = _BACKGROUND_NO_CURRENT
             elif stale and text.startswith("  ▶ "):
                 value = f"{text}  [background snapshot]"

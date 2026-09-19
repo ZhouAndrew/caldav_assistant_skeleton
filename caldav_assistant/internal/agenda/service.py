@@ -178,6 +178,12 @@ class AgendaService:
 
     def _session_snapshot(self, tasks, *, work_facts=None):
         """Resolve current/paused work once from an already-read Task set."""
+        current_work_verified = True
+        verified_at = None
+        if isinstance(work_facts, dict):
+            current_work_verified = bool(work_facts.get("current_work_verified", True))
+            verified_at = work_facts.get("verified_at")
+
         if self.session is not None:
             snapshot = getattr(self.session, "startup_snapshot", None)
             if callable(snapshot):
@@ -190,6 +196,10 @@ class AgendaService:
                         "current_task_id": value.get("current_task_id"),
                         "current_task": value.get("current_task"),
                         "paused_task_ids": tuple(value.get("paused_task_ids") or ()),
+                        "current_work_verified": bool(
+                            value.get("current_work_verified", current_work_verified)
+                        ),
+                        "verified_at": value.get("verified_at", verified_at),
                     }
 
         current_uid = self._current_task_uid()
@@ -208,6 +218,8 @@ class AgendaService:
             "current_task_id": current_uid,
             "current_task": current_task,
             "paused_task_ids": tuple(paused_uids),
+            "current_work_verified": current_work_verified,
+            "verified_at": verified_at,
         }
 
     def _choose_next(self, tasks, events, kind=None, **options):
@@ -236,9 +248,21 @@ class AgendaService:
 
     def _startup_result(self, tasks, events, *, days, kind, work_facts=None, stale=False):
         session_snapshot = self._session_snapshot(tasks, work_facts=work_facts)
-        current_uid = session_snapshot["current_task_id"]
-        paused_uids = session_snapshot["paused_task_ids"]
-        current_task = session_snapshot["current_task"]
+        current_work_verified = bool(session_snapshot.get("current_work_verified", True))
+        current_uid = session_snapshot["current_task_id"] if current_work_verified else None
+        current_task = session_snapshot["current_task"] if current_work_verified else None
+
+        # A verified open Work VEVENT proves that some Task is current, but the
+        # accompanying Task snapshot may still lag behind (for example, another
+        # client started a newly-created Task before the next Task sync). Until the
+        # UID can be resolved to the same snapshot, the foreground state is UNKNOWN:
+        # never render "No Task" or advertise another Start action.
+        if current_work_verified and current_uid and current_task is None:
+            current_work_verified = False
+            current_uid = None
+            current_task = None
+
+        paused_uids = session_snapshot["paused_task_ids"] if current_work_verified else ()
 
         agenda = self.engine.build(
             tasks,
@@ -250,12 +274,16 @@ class AgendaService:
             agenda.stale = bool(stale)
         except (AttributeError, TypeError):
             pass
-        recommendation = self._choose_next(
-            tasks,
-            events,
-            kind=kind,
-            current_task_uid=current_uid,
-            skipped_uids=paused_uids,
+        recommendation = (
+            self._choose_next(
+                tasks,
+                events,
+                kind=kind,
+                current_task_uid=current_uid,
+                skipped_uids=paused_uids,
+            )
+            if current_work_verified
+            else None
         )
         return {
             "agenda": agenda,
@@ -265,6 +293,8 @@ class AgendaService:
             # second full tasks.list call after startup.
             "tasks": tuple(tasks),
             "stale": bool(stale),
+            "current_work_verified": current_work_verified,
+            "current_work_verified_at": session_snapshot.get("verified_at"),
         }
 
     def _startup_snapshot_once(self, days=1, kind="task"):
@@ -376,6 +406,8 @@ class AgendaService:
             work_facts={
                 "current_task_id": None,
                 "worked_task_ids": in_progress,
+                "current_work_verified": False,
+                "verified_at": None,
             },
             stale=True,
         )

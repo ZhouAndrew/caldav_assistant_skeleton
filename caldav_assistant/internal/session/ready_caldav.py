@@ -1,13 +1,19 @@
 """Background-ready current-work snapshot for the CalDAV Session service.
 
-The authoritative current-work fact remains the open Assistant Work VEVENT.  This
+The authoritative current-work fact remains the open Assistant Work VEVENT. This
 wrapper stores only the last successfully verified current Task UID so foreground CLI
-startup can render the background snapshot without performing network I/O.
+startup can render background state without performing network I/O.
+
+A cached current-work fact is valid only inside the daemon generation that verified
+it. A daemon restart deliberately creates a new generation, so an older cached None
+cannot be mistaken for "verified no current Task" before this process has checked the
+Work collection itself.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any, Mapping
+from uuid import uuid4
 
 from .caldav import CalDAVSessionService as _BaseCalDAVSessionService
 
@@ -16,12 +22,28 @@ class CalDAVSessionService(_BaseCalDAVSessionService):
     CURRENT_WORK_SNAPSHOT_KEY = "session.current_work.snapshot.v1"
     CURRENT_WORK_SCHEMA_VERSION = 1
 
-    def __init__(self, worklog: Any, tasks: Any = None, activity: Any = None) -> None:
+    def __init__(
+        self,
+        worklog: Any,
+        tasks: Any = None,
+        activity: Any = None,
+        *,
+        snapshot_generation: str | None = None,
+    ) -> None:
+        self._snapshot_generation = (
+            str(snapshot_generation).strip()
+            if snapshot_generation is not None and str(snapshot_generation).strip()
+            else uuid4().hex
+        )
         super().__init__(worklog, tasks=tasks, activity=activity)
         sync = self._sync()
         register = getattr(sync, "register_post_sync_hook", None)
         if callable(register):
             register(self.refresh_cached_current_work)
+
+    @property
+    def snapshot_generation(self) -> str:
+        return self._snapshot_generation
 
     def _sync(self) -> Any:
         adapter = getattr(self.worklog, "adapter", None)
@@ -42,6 +64,7 @@ class CalDAVSessionService(_BaseCalDAVSessionService):
             value.get("schema_version") != self.CURRENT_WORK_SCHEMA_VERSION
             or not isinstance(value.get("verified_at"), str)
             or not str(value.get("verified_at") or "").strip()
+            or str(value.get("producer_generation") or "") != self._snapshot_generation
         ):
             return None
         return value
@@ -56,13 +79,14 @@ class CalDAVSessionService(_BaseCalDAVSessionService):
             self.CURRENT_WORK_SNAPSHOT_KEY,
             {
                 "schema_version": self.CURRENT_WORK_SCHEMA_VERSION,
+                "producer_generation": self._snapshot_generation,
                 "verified_at": datetime.now(timezone.utc).isoformat(),
                 "current_task_id": clean,
             },
         )
 
     def refresh_cached_current_work(self) -> dict[str, Any] | None:
-        """Verify the open Work VEVENT in the background and cache only its Task UID."""
+        """Verify the open Work VEVENT and publish a generation-local ready fact."""
         if not self._worklog_configured():
             return None
         facts = self.startup_work_facts(include_history=False)
@@ -83,17 +107,26 @@ class CalDAVSessionService(_BaseCalDAVSessionService):
                     "worked_task_ids": None,
                     "current_work_verified": True,
                     "verified_at": cached.get("verified_at"),
+                    "producer_generation": cached.get("producer_generation"),
                 }
-            values = super().cached_startup_snapshot(tasks)
-            result = dict(values)
-            result["current_work_verified"] = False
-            return result
+
+            # A Work collection is authoritative when configured. Activity Journal
+            # may describe old local observations, but after a daemon restart it
+            # cannot prove that the server currently has no open Work VEVENT.
+            return {
+                "current_task_id": None,
+                "worked_task_ids": None,
+                "current_work_verified": False,
+                "verified_at": None,
+                "producer_generation": self._snapshot_generation,
+            }
 
         # Without a Work collection, Activity Journal is the configured Session
         # source; it is local and does not need a network verification round-trip.
         values = super().cached_startup_snapshot(tasks)
         result = dict(values)
         result["current_work_verified"] = True
+        result["producer_generation"] = self._snapshot_generation
         return result
 
     @staticmethod
@@ -116,7 +149,9 @@ class CalDAVSessionService(_BaseCalDAVSessionService):
             self._write_cached_current(None)
 
     def mark_paused(self, task: Any) -> None:
-        self.clear_current(task)
+        # Pause has just authoritatively closed the current Work VEVENT, so this
+        # transition itself is sufficient to publish verified-none for this daemon.
+        self._write_cached_current(None)
 
     def unpause(self, task: Any) -> None:
         return None

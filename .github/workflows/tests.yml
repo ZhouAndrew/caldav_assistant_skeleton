@@ -85,6 +85,22 @@ jobs:
         run: |
           set -o pipefail
           python scripts/acceptance_relaunch_numeric_current_real.py 2>&1 | tee assistant-operated-relaunch-acceptance.log
+      - name: Real upgrade stale-current + clean-teardown acceptance
+        if: matrix.python-version == '3.12'
+        shell: bash
+        env:
+          CALDAV_ASSISTANT_UPGRADE_ACCEPTANCE_TRANSCRIPT: upgrade-stale-current-transcript.log
+        run: |
+          set -o pipefail
+          python scripts/acceptance_upgrade_stale_current_real.py 2>&1 | tee upgrade-stale-current-acceptance.log
+      - name: Repeat upgrade acceptance after clean teardown
+        if: matrix.python-version == '3.12'
+        shell: bash
+        env:
+          CALDAV_ASSISTANT_UPGRADE_ACCEPTANCE_TRANSCRIPT: upgrade-stale-current-repeat-transcript.log
+        run: |
+          set -o pipefail
+          python scripts/acceptance_upgrade_stale_current_real.py 2>&1 | tee upgrade-stale-current-repeat-acceptance.log
       - name: Verify live lifecycle transcript ordering
         run: >-
           python scripts/assert_live_transcript.py
@@ -109,6 +125,10 @@ jobs:
             waiting-mode-acceptance-${{ matrix.python-version }}.log
             waiting-mode-transcript-${{ matrix.python-version }}.log
             assistant-operated-relaunch-acceptance.log
+            upgrade-stale-current-acceptance.log
+            upgrade-stale-current-transcript.log
+            upgrade-stale-current-repeat-acceptance.log
+            upgrade-stale-current-repeat-transcript.log
 
   windows-pytest:
     runs-on: windows-latest

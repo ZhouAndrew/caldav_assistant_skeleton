@@ -40,6 +40,7 @@ class StartupSnapshot:
     window_hours: int = DEFAULT_UPCOMING_HOURS
     warning: str | None = None
     stale: bool = False
+    current_work_verified: bool = True
 
 
 def _show(app: Any, value: Any = "") -> None:
@@ -226,7 +227,9 @@ def _show_welcome(app: Any) -> StartupSnapshot:
 
     _show(app, "")
     _show(app, "Now")
-    if snapshot.current_task is None:
+    if not snapshot.current_work_verified:
+        _show(app, "  Current Task is still being verified by the background Assistant.")
+    elif snapshot.current_task is None:
         _show(app, "  No Task is currently being worked on.")
     else:
         _show(app, f"  ▶ {_summary(snapshot.current_task)}")
@@ -236,7 +239,9 @@ def _show_welcome(app: Any) -> StartupSnapshot:
 
     _show(app, "")
     _show(app, "Recommended")
-    if snapshot.recommended is None:
+    if not snapshot.current_work_verified:
+        _show(app, "  Waiting for current-work verification before recommending a Task.")
+    elif snapshot.recommended is None:
         _show(app, "  No actionable Task is recommended right now.")
     else:
         task = snapshot.recommended
@@ -605,12 +610,15 @@ def _home_menu(app: Any, snapshot: StartupSnapshot | None) -> str:
         return "console"
 
     current = snapshot.current_task
+    verified = bool(snapshot.current_work_verified)
     labels: list[str] = []
-    if current is not None:
+    if not verified:
+        labels.append("Refresh current work")
+    elif current is not None:
         labels.append(f"Return to Waiting Mode — {_summary(current)}")
-    if snapshot.recommended is not None and current is None:
+    if verified and snapshot.recommended is not None and current is None:
         labels.append(f"Start recommended Task — {_summary(snapshot.recommended)}")
-    if current is None:
+    if verified and current is None:
         labels.append("Choose a Task and start")
     labels.extend(
         [
@@ -633,6 +641,26 @@ def _home_menu(app: Any, snapshot: StartupSnapshot | None) -> str:
     if selected is None or selected == "Stay in console":
         return "console"
     text = str(selected)
+    if text == "Refresh current work":
+        try:
+            refreshed = _visible_call(
+                app,
+                "Refreshing current work, Tasks and Events…",
+                lambda: _read_snapshot(app),
+            )
+        except Exception as exc:
+            _show(
+                app,
+                "Current work is still unavailable. No Task was started; "
+                f"the console remains usable. {type(exc).__name__}: {exc}",
+            )
+            return "console"
+        if not bool(getattr(refreshed, "current_work_verified", True)):
+            _show(
+                app,
+                "Current work is still being verified. No Task was started.",
+            )
+        return "console"
     if text.startswith("Return to Waiting Mode"):
         return "wait"
     if text.startswith("Start recommended Task"):
@@ -934,17 +962,44 @@ def _waiting_mode(app: Any) -> str:
                 return action
 
 
+def _startup_monitor_target(snapshot: StartupSnapshot | None) -> legacy.MonitorTarget | None:
+    """Build a foreground target only from the already-rendered startup snapshot.
+
+    Entering the console must not perform a second live CalDAV Session read after the
+    startup path deliberately chose a verified/explicitly-UNKNOWN background
+    snapshot. UNKNOWN therefore yields no target rather than a fake empty/current
+    claim. Once the user performs a lifecycle command, that command's own
+    authoritative path remains responsible for fresh state.
+    """
+    if snapshot is None or not bool(getattr(snapshot, "current_work_verified", True)):
+        return None
+    task = getattr(snapshot, "current_task", None)
+    if task is None:
+        return None
+    return legacy.MonitorTarget(
+        "task",
+        str(getattr(task, "id", "") or "").strip() or None,
+        _summary(task),
+        task,
+        True,
+    )
+
+
 def _console(app: Any, snapshot: StartupSnapshot | None) -> tuple[int, str]:
     _show(app, "")
     _show(app, "Console ready. Enter opens the guided menu; commands are optional shortcuts.")
     _show(app, "Type guide for the Guide Book, dev for Developing Docs, or help for command help.")
     last_code = 0
     first_menu_snapshot = snapshot
+    prompt_target = _startup_monitor_target(snapshot)
 
     while True:
-        target = legacy._monitor_target(app)
-        if target is not None and target.kind == "task" and target.current_work:
-            prompt = f"[doing: {target.summary}] > "
+        if (
+            prompt_target is not None
+            and prompt_target.kind == "task"
+            and prompt_target.current_work
+        ):
+            prompt = f"[doing: {prompt_target.summary}] > "
         else:
             prompt = "> "
         try:
@@ -966,6 +1021,9 @@ def _console(app: Any, snapshot: StartupSnapshot | None) -> tuple[int, str]:
         if parsed is None:
             action = _home_menu(app, first_menu_snapshot)
             first_menu_snapshot = None
+            # The menu may have refreshed or mutated state. Never keep displaying a
+            # prompt derived from an older snapshot after returning to the console.
+            prompt_target = None
             if action == "wait":
                 return last_code, "wait"
             if action == "exit":
@@ -985,11 +1043,19 @@ def _console(app: Any, snapshot: StartupSnapshot | None) -> tuple[int, str]:
         if should_exit:
             return code, "exit"
 
-        target = legacy._monitor_target(app)
-        if code == 0 and target is not None and target.kind == "task" and target.current_work:
-            status = _work_period_status(app, target)
-            if status.get("state") in {"scheduled", "expired"}:
-                return last_code, "wait"
+        # Never perform an unsolicited live Session read after an ordinary console
+        # command merely to decorate the next prompt. Start/resume are the only
+        # commands where restoring Waiting Mode is part of the requested lifecycle
+        # action, and their authoritative operation has already required live state.
+        prompt_target = None
+        command_name = str(getattr(parsed, "name", "") or "").casefold()
+        if code == 0 and command_name in {"start", "resume"}:
+            target = legacy._monitor_target(app)
+            if target is not None and target.kind == "task" and target.current_work:
+                prompt_target = target
+                status = _work_period_status(app, target)
+                if status.get("state") in {"scheduled", "expired"}:
+                    return last_code, "wait"
 
 
 def run_conversation_repl(app: Any) -> int:
@@ -997,7 +1063,7 @@ def run_conversation_repl(app: Any) -> int:
     snapshot = _show_welcome(app)
     last_code = 0
 
-    target = legacy._monitor_target(app)
+    target = _startup_monitor_target(snapshot)
     if target is not None and target.kind == "task" and target.current_work:
         status = _work_period_status(app, target)
         if status.get("state") in {"scheduled", "expired"}:

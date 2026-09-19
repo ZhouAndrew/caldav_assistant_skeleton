@@ -161,6 +161,8 @@ class AssistantService:
             self._next_reminder_wake = self.scheduler.monotonic() + delay
 
     def run_maintenance_once(self) -> None:
+        ready = getattr(self.sync, "refresh_ready_state", None)
+        self._run_one("sync.ready", ready)
         incremental = getattr(self.sync, "incremental_sync", None) or getattr(
             self.sync, "refresh", None
         )
@@ -177,6 +179,8 @@ class AssistantService:
         # postpone background CalDAV work to reduce contention.  The default is zero
         # so the existing background lifecycle contract remains prompt and visible.
         maintenance_ready: float | None = None
+        ready_interval = min(self.sync_interval, 15.0)
+        next_ready = 0.0
         next_sync = 0.0
         next_wordpress = 0.0
         while not self._stop_event.is_set():
@@ -184,6 +188,7 @@ class AssistantService:
                 now = self.scheduler.monotonic()
                 if maintenance_ready is None:
                     maintenance_ready = now + self.maintenance_startup_grace
+                    next_ready = maintenance_ready
                     next_sync = maintenance_ready
                     next_wordpress = maintenance_ready
                     with self._lock:
@@ -191,6 +196,13 @@ class AssistantService:
                             self._next_reminder_wake,
                             maintenance_ready,
                         )
+                if now >= next_ready:
+                    self._start_maintenance_job(
+                        "sync.ready",
+                        getattr(self.sync, "refresh_ready_state", None),
+                    )
+                    next_ready = now + ready_interval
+
                 if now >= next_sync:
                     incremental = getattr(self.sync, "incremental_sync", None) or getattr(
                         self.sync, "refresh", None
@@ -223,6 +235,7 @@ class AssistantService:
                     next_reminder = self._next_reminder_wake
                 delay = min(
                     self.max_idle,
+                    max(0.0, next_ready - now),
                     max(0.0, next_sync - now),
                     max(0.0, next_wordpress - now),
                     max(0.0, next_reminder - now),

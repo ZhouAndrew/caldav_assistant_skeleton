@@ -123,7 +123,9 @@ def test_startup_snapshot_reads_task_and_event_sources_once():
             self.calls += 1
             return list(self.values)
 
-    tasks = CountingSource([SimpleNamespace(id="t1")])
+    # Keep this fixture internally consistent: FakeSession reports task-1 as the
+    # current Task, so the same startup Task snapshot must contain task-1.
+    tasks = CountingSource([SimpleNamespace(id="task-1")])
     events = CountingSource([SimpleNamespace(id="e1", categories=())])
 
     class Engine:
@@ -150,5 +152,5 @@ def test_startup_snapshot_reads_task_and_event_sources_once():
 
     assert tasks.calls == 1
     assert events.calls == 1
-    assert value["recommendation"].id == "t1"
+    assert value["recommendation"].id == "task-1"
     assert value["agenda"][2] == 2
