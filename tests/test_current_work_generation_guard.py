@@ -6,7 +6,7 @@ import pytest
 
 from caldav_assistant.api import Task
 from caldav_assistant.internal.caldav import SyncEngine
-from caldav_assistant.internal.cli import conversation_app
+from caldav_assistant.internal.cli import conversation_app, conversation_live
 from caldav_assistant.internal.session import CalDAVSessionService
 
 
@@ -181,3 +181,27 @@ def test_console_prompt_does_not_live_probe_unknown_current_work(monkeypatch):
     )
     code, action = conversation_app._console(app, snapshot)
     assert (code, action) == (0, "exit")
+
+
+def test_interactive_exit_never_probes_live_current_work(monkeypatch):
+    monkeypatch.setattr(
+        conversation_live.legacy,
+        "_monitor_target",
+        lambda app: pytest.fail("exit must not probe live Session state"),
+    )
+    monkeypatch.setattr(
+        conversation_live.base,
+        "execute_command",
+        lambda app, parsed: conversation_live.base.CommandOutcome(
+            0,
+            should_exit=True,
+        ),
+    )
+    app = SimpleNamespace()
+    parsed = conversation_live.base.ParsedCommand(
+        raw="exit",
+        name="exit",
+        args=(),
+    )
+
+    assert conversation_live._execute_user(app, parsed) == (0, True)
