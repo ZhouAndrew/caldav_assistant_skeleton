@@ -40,6 +40,7 @@ class StartupSnapshot:
     window_hours: int = DEFAULT_UPCOMING_HOURS
     warning: str | None = None
     stale: bool = False
+    current_work_verified: bool = True
 
 
 def _show(app: Any, value: Any = "") -> None:
@@ -226,7 +227,9 @@ def _show_welcome(app: Any) -> StartupSnapshot:
 
     _show(app, "")
     _show(app, "Now")
-    if snapshot.current_task is None:
+    if not snapshot.current_work_verified:
+        _show(app, "  Current Task is still being verified by the background Assistant.")
+    elif snapshot.current_task is None:
         _show(app, "  No Task is currently being worked on.")
     else:
         _show(app, f"  ▶ {_summary(snapshot.current_task)}")
@@ -236,7 +239,9 @@ def _show_welcome(app: Any) -> StartupSnapshot:
 
     _show(app, "")
     _show(app, "Recommended")
-    if snapshot.recommended is None:
+    if not snapshot.current_work_verified:
+        _show(app, "  Waiting for current-work verification before recommending a Task.")
+    elif snapshot.recommended is None:
         _show(app, "  No actionable Task is recommended right now.")
     else:
         task = snapshot.recommended
@@ -605,12 +610,15 @@ def _home_menu(app: Any, snapshot: StartupSnapshot | None) -> str:
         return "console"
 
     current = snapshot.current_task
+    verified = bool(snapshot.current_work_verified)
     labels: list[str] = []
-    if current is not None:
+    if not verified:
+        labels.append("Refresh current work")
+    elif current is not None:
         labels.append(f"Return to Waiting Mode — {_summary(current)}")
-    if snapshot.recommended is not None and current is None:
+    if verified and snapshot.recommended is not None and current is None:
         labels.append(f"Start recommended Task — {_summary(snapshot.recommended)}")
-    if current is None:
+    if verified and current is None:
         labels.append("Choose a Task and start")
     labels.extend(
         [
@@ -633,6 +641,18 @@ def _home_menu(app: Any, snapshot: StartupSnapshot | None) -> str:
     if selected is None or selected == "Stay in console":
         return "console"
     text = str(selected)
+    if text == "Refresh current work":
+        refreshed = _visible_call(
+            app,
+            "Refreshing current work, Tasks and Events…",
+            lambda: _read_snapshot(app),
+        )
+        if not bool(getattr(refreshed, "current_work_verified", True)):
+            _show(
+                app,
+                "Current work is still being verified. No Task was started.",
+            )
+        return "console"
     if text.startswith("Return to Waiting Mode"):
         return "wait"
     if text.startswith("Start recommended Task"):
