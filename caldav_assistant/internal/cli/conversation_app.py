@@ -642,11 +642,19 @@ def _home_menu(app: Any, snapshot: StartupSnapshot | None) -> str:
         return "console"
     text = str(selected)
     if text == "Refresh current work":
-        refreshed = _visible_call(
-            app,
-            "Refreshing current work, Tasks and Events…",
-            lambda: _read_snapshot(app),
-        )
+        try:
+            refreshed = _visible_call(
+                app,
+                "Refreshing current work, Tasks and Events…",
+                lambda: _read_snapshot(app),
+            )
+        except Exception as exc:
+            _show(
+                app,
+                "Current work is still unavailable. No Task was started; "
+                f"the console remains usable. {type(exc).__name__}: {exc}",
+            )
+            return "console"
         if not bool(getattr(refreshed, "current_work_verified", True)):
             _show(
                 app,
