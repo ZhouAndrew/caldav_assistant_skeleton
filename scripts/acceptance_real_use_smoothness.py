@@ -150,31 +150,40 @@ def main() -> int:
 
             started = time.monotonic()
             verify_deadline = time.monotonic() + 20.0
-            refreshes = 0
+            verification_retries = 0
             while True:
+                # The primary home action is human Task choice, even while a newly
+                # restarted background generation is still verifying Current Work.
                 child.sendline("1")
+                child.expect(r"Choose a Task to work on")
+
+                # Exercise the normal PromptKit convenience path too: search, then
+                # choose by number. Selection itself is read-only.
+                child.sendline("/Latency")
+                child.expect(r"Latency acceptance Task")
+                child.sendline("1")
+
                 child.timeout = min(
                     30,
                     max(0.1, verify_deadline - time.monotonic()),
                 )
                 index = child.expect(
                     [
-                        r"Refreshing current work, Tasks and Events",
                         r"How long do you want to work",
+                        r"What do you want to do\?",
                     ]
                 )
-                if index == 1:
+                if index == 0:
                     child.timeout = 30
                     break
-                refreshes += 1
-                child.expect(r"What do you want to do\?")
+                verification_retries += 1
                 if time.monotonic() >= verify_deadline:
                     raise AssertionError(
                         "current-work verification did not become ready within 20s"
                     )
             print(
                 f"REAL-USE: choose_start_to_duration={_elapsed(started):.3f}s "
-                f"(safe_refreshes={refreshes})"
+                f"(verification_retries={verification_retries})"
             )
 
             # `0 Back` is deliberately the only numeric exit assumption here. It is
