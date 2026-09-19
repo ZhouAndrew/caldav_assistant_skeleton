@@ -308,11 +308,6 @@ class AgendaService:
             events = event_future.result()
             work_facts = work_future.result() if work_future is not None else None
 
-        if isinstance(work_facts, dict):
-            work_facts = dict(work_facts)
-            work_facts.setdefault("current_work_verified", True)
-            work_facts.setdefault("verified_at", datetime.now().astimezone().isoformat())
-
         stale = any(
             bool(getattr(item, "stale", False))
             for item in (*tasks, *events)
