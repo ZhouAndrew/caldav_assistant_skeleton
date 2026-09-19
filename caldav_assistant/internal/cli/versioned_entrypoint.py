@@ -15,6 +15,7 @@ from .latency_guard import install as install_latency_guards
 from .runtime_transparency import install as install_runtime_transparency
 from .smooth_home import install as install_smooth_home
 from .stale_startup_notice import install as install_stale_startup_notice
+from .waiting_interrupt_guard import install as install_waiting_interrupt_guard
 
 
 def _show(app: Any, text: str) -> None:
@@ -93,6 +94,9 @@ def run_cli(argv: Sequence[str] | None = None, *, app: Any = None) -> int:
         ensure_current_background(app)
         install_latency_guards(monitor_app)
         install_smooth_home(monitor_app)
+        # Guard the whole Waiting Mode call, including the short initialization
+        # window before conversation_live's steady-state Ctrl-C handler is active.
+        install_waiting_interrupt_guard(monitor_app)
         # Install after latency/smooth-home wrappers so the visible path and Ctrl-C
         # boundary describe the final runtime structure rather than an inner layer.
         install_runtime_transparency(monitor_app)

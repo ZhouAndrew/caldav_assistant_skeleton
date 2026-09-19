@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 
 from caldav_assistant.api import Task
-from caldav_assistant.internal.cli import latency_guard, stale_startup_notice
+from caldav_assistant.internal.cli import stale_startup_notice
 
 
 @dataclass(frozen=True)
@@ -17,11 +17,7 @@ class _Snapshot:
     warning: str | None = None
 
 
-def _module(
-    *,
-    welcome_snapshot: _Snapshot | None = None,
-    runtime_call=None,
-):
+def _module(*, welcome_snapshot: _Snapshot | None = None, runtime_call=None):
     shown: list[str] = []
     guided_calls: list[tuple[object | None, dict[str, object]]] = []
     runtime_calls: list[tuple[str, dict[str, object]]] = []
@@ -55,7 +51,7 @@ def _module(
     return module, SimpleNamespace(runtime=runtime), shown, guided_calls
 
 
-def test_stale_welcome_never_claims_that_no_task_is_active():
+def test_stale_welcome_labels_background_no_current_without_claiming_live_truth():
     cached = Task(id="t1", summary="Cached", stale=True)
     snapshot = _Snapshot(tasks=(cached,), recommended=cached, stale=True)
     module, app, shown, _calls = _module(welcome_snapshot=snapshot)
@@ -65,9 +61,10 @@ def test_stale_welcome_never_claims_that_no_task_is_active():
 
     assert returned is snapshot
     assert "  No Task is currently being worked on." not in shown
-    assert any("Current work could not be verified live" in line for line in shown)
+    assert any("Background snapshot has no current Task" in line for line in shown)
     assert shown.index("Now") < next(
-        index for index, line in enumerate(shown) if "Current work could not" in line
+        index for index, line in enumerate(shown)
+        if "Background snapshot has no current Task" in line
     )
 
 
@@ -77,9 +74,6 @@ def test_stale_welcome_guard_survives_installed_live_composition_order():
     module, app, shown, _calls = _module(welcome_snapshot=snapshot)
     conversation = module.conversation
 
-    # The installed entrypoint installs stale guards first. conversation_live.run_cli
-    # then copies its own module-level renderer over conversation._show_welcome.
-    # Model that exact ordering: the guard must be attached to both owners.
     def live_show_welcome(current_app):
         conversation._show(current_app, "CalDAV Assistant")
         conversation._show(current_app, "Now")
@@ -95,22 +89,24 @@ def test_stale_welcome_guard_survives_installed_live_composition_order():
 
     assert returned is snapshot
     assert "  No Task is currently being worked on." not in shown
-    assert any("Current work could not be verified live" in line for line in shown)
+    assert any("Background snapshot has no current Task" in line for line in shown)
     assert any("Warning: Cached Task/Event data" in line for line in shown)
 
 
-def test_stale_guided_start_checks_only_live_current_work_then_continues(monkeypatch):
+def test_stale_guided_start_adds_no_duplicate_runtime_precheck():
+    """UI must not repeat the live Work query already owned by Core Task.start()."""
     cached = Task(id="t1", summary="Anki", stale=True)
     module, app, shown, guided_calls = _module(
-        welcome_snapshot=_Snapshot(tasks=(cached,), stale=True)
+        welcome_snapshot=_Snapshot(tasks=(cached,), stale=True),
+        runtime_call=lambda method, **payload: (_ for _ in ()).throw(
+            AssertionError("stale presentation must not query live current work")
+        ),
     )
 
-    def full_snapshot_must_not_be_retried(*args, **kwargs):
-        raise AssertionError("guided Start must not retry the full startup snapshot")
-
-    monkeypatch.setattr(latency_guard, "_read_snapshot", full_snapshot_must_not_be_retried)
+    original = module.conversation._guided_start
     stale_startup_notice.install(module)
 
+    assert module.conversation._guided_start is original
     result = module.conversation._guided_start(
         app,
         cached,
@@ -119,62 +115,33 @@ def test_stale_guided_start_checks_only_live_current_work_then_continues(monkeyp
     )
 
     assert result == "console"
-    assert app.runtime.calls == [("session.current_task_id", {})]
+    assert app.runtime.calls == []
     assert len(guided_calls) == 1
     task, options = guided_calls[0]
     assert task is cached
     assert options["known_current"] is None
     assert options["task_choices"] == (cached,)
-    assert any("checking live current work before Start" in line for line in shown)
-    assert not any("still unverified" in line for line in shown)
+    assert not any("checking live current work before Start" in line for line in shown)
 
 
-def test_stale_guided_start_blocks_if_live_current_work_exists(monkeypatch):
-    cached = Task(id="t1", summary="Anki", stale=True)
-    module, app, shown, guided_calls = _module(
-        welcome_snapshot=_Snapshot(tasks=(cached,), stale=True),
-        runtime_call=lambda method, **payload: "t2",
-    )
+def test_cached_current_task_is_shown_as_background_state():
+    current = Task(id="current", summary="Current", status="IN-PROCESS", stale=True)
+    snapshot = _Snapshot(current_task=current, tasks=(current,), stale=True)
+    shown: list[str] = []
+    conversation = SimpleNamespace()
+    conversation._show = lambda app, value="": shown.append(str(value))
+    conversation._snapshot_text = lambda value: "Upcoming"
 
-    def full_snapshot_must_not_be_retried(*args, **kwargs):
-        raise AssertionError("guided Start must not retry the full startup snapshot")
+    def show_welcome(app):
+        conversation._show(app, "Now")
+        conversation._show(app, "  ▶ Current")
+        return snapshot
 
-    monkeypatch.setattr(latency_guard, "_read_snapshot", full_snapshot_must_not_be_retried)
+    conversation._show_welcome = show_welcome
+    module = SimpleNamespace(conversation=conversation)
+
     stale_startup_notice.install(module)
+    returned = conversation._show_welcome(SimpleNamespace())
 
-    result = module.conversation._guided_start(
-        app,
-        cached,
-        known_current=None,
-        task_choices=(cached,),
-    )
-
-    assert result == "wait"
-    assert app.runtime.calls == [("session.current_task_id", {})]
-    assert guided_calls == []
-    assert any("already being worked on" in line for line in shown)
-
-
-def test_stale_guided_start_precheck_timeout_does_not_become_authorization_gate():
-    cached = Task(id="t1", summary="Anki", stale=True)
-
-    def unavailable(method, **payload):
-        raise RuntimeError("precheck timed out")
-
-    module, app, shown, guided_calls = _module(
-        welcome_snapshot=_Snapshot(tasks=(cached,), stale=True),
-        runtime_call=unavailable,
-    )
-    stale_startup_notice.install(module)
-
-    result = module.conversation._guided_start(
-        app,
-        cached,
-        known_current=None,
-        task_choices=(cached,),
-    )
-
-    assert result == "console"
-    assert len(guided_calls) == 1
-    assert guided_calls[0][1]["known_current"] is None
-    assert any("Start itself will verify live Task and Work state" in line for line in shown)
+    assert returned is snapshot
+    assert any("▶ Current" in line and "[background snapshot]" in line for line in shown)
