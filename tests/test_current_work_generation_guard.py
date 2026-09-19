@@ -8,6 +8,7 @@ from caldav_assistant.api import Task
 from caldav_assistant.internal.caldav import SyncEngine
 from caldav_assistant.internal.cli import conversation_app, conversation_live
 from caldav_assistant.internal.session import CalDAVSessionService
+from caldav_assistant.internal.agenda.service import AgendaService
 
 
 class MemoryCache:
@@ -234,3 +235,52 @@ def test_failed_current_work_refresh_stays_in_cli(monkeypatch):
     assert conversation_app._home_menu(app, snapshot) == "console"
     assert any("console remains usable" in line for line in shown)
     assert any("No Task was started" in line for line in shown)
+
+
+def test_verified_open_work_uid_missing_from_task_snapshot_becomes_unknown():
+    class Session:
+        def startup_snapshot(self, tasks, *, work_facts=None):
+            return {
+                "current_task_id": "new-task-from-other-client",
+                "current_task": None,
+                "paused_task_ids": (),
+                "current_work_verified": True,
+                "verified_at": "2026-09-19T06:00:00+00:00",
+            }
+
+    class Engine:
+        def build(self, tasks, events, **kwargs):
+            return SimpleNamespace(items=())
+
+        def candidates(self, tasks, events):
+            return "candidates"
+
+    class Next:
+        def choose(self, agenda, **kwargs):
+            pytest.fail("UNKNOWN current work must suppress recommendation")
+
+    service = AgendaService(
+        tasks=SimpleNamespace(),
+        events=SimpleNamespace(),
+        engine=Engine(),
+        next_engine=Next(),
+        state={},
+        session=Session(),
+    )
+    visible_task = Task(id="older-task", summary="Older task")
+
+    result = service._startup_result(
+        [visible_task],
+        [],
+        days=1,
+        kind="task",
+        work_facts={
+            "current_task_id": "new-task-from-other-client",
+            "worked_task_ids": (),
+            "current_work_verified": True,
+        },
+    )
+
+    assert result["current_work_verified"] is False
+    assert result["current_task"] is None
+    assert result["recommendation"] is None
