@@ -1,29 +1,29 @@
 """Internal fast path for updating a just-read CalDAV object without re-reading it.
 
-The public/frozen CalDAVAdapter contract intentionally remains unchanged.  Concrete
+The public/frozen CalDAVAdapter contract intentionally remains unchanged. Concrete
 CalDAV adapter layers expose this only as an optional capability; Core services merely
-probe that capability and remain independent of transport details.  A fast write is
+probe that capability and remain independent of transport details. A fast write is
 used only when the object carries all transport facts produced by the concrete CalDAV
-mapper: raw iCalendar data, resource URL, collection URL and ETag.  The reconstructed
+mapper: raw iCalendar data, resource URL, collection URL and ETag. The reconstructed
 python-caldav resource therefore sends the same ``If-Match`` PUT that a freshly
 re-read resource would send.
 
 If any prerequisite is absent (notably objects restored from the experimental SQLite
 snapshot, which deliberately does not persist ``raw``), the helper returns ``None``
-and the caller uses the ordinary adapter update path.  CalDAV remains authoritative.
+and the caller uses the ordinary adapter update path. CalDAV remains authoritative.
 
-A stale snapshot is also compatibility-safe: when the fast If-Match PUT gets a 412,
-we immediately fall back to the pre-existing authoritative update path.  That path
-re-reads the current server object and applies only the requested field changes, which
-preserves the service's historical merge semantics while keeping the normal case to a
-single read followed by a single conditional write.
+A stale live snapshot must never be silently upgraded into write authorization. If the
+conditional PUT gets a 412 / ETag mismatch, the conflict is surfaced to the action
+layer. That layer may re-read and re-run its business preconditions before deciding
+whether a retry is still valid. The normal uncontended path therefore remains one
+fresh read followed by one conditional write, while concurrent changes cannot bypass
+Task/Event lifecycle validation.
 """
 from __future__ import annotations
 
 from typing import Any, Mapping
 
 from ...api import Event, Task
-from ...api.v1.errors import ConflictError
 from .library_adapter import _app_error
 from .routing import CollectionRoutingCalDAVAdapter
 
@@ -113,16 +113,6 @@ def _patch_experimental_snapshot(adapter: Any, kind: str, obj: Task | Event) -> 
         pass
 
 
-def _ordinary_update(
-    adapter: Any,
-    obj: Task | Event,
-    changes: Mapping[str, Any],
-) -> Task | Event:
-    if isinstance(obj, Task):
-        return adapter.update_task(str(obj.id), dict(changes))
-    return adapter.update_event(str(obj.id), dict(changes))
-
-
 def _update_from_snapshot(
     adapter: Any,
     obj: Task | Event,
@@ -138,11 +128,11 @@ def _update_from_snapshot(
             resource.save()
         result = mapper(resource, resource.parent)
     except Exception as exc:
+        # In particular, preserve an ETag/If-Match failure as ConflictError.
+        # Retrying here would apply changes after the action's business checks were
+        # performed against an older object. A caller that wants to retry must first
+        # re-read and re-run those checks at the action boundary.
         mapped = _app_error(exc)
-        if isinstance(mapped, ConflictError):
-            # Preserve the old update semantics.  A stale live object used to be
-            # refreshed by the ordinary adapter immediately before editing.
-            return _ordinary_update(adapter, obj, changes)
         raise mapped from exc
 
     kind = "task" if isinstance(result, Task) else "event"

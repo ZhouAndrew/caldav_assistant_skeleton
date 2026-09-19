@@ -5,7 +5,7 @@ from threading import Barrier
 import pytest
 
 from caldav_assistant.api import Task
-from caldav_assistant.api.v1.errors import UnavailableError, ValidationError
+from caldav_assistant.api.v1.errors import ConflictError, UnavailableError, ValidationError
 from caldav_assistant.internal.tasks import CalDAVWorkTaskService
 
 
@@ -116,3 +116,59 @@ def test_start_without_work_collection_still_refreshes_cached_task_before_mutati
 
     assert adapter.get_calls == 1
     assert adapter.update_calls == 0
+
+
+def test_start_etag_race_aborts_and_rolls_back_new_work_segment():
+    class RacingAdapter:
+        def __init__(self) -> None:
+            self.get_calls = 0
+            self.fast_write_calls = 0
+            self.ordinary_write_calls = 0
+
+        def get_task(self, task_id: str) -> Task:
+            self.get_calls += 1
+            return Task(id=task_id, summary="Requested", status="NEEDS-ACTION")
+
+        def update_task_from_snapshot(self, task: Task, changes):
+            self.fast_write_calls += 1
+            raise ConflictError("Task changed after the live preflight")
+
+        def update_task(self, task_id: str, changes, **kwargs):
+            self.ordinary_write_calls += 1
+            raise AssertionError("a stale Start decision must not retry through ordinary update")
+
+    class RacingWorkLog:
+        def __init__(self) -> None:
+            self.start_calls = 0
+            self.discarded = []
+
+        def configured(self) -> bool:
+            return True
+
+        def open_snapshot(self):
+            return ("open-work",)
+
+        def current_task_id(self, *, snapshot=None):
+            assert snapshot == ("open-work",)
+            return None
+
+        def start_segment(self, task: Task, *, snapshot=None):
+            assert snapshot == ("open-work",)
+            self.start_calls += 1
+            return "new-work-segment"
+
+        def discard_segment(self, segment):
+            self.discarded.append(segment)
+
+    adapter = RacingAdapter()
+    worklog = RacingWorkLog()
+    service = CalDAVWorkTaskService(adapter, worklog=worklog)
+
+    with pytest.raises(ConflictError, match="changed after the live preflight"):
+        service.start("requested")
+
+    assert adapter.get_calls == 1
+    assert adapter.fast_write_calls == 1
+    assert adapter.ordinary_write_calls == 0
+    assert worklog.start_calls == 1
+    assert worklog.discarded == ["new-work-segment"]

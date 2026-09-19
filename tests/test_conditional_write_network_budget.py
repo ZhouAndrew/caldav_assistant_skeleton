@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
 from caldav_assistant.api import Event, Task
+from caldav_assistant.api.v1.errors import ConflictError
 from caldav_assistant.internal.caldav.conditional_write import (
     update_event_from_snapshot,
     update_task_from_snapshot,
@@ -163,17 +166,16 @@ def test_missing_raw_or_transport_metadata_preserves_ordinary_update_path():
     assert FakeResource.saves == []
 
 
-def test_stale_fast_write_falls_back_to_old_fresh_read_update_semantics():
+def test_stale_fast_write_surfaces_conflict_without_ordinary_retry():
     wrapper = _stack()
     FakeResource.fail_next = True
 
-    updated = update_task_from_snapshot(wrapper, _live_task(), {"summary": "Merged"})
+    with pytest.raises(ConflictError, match="stale"):
+        update_task_from_snapshot(wrapper, _live_task(), {"summary": "Merged"})
 
-    assert updated is not None
-    assert updated.summary == "Merged"
-    assert wrapper.task_fallbacks == 1
-    # The ordinary fallback wrapper owns its own cache patching in production; the
-    # fast helper must not patch a second time after returning from that path.
+    # The failed If-Match is the end of this action attempt. Re-reading and retrying
+    # here would bypass business checks performed against the older live Task.
+    assert wrapper.task_fallbacks == 0
     assert wrapper.patches == []
     assert len(FakeResource.saves) == 1
 
