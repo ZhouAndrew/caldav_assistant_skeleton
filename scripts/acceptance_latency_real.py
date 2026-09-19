@@ -224,8 +224,7 @@ def main() -> int:
 
             now = datetime.now(timezone.utc)
             # IN-PROCESS without an open Work interval is intentionally excluded
-            # from recommendation, making "Choose a Task and start" item 1 exactly
-            # as in the reported degraded-startup transcript.
+            # from recommendation. Human Task choice remains the primary item 1.
             task_calendar.save_todo(_todo_ics(now, status="IN-PROCESS"))
             event_calendar.save_event(_event_ics(now))
             for index in range(WORK_HISTORY_EVENTS):
@@ -295,9 +294,10 @@ def main() -> int:
             child.sendline("1")
             _expect(
                 child,
-                "Choose a Task to work on",
-                "Enter -> 1 reached Task selection without another live Task read",
+                "Choose by number; type /keyword to search",
+                "Enter -> 1 entered Task selection without another live Task read",
             )
+            _expect(child, "Choose a Task to work on", "Task chooser shown")
             # ``0`` in the nested Task chooser means Back, so it returns to the
             # already-open guided menu.  Exit that parent menu explicitly before
             # opening a second visit; otherwise an empty line is merely another menu
