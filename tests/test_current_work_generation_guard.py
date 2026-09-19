@@ -129,3 +129,52 @@ def test_unverified_home_cannot_offer_start_actions_or_recommendation_path():
     assert ui.items[0] == "Refresh current work"
     assert not any(item.startswith("Start recommended Task") for item in ui.items)
     assert "Choose a Task and start" not in ui.items
+
+
+def test_unverified_startup_enters_console_without_live_session_probe(monkeypatch):
+    snapshot = conversation_app.StartupSnapshot(
+        current_work_verified=False,
+        stale=True,
+    )
+    shown = []
+    entered = []
+
+    monkeypatch.setattr(conversation_app, "_show_welcome", lambda app: snapshot)
+    monkeypatch.setattr(
+        conversation_app.legacy,
+        "_monitor_target",
+        lambda app: pytest.fail("startup must not re-read live Session state"),
+    )
+    monkeypatch.setattr(
+        conversation_app,
+        "_console",
+        lambda app, value: (entered.append(value) or (0, "exit")),
+    )
+
+    app = SimpleNamespace()
+    assert conversation_app.run_conversation_repl(app) == 0
+    assert entered == [snapshot]
+
+
+def test_console_prompt_does_not_live_probe_unknown_current_work(monkeypatch):
+    snapshot = conversation_app.StartupSnapshot(
+        current_work_verified=False,
+        stale=True,
+    )
+    monkeypatch.setattr(
+        conversation_app.legacy,
+        "_monitor_target",
+        lambda app: pytest.fail("idle console must not re-read live Session state"),
+    )
+
+    class EOFIO:
+        def read(self, prompt=""):
+            assert prompt == "> "
+            raise EOFError
+
+        def write(self, text=""):
+            return None
+
+    app = SimpleNamespace(io=EOFIO())
+    code, action = conversation_app._console(app, snapshot)
+    assert (code, action) == (0, "exit")
