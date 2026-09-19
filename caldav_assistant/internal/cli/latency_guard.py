@@ -359,8 +359,15 @@ def install(module: Any) -> None:
 
     def guarded_read_snapshot(app: Any) -> Any:
         snapshot = menu_state["snapshot"]
-        if snapshot is not None and getattr(snapshot, "warning", None) is None:
+        if (
+            snapshot is not None
+            and getattr(snapshot, "warning", None) is None
+            and bool(getattr(snapshot, "current_work_verified", True))
+        ):
             return snapshot
+        # UNKNOWN current-work state is deliberately not reusable for an explicit
+        # refresh.  Re-enter the bounded live read so the user can move from
+        # UNKNOWN to KNOWN_CURRENT/VERIFIED_NONE without restarting the CLI.
         return _read_snapshot(module, app)
 
     def guarded_visible_call(app: Any, label: str, fn: Any, *args: Any, **kwargs: Any):
