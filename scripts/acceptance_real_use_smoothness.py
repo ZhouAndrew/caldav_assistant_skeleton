@@ -149,9 +149,33 @@ def main() -> int:
             print(f"REAL-USE: upcoming_then_menu={_elapsed(started):.3f}s")
 
             started = time.monotonic()
-            child.sendline("1")
-            child.expect(r"How long do you want to work")
-            print(f"REAL-USE: choose_start_to_duration={_elapsed(started):.3f}s")
+            verify_deadline = time.monotonic() + 20.0
+            refreshes = 0
+            while True:
+                child.sendline("1")
+                child.timeout = min(
+                    30,
+                    max(0.1, verify_deadline - time.monotonic()),
+                )
+                index = child.expect(
+                    [
+                        r"Refreshing current work, Tasks and Events",
+                        r"How long do you want to work",
+                    ]
+                )
+                if index == 1:
+                    child.timeout = 30
+                    break
+                refreshes += 1
+                child.expect(r"What do you want to do\?")
+                if time.monotonic() >= verify_deadline:
+                    raise AssertionError(
+                        "current-work verification did not become ready within 20s"
+                    )
+            print(
+                f"REAL-USE: choose_start_to_duration={_elapsed(started):.3f}s "
+                f"(safe_refreshes={refreshes})"
+            )
 
             # `0 Back` is deliberately the only numeric exit assumption here. It is
             # stable across all Menu instances and therefore cannot drift when home
