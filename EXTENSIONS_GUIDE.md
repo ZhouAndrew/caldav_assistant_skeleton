@@ -129,6 +129,38 @@ extension enable NAME
 
 这就是最重要的维护闭环。
 
+这里要区分两个状态：
+
+- **Enabled**：是否记入持久设置、以后启动时自动加载；
+- **Status**：这个 CLI 进程里当前是否已经 loaded。
+
+因此：
+
+```text
+extension enable NAME
+```
+
+表示“持久启用 + 现在加载”；而：
+
+```text
+extension reload NAME
+```
+
+只重新加载当前 CLI 进程里的代码，**不会替你改变 Enabled 设置**。如果扩展此前已经 disable，那么 reload 可以用来做一次临时测试；此时看到：
+
+```text
+Status: loaded
+Enabled: no
+```
+
+是正常的。退出并重新启动 CLI 后，它仍保持 disabled。确认修好并希望以后自动加载时，再运行：
+
+```text
+extension enable NAME
+```
+
+同理，`extension unload NAME` 只卸载当前进程，不等于持久 disable。
+
 > **用户应该永远有“先禁用，主程序继续工作”的退路。**
 
 ---
