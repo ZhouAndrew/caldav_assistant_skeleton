@@ -72,6 +72,12 @@ jobs:
         run: |
           set -o pipefail
           python scripts/acceptance_feature_demo_real.py 2>&1 | tee feature-demo-acceptance-${{ matrix.python-version }}.log
+      - name: Real disabled extension reload acceptance
+        if: matrix.python-version == '3.12'
+        shell: bash
+        run: |
+          set -o pipefail
+          python scripts/acceptance_extension_reload_disabled_real.py 2>&1 | tee extension-reload-disabled-acceptance.log
       - name: Real Waiting Mode Ctrl-C acceptance
         shell: bash
         env:
@@ -122,6 +128,7 @@ jobs:
             latency-acceptance-${{ matrix.python-version }}.log
             latency-transcript-${{ matrix.python-version }}.log
             feature-demo-acceptance-${{ matrix.python-version }}.log
+            extension-reload-disabled-acceptance.log
             waiting-mode-acceptance-${{ matrix.python-version }}.log
             waiting-mode-transcript-${{ matrix.python-version }}.log
             assistant-operated-relaunch-acceptance.log
