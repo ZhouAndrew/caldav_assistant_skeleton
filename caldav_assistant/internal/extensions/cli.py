@@ -68,6 +68,15 @@ Official bundled extensions:
 After editing an enabled user extension:
   extension reload NAME
 
+Lifecycle meaning:
+  enable  = persist enabled + load now
+  disable = persist disabled + unload now
+  load/reload = load for this CLI process; persisted Enabled is unchanged
+  unload = unload for this CLI process; persisted Enabled is unchanged
+
+So "Status: loaded" with "Enabled: no" means a temporary test load. A new
+CLI process will leave it disabled unless you explicitly run extension enable NAME.
+
 If an extension fails:
   extension errors
   extension errors NAME
