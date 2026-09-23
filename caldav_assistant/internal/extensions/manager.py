@@ -430,6 +430,11 @@ class ExtensionManager:
         was_enabled = record.enabled
         self._teardown(record)
         record.status = "enabled" if was_enabled else "disabled"
+        if not was_enabled:
+            # Reload must preserve the user's explicit disabled state.  A disabled
+            # extension may be rediscovered/inspected, but it must not execute code
+            # or register commands/hooks until the user explicitly enables it.
+            return record
         return self.load(record.name)
 
     # ------------------------------------------------------------------
