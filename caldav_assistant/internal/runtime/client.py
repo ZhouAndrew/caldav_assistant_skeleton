@@ -151,12 +151,9 @@ class RuntimeClient:
 
     def _wait_until_ready(self, deadline: float, process: Any = None) -> bool:
         while self._remaining(deadline) > 0:
-            poll = getattr(process, "poll", None)
-            if callable(poll):
-                returncode = poll()
-                if returncode is not None:
-                    return False
-
+            # A launcher process may legitimately exit because another concurrent
+            # CLI won the cross-process singleton race. The shared IPC endpoint is
+            # authoritative, not the fate of this client's particular child.
             probe_timeout = self._probe_timeout(deadline, ceiling=0.5)
             if probe_timeout <= 0:
                 break
