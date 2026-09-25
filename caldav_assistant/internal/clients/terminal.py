@@ -236,6 +236,11 @@ class StdConsoleIO:
     def error(self, value: Any, *, end: str = "\n") -> None:
         print(value, file=self.stderr, end=end, flush=True)
 
+    def bell(self) -> None:
+        """Emit one logical terminal alert through the terminal stream wrapper."""
+        self.stdout.write("\a")
+        self.stdout.flush()
+
     def render_menu(self, view: Any) -> None:
         """Render one MenuView using terminal width, then write through this adapter."""
         from ..presentation import TextRenderer
