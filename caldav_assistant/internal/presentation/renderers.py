@@ -19,6 +19,12 @@ class TextRenderer:
         lines.extend(f"{item.key}. {item.label}" for item in view.items)
         if view.page_count > 1:
             lines.append(f"Page {view.page}/{view.page_count}")
+            paging = []
+            if view.page > 1:
+                paging.append("p/prev. Previous page")
+            if view.page < view.page_count:
+                paging.append("n/next. Next page")
+            lines.append(" | ".join(paging))
         lines.append(f"0. {view.back_label}")
         return lines
 
