@@ -50,12 +50,23 @@ def _pid(text: str) -> int:
 def _wait_dead(pid: int, timeout: float = 5.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return
-        except PermissionError:
-            return
+        if os.name == "nt":
+            result = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            if f'"{pid}"' not in result.stdout:
+                return
+        else:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return
+            except PermissionError:
+                return
         time.sleep(0.05)
     raise AssertionError(f"PID {pid} did not exit within {timeout:.1f}s")
 
