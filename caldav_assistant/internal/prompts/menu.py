@@ -327,6 +327,11 @@ class Menu:
             if not raw and default_index:
                 choice = filtered[default_index - 1]
                 return [choice.value] if multiple else choice.value
+            if not raw:
+                # A bare Enter with no explicit default is neutral navigation, not
+                # an error. Re-render the same MenuView so users can keep reading
+                # or use the visible paging/search controls without being scolded.
+                continue
             if token in self.BACK_TOKENS or token in self.CANCEL_TOKENS:
                 return [] if multiple else None
             if token in self.HELP_TOKENS:
