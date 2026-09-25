@@ -1,4 +1,7 @@
-from caldav_assistant.internal.runtime.service_launcher import (\n    PRODUCTION_SERVICE_MODULE,\n    ServiceLauncher,\n)
+from caldav_assistant.internal.runtime.service_launcher import (
+    PRODUCTION_SERVICE_MODULE,
+    ServiceLauncher,
+)
 
 def test_launcher_uses_current_python_module_entry_without_shell(tmp_path):
     calls=[]
