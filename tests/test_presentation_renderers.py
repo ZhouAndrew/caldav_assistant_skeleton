@@ -150,7 +150,7 @@ def test_horizontal_menu_uses_stable_aligned_column_starts_with_mixed_lengths():
         page_size=10,
     )
 
-    lines = TextRenderer(max_width=120).render_lines(view)
+    lines = TextRenderer(max_width=90).render_lines(view)
     choice_lines = [line for line in lines if ". " in line and not line.startswith("0.")]
 
     assert len(choice_lines) == 2
