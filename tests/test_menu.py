@@ -41,3 +41,17 @@ def test_help_does_not_leave_menu():
     io = FakeIO("?", "1")
     assert Menu(io).choose("Pick", ["A"]) == "A"
     assert any("q/cancel" in line for line in io.output)
+
+
+def test_blank_enter_without_default_is_neutral_not_invalid():
+    io = FakeIO("", "2")
+    assert Menu(io).choose("Pick", ["A", "B"]) == "B"
+    assert not any("Invalid choice" in line for line in io.output)
+    assert io.output.count("Pick") == 2
+
+
+def test_paged_menu_exposes_navigation_without_help():
+    io = FakeIO("n", "3")
+    assert Menu(io).choose("Pick", ["A", "B", "C"], page_size=2) == "C"
+    assert "n/next. Next page" in io.output
+    assert "p/prev. Previous page" in io.output
