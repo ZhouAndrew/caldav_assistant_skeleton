@@ -65,7 +65,10 @@ def main() -> int:
     if not executable:
         raise RuntimeError("installed caldav-assistant is not on PATH")
 
-    with tempfile.TemporaryDirectory(\n        prefix="caldav-extreme-runtime-",\n        ignore_cleanup_errors=True,\n    ) as raw:
+    with tempfile.TemporaryDirectory(
+        prefix="caldav-extreme-runtime-",
+        ignore_cleanup_errors=True,
+    ) as raw:
         home = Path(raw) / "home"
         home.mkdir()
         env = os.environ.copy()
