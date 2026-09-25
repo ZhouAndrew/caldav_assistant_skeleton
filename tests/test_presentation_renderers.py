@@ -38,7 +38,14 @@ def test_one_menu_view_renders_as_text_json_and_html():
     )
 
     text = TextRenderer().render(view)
-    assert text == "Edit <task>\n1. Due & date\n2. Title\nPage 1/2\n0. Back"
+    assert text == (
+        "Edit <task>\n"
+        "1. Due & date\n"
+        "2. Title\n"
+        "Page 1/2\n"
+        "n/next. Next page\n"
+        "0. Back"
+    )
 
     payload = JsonRenderer().render(view)
     assert payload["type"] == "menu"
