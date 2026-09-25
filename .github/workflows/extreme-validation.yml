@@ -69,14 +69,17 @@ jobs:
           timeout 420s python - <<'PY'
           import os
           import resource
-          import runpy
+          import sys
 
           if hasattr(os, "sched_getaffinity") and hasattr(os, "sched_setaffinity"):
               allowed = os.sched_getaffinity(0)
               os.sched_setaffinity(0, {min(allowed)})
           limit = 768 * 1024 * 1024
           resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
-          runpy.run_path("scripts/acceptance_real_use_smoothness.py", run_name="__main__")
+          os.execv(
+              sys.executable,
+              [sys.executable, "scripts/acceptance_real_use_smoothness.py"],
+          )
           PY
 
       - name: Repeat stale-upgrade blackhole recovery three times
