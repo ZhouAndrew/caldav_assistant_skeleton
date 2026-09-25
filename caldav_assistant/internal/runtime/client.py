@@ -291,16 +291,20 @@ class RuntimeClient:
         }
 
     def status(self, *, start: bool = False) -> dict[str, Any]:
-        """Return service status; probing alone never starts a stopped service."""
+        """Return service status without auto-starting it.
+
+        A separate short ping used to precede this request. Under a busy Windows
+        Named Pipe that could time out while the daemon was healthy and incorrectly
+        report "Stopped". The status request itself is already a bounded liveness
+        probe, so use one authoritative round trip instead of two.
+        """
         if start:
             return self.ensure_running()
-        if not self.ping():
-            return self._stopped_status()
         try:
             value = self._execute(
                 "runtime.status",
                 {},
-                timeout=min(self.request_timeout, 1.0),
+                timeout=min(self.request_timeout, 2.0),
             )
         except (
             IPCUnavailableError,
