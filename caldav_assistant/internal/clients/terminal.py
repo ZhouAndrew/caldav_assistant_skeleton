@@ -181,6 +181,13 @@ class StdConsoleIO:
         """Whether poll_input() can return a complete typed command line."""
         return os.name != "nt"
 
+    def supports_readline_completion(self) -> bool:
+        """Return whether readline should attach to the real interactive stdin."""
+        if self._input_fn is not None:
+            return False
+        isatty = getattr(self.stdin, "isatty", None)
+        return bool(callable(isatty) and isatty())
+
     def is_interactive(self) -> bool:
         isatty = getattr(self.stdout, "isatty", None)
         return bool(callable(isatty) and isatty())
