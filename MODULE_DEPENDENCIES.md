@@ -98,6 +98,7 @@ Terminal Adapter 统一拥有：
 - 隐藏输入：`ask_secret()`
 - 菜单渲染：`render_menu()`
 - 实时刷新：`update_line()`, `clear_line()`
+- 终端提醒：`bell()`
 - 非阻塞输入：`poll_input()`
 - 终端能力检测：`display_width()`, `supports_readline_completion()`
 
