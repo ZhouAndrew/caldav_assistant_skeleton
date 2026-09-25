@@ -3,12 +3,59 @@ from __future__ import annotations
 
 from html import escape
 from typing import Any
+import unicodedata
 
 from .models import MenuView
 
 
+def _display_width(text: str) -> int:
+    """Approximate terminal cell width without adding a wcwidth dependency."""
+    width = 0
+    for char in str(text):
+        if unicodedata.combining(char):
+            continue
+        width += 2 if unicodedata.east_asian_width(char) in {"W", "F"} else 1
+    return width
+
+
 class TextRenderer:
-    """Plain-text renderer used by the existing terminal client."""
+    """Plain-text renderer used by terminal-like clients.
+
+    max_width is optional. When supplied, short menu choices are packed
+    left-to-right onto the same line while preserving numeric order. Long choices,
+    narrow terminals, redirected output, and clients that do not provide a width
+    naturally keep the historical one-item-per-line rendering.
+    """
+
+    def __init__(self, *, max_width: int | None = None, column_gap: int = 3) -> None:
+        self.max_width = int(max_width) if max_width is not None else None
+        self.column_gap = max(1, int(column_gap))
+
+    def _render_choice_lines(self, view: MenuView) -> list[str]:
+        cells = [f"{item.key}. {item.label}" for item in view.items]
+        width = self.max_width
+        if len(cells) < 4 or width is None or width < 50:
+            return cells
+
+        gap = " " * self.column_gap
+        lines: list[str] = []
+        current: list[str] = []
+        current_width = 0
+
+        for cell in cells:
+            cell_width = _display_width(cell)
+            extra = cell_width if not current else self.column_gap + cell_width
+            if current and current_width + extra > width:
+                lines.append(gap.join(current))
+                current = [cell]
+                current_width = cell_width
+                continue
+            current.append(cell)
+            current_width += extra
+
+        if current:
+            lines.append(gap.join(current))
+        return lines
 
     def render_lines(self, view: MenuView) -> list[str]:
         lines = [view.title]
@@ -16,7 +63,7 @@ class TextRenderer:
             lines.append(
                 f"Search: {view.query} ({view.visible_match_count} match(es))"
             )
-        lines.extend(f"{item.key}. {item.label}" for item in view.items)
+        lines.extend(self._render_choice_lines(view))
         if view.page_count > 1:
             lines.append(f"Page {view.page}/{view.page_count}")
             paging = []

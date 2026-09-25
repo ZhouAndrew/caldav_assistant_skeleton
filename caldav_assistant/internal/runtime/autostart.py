@@ -9,6 +9,8 @@ import shlex
 import subprocess
 import sys
 
+from .service_launcher import PRODUCTION_SERVICE_MODULE
+
 
 class AutostartManager:
     def __init__(
@@ -22,7 +24,7 @@ class AutostartManager:
 
     @property
     def command(self) -> list[str]:
-        return [self.python, "-m", "caldav_assistant.internal.runtime.observable_service"]
+        return [self.python, "-m", PRODUCTION_SERVICE_MODULE]
 
     @staticmethod
     def _systemd_path() -> Path:

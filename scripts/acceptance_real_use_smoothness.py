@@ -153,12 +153,17 @@ def main() -> int:
                 codec_errors="replace",
                 timeout=30,
             )
+            # Make terminal width deterministic so the human-path acceptance also
+            # verifies that a real TTY menu expands horizontally when space allows.
+            child.setwinsize(40, 120)
             child.expect("Console ready")
             print(f"REAL-USE: startup_to_console={_elapsed(started):.3f}s")
 
             started = time.monotonic()
             child.sendline("")
             child.expect(r"What do you want to do\?")
+            child.expect(r"1\. Choose a Task to work on[ ]{3,}2\.")
+            print("PASS: real terminal menu expands horizontally at 120 columns")
             print(f"REAL-USE: first_menu_open={_elapsed(started):.3f}s")
             child.sendline("0")
             child.expect(r"> ")

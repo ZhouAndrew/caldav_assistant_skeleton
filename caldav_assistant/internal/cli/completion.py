@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import importlib
 import shlex
-import sys
 from dataclasses import dataclass
 from typing import Any, Iterable
 
@@ -228,11 +227,8 @@ class ReadlineCompletionSession:
     def _interactive_input(self) -> bool:
         if self.force:
             return True
-        input_fn = getattr(getattr(self.app, "io", None), "_input_fn", None)
-        if input_fn is not None:
-            return False
-        isatty = getattr(sys.stdin, "isatty", None)
-        return bool(callable(isatty) and isatty())
+        checker = getattr(getattr(self.app, "io", None), "supports_readline_completion", None)
+        return bool(callable(checker) and checker())
 
     def _complete(self, text: str, state: int) -> str | None:
         if state == 0:

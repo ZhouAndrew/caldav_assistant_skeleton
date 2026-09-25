@@ -10,6 +10,9 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
+import getpass
+import os
+import shutil
 import sys
 from threading import Event
 from time import sleep
@@ -143,12 +146,18 @@ class StdConsoleIO:
         self,
         *,
         input_fn: Callable[[str], str] | None = None,
+        secret_fn: Callable[[str], str] | None = None,
+        stdin: TextIO | None = None,
         stdout: TextIO | None = None,
         stderr: TextIO | None = None,
+        terminal_width_fn: Callable[[], int] | None = None,
         terminal_bell_profile: TerminalBellProfile | None = None,
         sleep_fn: Callable[[float], None] = sleep,
     ) -> None:
         self._input_fn = input_fn
+        self._secret_fn = secret_fn
+        self.stdin = stdin or sys.stdin
+        self._terminal_width_fn = terminal_width_fn
         output_stream = stdout or sys.stdout
         self.stdout = (
             _BellAwareTextStream(
@@ -167,8 +176,38 @@ class StdConsoleIO:
     def waiting_for_input(self) -> bool:
         return self._input_wait.is_set()
 
+    @property
+    def supports_line_polling(self) -> bool:
+        """Whether poll_input() can return a complete typed command line."""
+        return os.name != "nt"
+
+    def supports_readline_completion(self) -> bool:
+        """Return whether readline should attach to the real interactive stdin."""
+        if self._input_fn is not None:
+            return False
+        isatty = getattr(self.stdin, "isatty", None)
+        return bool(callable(isatty) and isatty())
+
+    def is_interactive(self) -> bool:
+        isatty = getattr(self.stdout, "isatty", None)
+        return bool(callable(isatty) and isatty())
+
+    def display_width(self) -> int | None:
+        """Return usable terminal columns only for an interactive terminal."""
+        if self._terminal_width_fn is not None:
+            try:
+                return max(20, int(self._terminal_width_fn()))
+            except Exception:
+                return None
+        if not self.is_interactive():
+            return None
+        try:
+            return max(20, int(shutil.get_terminal_size(fallback=(80, 24)).columns))
+        except OSError:
+            return 80
+
     def push_line(self, value: Any) -> None:
-        """Make one line the next value returned by ``read()`` without parsing it."""
+        """Make one line the next value returned by read() without parsing it."""
         self._pending_lines.appendleft(str(value))
 
     def read(self, prompt: str = "") -> str:
@@ -181,11 +220,81 @@ class StdConsoleIO:
         finally:
             self._input_wait.clear()
 
-    def write(self, value: Any = "") -> None:
-        print(value, file=self.stdout, flush=True)
+    def ask_secret(self, prompt: str = "Password") -> str:
+        """Read a secret with terminal echo disabled."""
+        label = str(prompt)
+        if label and not label.endswith((" ", ": ")):
+            label += ": "
+        reader = self._secret_fn
+        if reader is not None:
+            return str(reader(label))
+        return getpass.getpass(label, stream=self.stderr)
 
-    def error(self, value: Any) -> None:
-        print(value, file=self.stderr, flush=True)
+    def write(self, value: Any = "", *, end: str = "\n") -> None:
+        print(value, file=self.stdout, end=end, flush=True)
+
+    def error(self, value: Any, *, end: str = "\n") -> None:
+        print(value, file=self.stderr, end=end, flush=True)
+
+    def bell(self) -> None:
+        """Emit one logical terminal alert through the terminal stream wrapper."""
+        self.stdout.write("\a")
+        self.stdout.flush()
+
+    def render_menu(self, view: Any) -> None:
+        """Render one MenuView using terminal width, then write through this adapter."""
+        from ..presentation import TextRenderer
+
+        renderer = TextRenderer(max_width=self.display_width())
+        for line in renderer.render_lines(view):
+            self.write(line)
+
+    def update_line(self, text: Any, previous_width: int = 0) -> int:
+        """Refresh one terminal line in place; redirected output is emitted once."""
+        value = str(text)
+        previous = max(0, int(previous_width))
+        if self.is_interactive():
+            padded = value.ljust(previous)
+            self.stdout.write("\r" + padded)
+            self.stdout.flush()
+            return max(previous, len(value))
+        if previous == 0:
+            self.write(value)
+        return max(previous, len(value))
+
+    def clear_line(self, previous_width: int) -> None:
+        """Clear an in-place terminal line without leaking control codes upward."""
+        previous = max(0, int(previous_width))
+        if not previous or not self.is_interactive():
+            return
+        self.stdout.write("\r" + (" " * previous) + "\r")
+        self.stdout.flush()
+
+    def poll_input(self) -> str | None:
+        """Poll terminal input without blocking live refresh."""
+        if os.name == "nt":
+            try:
+                import msvcrt
+            except ImportError:
+                return None
+            if not msvcrt.kbhit():
+                return None
+            char = msvcrt.getwch()
+            if char in {"\r", "\n"}:
+                return ""
+            return char
+
+        try:
+            import select
+            ready, _, _ = select.select([self.stdin], [], [], 0)
+        except (OSError, ValueError, TypeError):
+            return None
+        if not ready:
+            return None
+        line = self.stdin.readline()
+        if line == "":
+            return "q"
+        return line.rstrip("\r\n")
 
     prompt = read
     input = read

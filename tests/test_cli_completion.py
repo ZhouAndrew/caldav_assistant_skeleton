@@ -131,3 +131,17 @@ def test_libedit_backend_uses_native_tab_binding():
 
     assert session.install() is True
     assert readline.bindings == ["bind ^I rl_complete"]
+
+
+def test_readline_session_asks_client_adapter_whether_input_is_interactive():
+    readline = FakeReadline()
+    calls = []
+    app = make_app()
+    app.io = SimpleNamespace(
+        supports_readline_completion=lambda: calls.append(True) or False
+    )
+    session = ReadlineCompletionSession(app, readline_module=readline)
+
+    assert session.install() is False
+    assert calls == [True]
+    assert readline.completer == "old"

@@ -56,7 +56,8 @@ class Menu:
             return translate(key, default=default)
         return default
 
-    # IO is intentionally duck-typed so Prompt/Menu does not own the CLI adapter.
+    # IO is intentionally duck-typed so Prompt/Menu does not own terminal details.
+    # A real client adapter is mandatory: Menu must never fall through to builtins.
     def _read(self, prompt: str = "> ") -> str:
         for name in ("read", "input", "ask"):
             fn = getattr(self.io, name, None)
@@ -67,7 +68,7 @@ class Menu:
                     self._write(prompt, end="")
                     value = fn()
                 return "" if value is None else str(value)
-        return input(prompt)
+        raise RuntimeError("Menu requires a client IO adapter with read/input/ask")
 
     def _write(self, text: Any = "", *, end: str = "\n") -> None:
         value = str(text)
@@ -79,7 +80,7 @@ class Menu:
                 except TypeError:
                     fn(value if end == "\n" else value + end)
                 return
-        print(value, end=end)
+        raise RuntimeError("Menu requires a client IO adapter with write/print/output")
 
     @staticmethod
     def _label(value: Any) -> str:
@@ -268,6 +269,11 @@ class Menu:
         return render_view(view, format)
 
     def _show_presentation(self, view: MenuView) -> None:
+        render_menu = getattr(self.io, "render_menu", None)
+        if callable(render_menu):
+            render_menu(view)
+            return
+        # Non-terminal/fake clients keep the stable client-neutral text fallback.
         for line in TextRenderer().render_lines(view):
             self._write(line)
 

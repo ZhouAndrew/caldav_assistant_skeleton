@@ -99,3 +99,36 @@ def test_interactive_menu_text_still_comes_from_the_same_view_model():
     menu = Menu(io)
     assert menu.choose("Pick", [Choice("One", "a"), Choice("Two", "b")]) == "b"
     assert io.output[:4] == ["Pick", "1. One", "2. Two", "0. Back"]
+
+
+def test_terminal_text_renderer_packs_short_choices_horizontally_when_width_allows():
+    menu = Menu(FakeIO())
+    view = menu.presentation(
+        "Many choices",
+        ["One", "Two", "Three", "Four", "Five", "Six"],
+        page_size=10,
+    )
+
+    rendered = TextRenderer(max_width=80).render(view)
+
+    assert "1. One   2. Two" in rendered
+    assert "3. Three" in rendered
+    assert rendered.endswith("0. Back")
+
+
+def test_real_terminal_adapter_owns_width_aware_menu_rendering():
+    from io import StringIO
+
+    output = StringIO()
+    io = StdConsoleIO(
+        input_fn=lambda _prompt: "4",
+        stdout=output,
+        terminal_width_fn=lambda: 80,
+    )
+    menu = Menu(io)
+
+    assert menu.choose("Pick", ["One", "Two", "Three", "Four"]) == "Four"
+
+    visible = output.getvalue()
+    assert "1. One   2. Two" in visible
+    assert "3. Three   4. Four" in visible
