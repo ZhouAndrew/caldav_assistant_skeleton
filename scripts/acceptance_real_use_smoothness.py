@@ -23,7 +23,7 @@ from acceptance_latency_real import (
     _wait_http,
 )
 
-HISTORY_EVENTS = 250
+HISTORY_EVENTS = max(0, int(os.environ.get("CALDAV_ASSISTANT_REAL_USE_HISTORY_EVENTS", "250")))
 
 
 def _historical_event_ics(index: int, now: datetime) -> str:
