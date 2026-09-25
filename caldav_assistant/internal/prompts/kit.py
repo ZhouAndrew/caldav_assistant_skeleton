@@ -247,16 +247,11 @@ class PromptKit:
 
     # CALDAV_ASSISTANT_PRODUCTION_INTEGRATION_V1
     def ask_secret(self, prompt: str = "Password") -> str | None:
-        """Read a secret without echoing it; secret input stays inside PromptKit."""
+        """Read a secret through the active client adapter without owning terminal IO."""
         reader = getattr(getattr(self, "io", None), "ask_secret", None)
-        if callable(reader):
-            return reader(prompt)
-
-        import getpass
-        label = str(prompt)
-        if label and not label.endswith((" ", ": ")):
-            label += ": "
-        value = getpass.getpass(label)
+        if not callable(reader):
+            raise RuntimeError("Secret input requires a client IO adapter")
+        value = str(reader(prompt))
         if value.strip().casefold() in {"q", "cancel"}:
             return None
         return value
