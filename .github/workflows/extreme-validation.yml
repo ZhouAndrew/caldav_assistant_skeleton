@@ -1,0 +1,143 @@
+name: extreme-validation
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/extreme-validation.yml"
+      - "scripts/acceptance_extreme_runtime_real.py"
+      - "scripts/acceptance_real_use_smoothness.py"
+      - "tests/test_extreme_frontend_runtime.py"
+
+jobs:
+  linux-extreme:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install production package and acceptance dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest "radicale==3.5.4" pexpect
+
+      - name: Repeat the complete pytest suite twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          for round in 1 2; do
+            echo "=== full pytest round $round/2 ==="
+            python -m pytest -q
+          done
+
+      - name: Hammer frontend boundary and local IPC ten times
+        shell: bash
+        run: |
+          set -euo pipefail
+          for round in $(seq 1 10); do
+            echo "=== targeted stress round $round/10 ==="
+            python -m pytest -q \
+              tests/test_extreme_frontend_runtime.py \
+              tests/test_frontend_io_boundary.py \
+              tests/test_runtime_ipc_lifecycle_completion.py \
+              tests/test_runtime_lifecycle_completion.py \
+              tests/test_presentation_renderers.py \
+              tests/test_cli_completion.py
+          done
+
+      - name: Extreme installed background lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 300s python scripts/acceptance_extreme_runtime_real.py
+
+      - name: Real Radicale path with 1000 historical Events
+        shell: bash
+        env:
+          CALDAV_ASSISTANT_REAL_USE_HISTORY_EVENTS: "1000"
+        run: |
+          set -euo pipefail
+          timeout 420s python scripts/acceptance_real_use_smoothness.py
+
+      - name: Real user path under one CPU and 768 MiB virtual memory
+        shell: bash
+        run: |
+          set -euo pipefail
+          timeout 420s python - <<'PY'
+          import os
+          import resource
+          import sys
+
+          if hasattr(os, "sched_getaffinity") and hasattr(os, "sched_setaffinity"):
+              allowed = os.sched_getaffinity(0)
+              os.sched_setaffinity(0, {min(allowed)})
+          limit = 768 * 1024 * 1024
+          resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+          os.execv(
+              sys.executable,
+              [sys.executable, "scripts/acceptance_real_use_smoothness.py"],
+          )
+          PY
+
+      - name: Repeat stale-upgrade blackhole recovery three times
+        shell: bash
+        run: |
+          set -euo pipefail
+          for round in 1 2 3; do
+            echo "=== upgrade fault-injection round $round/3 ==="
+            timeout 300s python scripts/acceptance_upgrade_stale_current_real.py
+          done
+
+      - name: Repeat sync-token and conditional-write network paths five times
+        shell: bash
+        run: |
+          set -euo pipefail
+          for round in $(seq 1 5); do
+            echo "=== network protocol round $round/5 ==="
+            timeout 180s python scripts/acceptance_sync_token_real.py
+            timeout 180s python scripts/acceptance_conditional_write_real.py
+          done
+
+      - name: Repeat real Waiting Mode and relaunch paths five times
+        shell: bash
+        run: |
+          set -euo pipefail
+          for round in $(seq 1 5); do
+            echo "=== interactive lifecycle round $round/5 ==="
+            timeout 240s python scripts/acceptance_waiting_interrupt_ready_snapshot_real.py
+            timeout 240s python scripts/acceptance_relaunch_numeric_current_real.py
+          done
+
+  windows-extreme:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install production package
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest "radicale==3.5.4"
+
+      - name: Repeat Windows-critical tests ten times
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          for ($i = 1; $i -le 10; $i++) {
+            Write-Host "=== Windows stress round $i/10 ==="
+            python -m pytest -q tests/test_windows_runtime_regressions.py tests/test_frontend_io_boundary.py tests/test_runtime_lifecycle_completion.py tests/test_presentation_renderers.py tests/test_cli_completion.py
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Extreme installed background lifecycle on Named Pipe
+        shell: pwsh
+        run: |
+          python scripts/acceptance_extreme_runtime_real.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

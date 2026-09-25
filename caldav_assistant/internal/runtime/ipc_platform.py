@@ -438,9 +438,65 @@ class WindowsNamedPipeIPCClient(_ConnectionIPCClient):
 class WindowsNamedPipeIPCServer(_ConnectionIPCServer):
     family = "AF_PIPE"
 
+    def __init__(
+        self,
+        endpoint: str,
+        *,
+        state_dir: str | Path | None = None,
+    ) -> None:
+        super().__init__(endpoint, state_dir=state_dir)
+        self._singleton_file = None
+
     @property
     def address(self) -> str:
         return rf"\\.\pipe\{self.endpoint}"
+
+    @property
+    def _lock_path(self) -> Path:
+        return self.state_dir / f"{self.endpoint}.lock"
+
+    def _acquire_singleton(self) -> None:
+        # Windows named pipes allow multiple server instances with the same name.
+        # Use a one-byte CRT file lock so only one Assistant generation may own the
+        # endpoint. The kernel releases this lock automatically if the process dies.
+        import msvcrt
+
+        stream = self._lock_path.open("a+b")
+        stream.seek(0, os.SEEK_END)
+        if stream.tell() == 0:
+            stream.write(b"\0")
+            stream.flush()
+        stream.seek(0)
+        try:
+            msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError as exc:
+            stream.close()
+            raise IPCAlreadyRunningError(
+                f"Local IPC endpoint is starting or already active: {self.address}"
+            ) from exc
+        self._singleton_file = stream
+
+    def _release_singleton(self) -> None:
+        stream, self._singleton_file = self._singleton_file, None
+        if stream is None:
+            return
+        try:
+            import msvcrt
+
+            stream.seek(0)
+            msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+        finally:
+            stream.close()
+
+    def _prepare(self) -> None:
+        self._bound = False
+        self._acquire_singleton()
+
+    def _cleanup(self) -> None:
+        self._bound = False
+        self._release_singleton()
 
 
 __all__ = [

@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
+import os
+
+import pytest
 
 from caldav_assistant.api import Activity, Task
 from caldav_assistant.api.v1.errors import UnavailableError
@@ -135,3 +138,22 @@ def test_direct_guided_start_timeout_is_caught_instead_of_escaping_repl():
     assert conversation._guided_start(SimpleNamespace()) == "console"
     assert any("console remains usable" in line.lower() for line in shown)
     assert any("no task state was changed" in line.lower() for line in shown)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows named-pipe singleton")
+def test_windows_named_pipe_server_enforces_single_process_lock(tmp_path):
+    from caldav_assistant.internal.runtime.ipc import IPCAlreadyRunningError
+    from caldav_assistant.internal.runtime.ipc_platform import WindowsNamedPipeIPCServer
+
+    first = WindowsNamedPipeIPCServer("pytest-singleton", state_dir=tmp_path)
+    second = WindowsNamedPipeIPCServer("pytest-singleton", state_dir=tmp_path)
+
+    first._prepare()
+    try:
+        with pytest.raises(IPCAlreadyRunningError):
+            second._prepare()
+    finally:
+        first._cleanup()
+
+    second._prepare()
+    second._cleanup()

@@ -45,7 +45,7 @@ class ServiceLauncher:
             "stdin": subprocess.DEVNULL,
             "stdout": log,
             "stderr": subprocess.STDOUT,
-            "close_fds": os.name != "nt",
+            "close_fds": True,
             "cwd": str(Path.home()),
         }
         if os.name == "nt":
