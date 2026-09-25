@@ -41,14 +41,22 @@ def test_frontend_has_no_direct_terminal_io_bypass():
                         f"{relative}:{node.lineno}: direct getpass.getpass()"
                     )
 
+            if isinstance(node, ast.Attribute) and node.attr in {
+                "stdin",
+                "stdout",
+                "stderr",
+            }:
+                violations.append(
+                    f"{relative}:{node.lineno}: direct stream attribute .{node.attr}"
+                )
+
             if (
-                isinstance(node, ast.Attribute)
-                and isinstance(node.value, ast.Name)
-                and node.value.id == "sys"
-                and node.attr in {"stdin", "stdout", "stderr"}
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in {"flush", "isatty"}
             ):
                 violations.append(
-                    f"{relative}:{node.lineno}: direct sys.{node.attr}"
+                    f"{relative}:{node.lineno}: direct terminal call .{node.func.attr}()"
                 )
 
             if isinstance(node, ast.Import):
