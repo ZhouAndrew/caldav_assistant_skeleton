@@ -10,6 +10,9 @@ import sys
 from .ipc import runtime_state_dir
 
 
+PRODUCTION_SERVICE_MODULE = "caldav_assistant.internal.runtime.versioned_observable_service"
+
+
 class ServiceLauncher:
     def __init__(
         self,
@@ -36,11 +39,7 @@ class ServiceLauncher:
         return os.fdopen(fd, "ab", buffering=0)
 
     def start(self) -> Any:
-        command = [
-            self.python,
-            "-m",
-            "caldav_assistant.internal.runtime.versioned_observable_service",
-        ]
+        command = [self.python, "-m", PRODUCTION_SERVICE_MODULE]
         log = self._open_log()
         kwargs: dict[str, Any] = {
             "stdin": subprocess.DEVNULL,
@@ -63,4 +62,4 @@ class ServiceLauncher:
             log.close()
 
 
-__all__ = ["ServiceLauncher"]
+__all__ = ["PRODUCTION_SERVICE_MODULE", "ServiceLauncher"]
