@@ -47,6 +47,27 @@ def _historical_event_ics(index: int, now: datetime) -> str:
     )
 
 
+def _paging_todo_ics(index: int, now: datetime) -> str:
+    due = now + timedelta(hours=4, minutes=index)
+    return "\r\n".join(
+        [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "PRODID:-//CalDAV Assistant Real Use//EN",
+            "BEGIN:VTODO",
+            f"UID:paging-task-{index:02d}",
+            f"DTSTAMP:{_stamp(now)}",
+            f"DUE:{_stamp(due)}",
+            f"SUMMARY:Paging acceptance Task {index:02d}",
+            "STATUS:NEEDS-ACTION",
+            "PRIORITY:5",
+            "END:VTODO",
+            "END:VCALENDAR",
+            "",
+        ]
+    )
+
+
 def _elapsed(started: float) -> float:
     return time.monotonic() - started
 
@@ -105,6 +126,8 @@ def main() -> int:
 
             now = datetime.now(timezone.utc)
             tasks.save_todo(_todo_ics(now))
+            for index in range(1, 13):
+                tasks.save_todo(_paging_todo_ics(index, now))
             events.save_event(_event_ics(now))
             for index in range(HISTORY_EVENTS):
                 events.save_event(_historical_event_ics(index, now))
@@ -116,7 +139,10 @@ def main() -> int:
                 event_url=str(events.url),
                 work_url=str(work.url),
             )
-            print(f"REAL-USE: seeded {HISTORY_EVENTS} historical Events + 1 upcoming Event + 1 Task")
+            print(
+                f"REAL-USE: seeded {HISTORY_EVENTS} historical Events + "
+                "1 upcoming Event + 13 Tasks"
+            )
 
             started = time.monotonic()
             child = pexpect.spawn(
@@ -176,12 +202,33 @@ def main() -> int:
                 # Consume the actual nested Task-picker title, not the identical
                 # home-menu label that may still be present in pexpect's buffer.
                 child.expect(r"Choose a Task to work on")
+                child.expect(r"Page 1/2")
+                child.expect(r"n/next\. Next page")
 
-                # Exercise the normal PromptKit convenience path too: search, wait
-                # for the filtered menu to render again, then choose by number.
-                child.sendline("/Latency")
+                # Human-path regression: a bare Enter must be neutral rather than
+                # accusing the user of an invalid choice.
+                child.sendline("")
+                blank_result = child.expect(
+                    [
+                        r"Invalid choice",
+                        r"Choose a Task to work on",
+                    ]
+                )
+                if blank_result == 0:
+                    raise AssertionError(
+                        "bare Enter in Task picker was still treated as Invalid choice"
+                    )
+                child.expect(r"Page 1/2")
+                child.expect(r"n/next\. Next page")
+                print("PASS: bare Enter keeps the Task picker usable without an error")
+
+                # Paging controls must be visible without opening ?/help, and a Task
+                # beyond the first ten entries must be directly selectable.
+                child.sendline("n")
                 child.expect(r"Choose a Task to work on")
-                child.sendline("1")
+                child.expect(r"Page 2/2")
+                child.expect(r"p/prev\. Previous page")
+                child.sendline("11")
 
                 index = child.expect(
                     [
