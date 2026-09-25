@@ -111,17 +111,9 @@ def _events(app: Any, after: int) -> list[dict[str, Any]]:
 
 
 def _bell(app: Any) -> None:
-    io = getattr(app, "io", None)
-    stream = getattr(io, "stdout", None)
-    if stream is not None and callable(getattr(stream, "write", None)):
-        stream.write("\a")
-        flush = getattr(stream, "flush", None)
-        if callable(flush):
-            flush()
-        return
-    write = getattr(io, "write", None)
-    if callable(write):
-        write("\a")
+    bell = getattr(getattr(app, "io", None), "bell", None)
+    if callable(bell):
+        bell()
 
 
 def _show(app: Any, value: Any = "") -> None:
