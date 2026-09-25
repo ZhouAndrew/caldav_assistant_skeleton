@@ -140,6 +140,9 @@ class FakeIO:
     def write(self, value=""):
         self.out.append(str(value))
 
+    def bell(self):
+        self.stdout.write("\a")
+
     def read(self, prompt=""):
         return next(self.choices)
 
