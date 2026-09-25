@@ -31,30 +31,55 @@ class TextRenderer:
         self.max_width = int(max_width) if max_width is not None else None
         self.column_gap = max(1, int(column_gap))
 
+    @staticmethod
+    def _pad_display(text: str, width: int) -> str:
+        """Pad by terminal-cell width rather than Python character count."""
+        return text + (" " * max(0, int(width) - _display_width(text)))
+
+    def _grid_for_columns(self, cells: list[str], columns: int) -> tuple[list[int], int]:
+        """Return per-column widths and total rendered width for row-major layout."""
+        widths = [0] * columns
+        for index, cell in enumerate(cells):
+            column = index % columns
+            widths[column] = max(widths[column], _display_width(cell))
+        total = sum(widths) + self.column_gap * (columns - 1)
+        return widths, total
+
     def _render_choice_lines(self, view: MenuView) -> list[str]:
         cells = [f"{item.key}. {item.label}" for item in view.items]
         width = self.max_width
         if len(cells) < 4 or width is None or width < 50:
             return cells
 
+        # Pick the widest *aligned* grid that fits. This deliberately differs from
+        # greedy line packing: every row uses the same column starts, so mixed short
+        # and long labels remain visually scannable. Long menus may therefore use
+        # fewer columns than a greedy packer would.
+        max_columns = min(len(cells), 8)
+        chosen_columns = 1
+        chosen_widths = [_display_width(cell) for cell in cells[:1]]
+        for columns in range(max_columns, 1, -1):
+            widths, total = self._grid_for_columns(cells, columns)
+            if total <= width:
+                chosen_columns = columns
+                chosen_widths = widths
+                break
+
+        if chosen_columns == 1:
+            return cells
+
         gap = " " * self.column_gap
         lines: list[str] = []
-        current: list[str] = []
-        current_width = 0
-
-        for cell in cells:
-            cell_width = _display_width(cell)
-            extra = cell_width if not current else self.column_gap + cell_width
-            if current and current_width + extra > width:
-                lines.append(gap.join(current))
-                current = [cell]
-                current_width = cell_width
-                continue
-            current.append(cell)
-            current_width += extra
-
-        if current:
-            lines.append(gap.join(current))
+        for row_start in range(0, len(cells), chosen_columns):
+            row = cells[row_start : row_start + chosen_columns]
+            rendered: list[str] = []
+            for column, cell in enumerate(row):
+                is_last = column == len(row) - 1
+                if is_last:
+                    rendered.append(cell)
+                else:
+                    rendered.append(self._pad_display(cell, chosen_widths[column]))
+            lines.append(gap.join(rendered))
         return lines
 
     def render_lines(self, view: MenuView) -> list[str]:
