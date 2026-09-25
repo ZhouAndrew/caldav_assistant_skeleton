@@ -5,7 +5,8 @@
 | 模块 | 允许导入 / 调用 | 对外提供 | 严禁 |
 |---|---|---|---|
 | `runtime` | bootstrap、IPC adapter、service lifecycle | `RuntimeClient`, `AssistantService` | 业务逻辑、直接改 Task |
-| `cli` | `Remote*API Proxy`, `RuntimeClient`, `CommandService`, `PromptKit`, localization | `run_cli()` | 构造 TaskService/CalDAV client、CalDAV XML、SQLite 表、OS API |
+| `cli` | `Remote*API Proxy`, `RuntimeClient`, `CommandService`, `PromptKit`, localization | `run_cli()` | 构造 TaskService/CalDAV client、CalDAV XML、SQLite 表、直接终端 OS/I/O API |
+| `clients.terminal` | stdlib terminal/TTY APIs + presentation renderer | `StdConsoleIO` | Task/Event 业务、CalDAV、SQLite、IPC |
 | `caldav.adapter` | 仅 domain types / stdlib；具体实现可导入第三方 CalDAV 库 | `CalDAVAdapter` | Task 业务规则 |
 | `caldav.sync` | `CalDAVAdapter`, cache repository | `SyncEngine` | 直接给 CLI 输出 |
 | `tasks` | `CalDAVAdapter`, Activity, Undo, Temporal types | `TaskService` | XML/HTTP、直接 SQLite |
@@ -14,7 +15,7 @@
 | `reminders` | Task/Event reads, storage state, NotificationService | `ReminderEngine`, `ReminderService` | OS 通知 API、另写 CalDAV client |
 | `notifications` | `NotificationAdapter` | `NotificationService` | 业务 Task 状态 |
 | `temporal` | stdlib + locale/config | `TemporalParser`, `TemporalService` | CLI input()/print() |
-| `prompts` | TemporalService, Menu, localization, query services | `PromptKit`, `Menu` | 业务更新、XML、SQLite |
+| `prompts` | TemporalService, Menu, localization, query services | `PromptKit`, `Menu` | 业务更新、XML、SQLite、print/input/getpass/stdin/stdout |
 | `commands` | registry + service facade | `CommandRegistry`, `CommandService` | 巨大 if/elif dispatcher |
 | `extensions` | CommandRegistry, hooks, API context | `ExtensionManager`, `HookRegistry` | 一个插件异常拖垮主程序 |
 | `wordpress` | WordPressAdapter, OutboxRepository, Activity | `WordPressService` | 阻塞 Task complete 成功 |
@@ -77,3 +78,29 @@ CLI / Easy API / CLI Extension
  -> RuntimeDispatcher (explicit allow-list)
  -> SAME TaskService/EventService/etc. owned by background
 ```
+
+
+## 前端 I/O 硬边界
+
+所有人机交互先表达为通用交互积木，再由具体 Client Adapter 落地。业务、菜单和会话代码不得直接访问终端实现。
+
+```text
+Conversation / Navigation / CRUD
+        -> PromptKit / Menu / Presentation
+        -> Client IO
+        -> Terminal Adapter
+        -> stdin / stdout / readline / msvcrt / select / TTY control
+```
+
+Terminal Adapter 统一拥有：
+
+- 普通输入输出：`read()`, `write()`, `error()`
+- 隐藏输入：`ask_secret()`
+- 菜单渲染：`render_menu()`
+- 实时刷新：`update_line()`, `clear_line()`
+- 非阻塞输入：`poll_input()`
+- 终端能力检测：`display_width()`, `supports_readline_completion()`
+
+`PromptKit` / `Menu` 提供类似常用对话框库的固定交互积木：`show`, `ask_text`, `ask_secret`, `ask_date`, `ask_time`, `ask_datetime`, `ask_duration`, `ask_yes_no`, `confirm`, `confirm_danger`, `choose`, `choose_many`, `choose_task`, `choose_event`。
+
+终端菜单由 Terminal Adapter 根据实际宽度布局：空间足够时按编号顺序横向扩展，多行自动换行；窄终端、重定向输出或长项目自动退回稳定的纵向布局。业务代码不得自行拼接列宽或 ANSI/CR 控制字符。
