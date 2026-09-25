@@ -70,6 +70,7 @@ def main() -> int:
         home.mkdir()
         env = os.environ.copy()
         env["HOME"] = str(home)
+        env["USERPROFILE"] = str(home)
         env["PYTHONUNBUFFERED"] = "1"
         runtime_dir = home / ".caldav-assistant" / "runtime"
         socket_path = runtime_dir / "caldav-assistant-v1.sock"
@@ -96,7 +97,7 @@ def main() -> int:
         if status.returncode != 0:
             raise AssertionError(status.stdout)
         first_pid = _pid(status.stdout)
-        if not socket_path.exists():
+        if os.name != "nt" and not socket_path.exists():
             raise AssertionError("production socket missing after concurrent startup")
         print(f"PASS: {START_RACERS} concurrent starts converged on PID {first_pid}")
 
@@ -125,7 +126,18 @@ def main() -> int:
             previous = current
         print(f"PASS: {RESTARTS} repeated restarts produced clean new generations")
 
-        os.kill(previous, signal.SIGKILL)
+        if os.name == "nt":
+            killed = subprocess.run(
+                ["taskkill", "/F", "/PID", str(previous)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                check=False,
+            )
+            if killed.returncode != 0:
+                raise AssertionError(f"taskkill failed: {killed.stdout}")
+        else:
+            os.kill(previous, signal.SIGKILL)
         _wait_dead(previous)
         # Deliberately do not delete socket/lock files. The production launcher must
         # distinguish a stale endpoint from a live generation and recover itself.
@@ -148,11 +160,12 @@ def main() -> int:
         if stop.returncode != 0:
             raise AssertionError(stop.stdout)
         _wait_dead(recovered_pid)
-        deadline = time.monotonic() + 3.0
-        while socket_path.exists() and time.monotonic() < deadline:
-            time.sleep(0.05)
-        if socket_path.exists():
-            raise AssertionError("socket remained after graceful stop")
+        if os.name != "nt":
+            deadline = time.monotonic() + 3.0
+            while socket_path.exists() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            if socket_path.exists():
+                raise AssertionError("socket remained after graceful stop")
 
         log_path = runtime_dir / "service.log"
         if log_path.exists():
