@@ -1,6 +1,7 @@
 from caldav_assistant.internal.cli.io import StdConsoleIO as LegacyStdConsoleIO
 from caldav_assistant.internal.clients.terminal import StdConsoleIO
 from caldav_assistant.internal.presentation import HtmlRenderer, JsonRenderer, TextRenderer
+from caldav_assistant.internal.presentation.renderers import _display_width
 from caldav_assistant.internal.prompts import Choice, Menu
 
 
@@ -132,3 +133,35 @@ def test_real_terminal_adapter_owns_width_aware_menu_rendering():
     visible = output.getvalue()
     assert "1. One   2. Two" in visible
     assert "3. Three   4. Four" in visible
+
+
+def test_horizontal_menu_uses_stable_aligned_column_starts_with_mixed_lengths():
+    menu = Menu(FakeIO())
+    view = menu.presentation(
+        "Tasks",
+        [
+            "Short",
+            "A much longer second item",
+            "Third",
+            "A very long first-column item on row two",
+            "Mid",
+            "Sixth",
+        ],
+        page_size=10,
+    )
+
+    lines = TextRenderer(max_width=120).render_lines(view)
+    choice_lines = [line for line in lines if ". " in line and not line.startswith("0.")]
+
+    assert len(choice_lines) == 2
+    first, second = choice_lines
+
+    # Row-major order stays natural, but column 2 and 3 begin at exactly the same
+    # display-cell positions on every row, even though row-1/row-2 labels differ.
+    first_col2 = _display_width(first[: first.index("2. ")])
+    second_col2 = _display_width(second[: second.index("5. ")])
+    first_col3 = _display_width(first[: first.index("3. ")])
+    second_col3 = _display_width(second[: second.index("6. ")])
+
+    assert first_col2 == second_col2
+    assert first_col3 == second_col3
