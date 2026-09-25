@@ -96,7 +96,7 @@ def main() -> int:
                         f"(pid={proc.pid})"
                     ) from exc
                 race_outputs.append((proc.returncode, out))
-        finally:
+        except BaseException:
             # Never let a failed stress probe leave launcher processes or the winning
             # detached daemon holding test-home handles. This preserves the original
             # assertion instead of masking it with Windows temp-directory cleanup.
@@ -113,6 +113,7 @@ def main() -> int:
                 _run(executable, env, "background", "stop", timeout=5)
             except Exception:
                 pass
+            raise
         failed = [(code, out) for code, out in race_outputs if code != 0]
         if failed:
             raise AssertionError(f"concurrent start failures: {failed[:3]!r}")
