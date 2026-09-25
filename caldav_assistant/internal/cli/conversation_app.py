@@ -11,9 +11,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 import math
-import os
-import select
-import sys
 from threading import Thread
 from time import monotonic, sleep
 from typing import Any, Callable, Sequence
@@ -787,66 +784,27 @@ def _live_line(target: legacy.MonitorTarget, started: datetime | None, status: d
     )
 
 
-def _stdout_tty(app: Any) -> bool:
-    stream = getattr(getattr(app, "io", None), "stdout", None)
-    isatty = getattr(stream, "isatty", None)
-    return bool(callable(isatty) and isatty())
-
-
 def _live_update(app: Any, text: str, previous_width: int) -> int:
-    stream = getattr(getattr(app, "io", None), "stdout", None)
-    if _stdout_tty(app) and stream is not None and callable(getattr(stream, "write", None)):
-        padded = text.ljust(previous_width)
-        stream.write("\r" + padded)
-        flush = getattr(stream, "flush", None)
-        if callable(flush):
-            flush()
-        return max(previous_width, len(text))
+    update = getattr(getattr(app, "io", None), "update_line", None)
+    if callable(update):
+        return int(update(text, previous_width))
     if previous_width == 0:
         _show(app, text)
     return max(previous_width, len(text))
 
 
 def _clear_live(app: Any, previous_width: int) -> None:
-    if not previous_width or not _stdout_tty(app):
-        return
-    stream = getattr(getattr(app, "io", None), "stdout", None)
-    if stream is not None and callable(getattr(stream, "write", None)):
-        stream.write("\r" + (" " * previous_width) + "\r")
-        flush = getattr(stream, "flush", None)
-        if callable(flush):
-            flush()
+    clear = getattr(getattr(app, "io", None), "clear_line", None)
+    if callable(clear):
+        clear(previous_width)
 
 
 def _poll_wait_input(app: Any) -> str | None:
-    """Poll without stopping countdown refresh.
-
-    POSIX terminals/pipes accept a full command followed by Enter. Windows console
-    accepts the displayed single-key controls and `c` opens the normal command line.
-    """
-    if os.name == "nt":
-        try:
-            import msvcrt
-        except ImportError:
-            return None
-        if not msvcrt.kbhit():
-            return None
-        char = msvcrt.getwch()
-        if char in {"\r", "\n"}:
-            return ""
-        return char
-
-    stream = sys.stdin
-    try:
-        ready, _, _ = select.select([stream], [], [], 0)
-    except (OSError, ValueError):
+    """Poll through the client adapter without owning terminal implementation."""
+    poll = getattr(getattr(app, "io", None), "poll_input", None)
+    if not callable(poll):
         return None
-    if not ready:
-        return None
-    line = stream.readline()
-    if line == "":
-        return "q"
-    return line.rstrip("\r\n")
+    return poll()
 
 
 def _wait_help(app: Any) -> None:
@@ -856,7 +814,7 @@ def _wait_help(app: Any) -> None:
     _show(app, "  c  open the normal console")
     _show(app, "  q  leave this client; Task/background Assistant keep running")
     _show(app, "  ?  show these controls")
-    if os.name != "nt":
+    if bool(getattr(getattr(app, "io", None), "supports_line_polling", False)):
         _show(app, "  You may also type any normal command and press Enter.")
 
 
