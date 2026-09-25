@@ -428,3 +428,42 @@ def test_slow_next_due_never_blocks_scheduler_thread():
         assert waits and waits[0] > 0
     finally:
         release_next_due.set()
+
+
+def test_startup_loser_process_can_attach_to_another_concurrent_winner():
+    state = {"ping_calls": 0}
+
+    class IPC:
+        def call(self, method, payload):
+            if method == "runtime.ping":
+                state["ping_calls"] += 1
+                # Initial probe + launch-loop probe fail; then the other process wins.
+                if state["ping_calls"] < 3:
+                    raise IPCUnavailableError("not ready yet")
+                return {"status": "ok", "pid": 4242}
+            if method == "runtime.status":
+                return {
+                    "status": "running",
+                    "pid": 4242,
+                    "started_at": None,
+                    "maintenance_alive": True,
+                }
+            raise AssertionError(method)
+
+    class LosingProcess:
+        def poll(self):
+            return 0
+
+    client = RuntimeClient(
+        IPC(),
+        lambda: LosingProcess(),
+        startup_timeout=0.5,
+        request_timeout=0.2,
+        poll_interval=0.01,
+    )
+
+    status = client.ensure_running()
+
+    assert status["status"] == "running"
+    assert status["pid"] == 4242
+    assert state["ping_calls"] >= 3
