@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 import math
+import sys
 from threading import Thread
 from time import monotonic, sleep
 from typing import Any, Callable, Sequence
