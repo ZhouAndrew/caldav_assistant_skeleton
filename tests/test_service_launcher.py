@@ -1,4 +1,4 @@
-from caldav_assistant.internal.runtime.service_launcher import ServiceLauncher
+from caldav_assistant.internal.runtime.service_launcher import (\n    PRODUCTION_SERVICE_MODULE,\n    ServiceLauncher,\n)
 
 def test_launcher_uses_current_python_module_entry_without_shell(tmp_path):
     calls=[]
@@ -33,3 +33,15 @@ def test_launcher_runtime_log_is_private_on_posix(tmp_path):
     )
     launcher.start()
     assert stat.S_IMODE(launcher.log_path.stat().st_mode) & 0o077 == 0
+
+
+def test_packaged_service_entrypoint_matches_shared_production_module():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    pyproject = (root / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert (
+        f'caldav-assistant-service = "{PRODUCTION_SERVICE_MODULE}:main"'
+        in pyproject
+    )
