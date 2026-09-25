@@ -65,7 +65,7 @@ def main() -> int:
     if not executable:
         raise RuntimeError("installed caldav-assistant is not on PATH")
 
-    with tempfile.TemporaryDirectory(prefix="caldav-extreme-runtime-") as raw:
+    with tempfile.TemporaryDirectory(\n        prefix="caldav-extreme-runtime-",\n        ignore_cleanup_errors=True,\n    ) as raw:
         home = Path(raw) / "home"
         home.mkdir()
         env = os.environ.copy()
@@ -86,9 +86,33 @@ def main() -> int:
             for _ in range(START_RACERS)
         ]
         race_outputs = []
-        for proc in racers:
-            out, _ = proc.communicate(timeout=20)
-            race_outputs.append((proc.returncode, out))
+        try:
+            for index, proc in enumerate(racers, start=1):
+                try:
+                    out, _ = proc.communicate(timeout=20)
+                except subprocess.TimeoutExpired as exc:
+                    raise AssertionError(
+                        f"concurrent background start #{index} did not exit within 20s "
+                        f"(pid={proc.pid})"
+                    ) from exc
+                race_outputs.append((proc.returncode, out))
+        finally:
+            # Never let a failed stress probe leave launcher processes or the winning
+            # detached daemon holding test-home handles. This preserves the original
+            # assertion instead of masking it with Windows temp-directory cleanup.
+            for proc in racers:
+                if proc.poll() is None:
+                    proc.terminate()
+            for proc in racers:
+                if proc.poll() is None:
+                    try:
+                        proc.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+            try:
+                _run(executable, env, "background", "stop", timeout=5)
+            except Exception:
+                pass
         failed = [(code, out) for code, out in race_outputs if code != 0]
         if failed:
             raise AssertionError(f"concurrent start failures: {failed[:3]!r}")
