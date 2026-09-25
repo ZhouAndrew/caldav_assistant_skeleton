@@ -16,6 +16,7 @@ def test_launcher_uses_current_python_module_entry_without_shell(tmp_path):
         "caldav_assistant.internal.runtime.versioned_observable_service",
     ]
     assert "shell" not in kwargs
+    assert kwargs["close_fds"] is True
 
 
 def test_launcher_runtime_log_is_private_on_posix(tmp_path):
