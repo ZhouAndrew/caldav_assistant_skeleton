@@ -414,7 +414,7 @@ class StdConsoleIO:
         old = termios.tcgetattr(fd)
         try:
             tty.setraw(fd)
-            char = self.stdin.read(1)
+            char = os.read(fd, 1).decode(errors="ignore")
             if char in {"\r", "\n"}:
                 return "enter"
             if char != "\x1b":
@@ -430,10 +430,10 @@ class StdConsoleIO:
 
             sequence = ""
             for _ in range(4):
-                ready, _, _ = select.select([self.stdin], [], [], 0.03)
+                ready, _, _ = select.select([fd], [], [], 0.03)
                 if not ready:
                     break
-                sequence += self.stdin.read(1)
+                sequence += os.read(fd, 1).decode(errors="ignore")
                 if sequence.endswith("~") or sequence in {"[A", "[B", "[C", "[D"}:
                     break
             return {
