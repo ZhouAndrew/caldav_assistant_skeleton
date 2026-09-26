@@ -69,6 +69,27 @@ def _paging_todo_ics(index: int, now: datetime) -> str:
     )
 
 
+def _overdue_todo_ics(now: datetime) -> str:
+    due = now - timedelta(days=1)
+    return "\r\n".join(
+        [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "PRODID:-//CalDAV Assistant Real Use//EN",
+            "BEGIN:VTODO",
+            "UID:overdue-acceptance-task",
+            f"DTSTAMP:{_stamp(now)}",
+            f"DUE:{_stamp(due)}",
+            "SUMMARY:Overdue acceptance Task",
+            "STATUS:NEEDS-ACTION",
+            "PRIORITY:5",
+            "END:VTODO",
+            "END:VCALENDAR",
+            "",
+        ]
+    )
+
+
 def _elapsed(started: float) -> float:
     return time.monotonic() - started
 
@@ -181,6 +202,7 @@ def main() -> int:
 
             now = datetime.now(timezone.utc)
             tasks.save_todo(_todo_ics(now))
+            tasks.save_todo(_overdue_todo_ics(now))
             for index in range(1, 13):
                 tasks.save_todo(_paging_todo_ics(index, now))
             events.save_event(_event_ics(now))
@@ -196,7 +218,7 @@ def main() -> int:
             )
             print(
                 f"REAL-USE: seeded {HISTORY_EVENTS} historical Events + "
-                "1 upcoming Event + 13 Tasks"
+                "1 upcoming Event + 14 Tasks (including 1 overdue)"
             )
 
             started = time.monotonic()
@@ -265,16 +287,30 @@ def main() -> int:
                 # separate expect() is racy because alternate-screen redraw may
                 # deliver the title and footer in one read, especially on one CPU.
                 today = datetime.now().astimezone().date()
-                _expect_task_picker_frame(
+                frame = _expect_task_picker_frame(
                     child,
                     today,
                     timeout=max(0.1, verify_deadline - time.monotonic()),
                 )
-                print("PASS: Task Picker defaults to today's date")
+                if "OVERDUE · Overdue acceptance Task" not in frame:
+                    raise AssertionError(
+                        "today Task Picker did not surface the real overdue Task"
+                    )
+                if "1 overdue" not in frame:
+                    raise AssertionError(
+                        "today Task Picker did not report its overdue count"
+                    )
+                print(
+                    "PASS: Task Picker defaults to today and surfaces overdue backlog"
+                )
 
                 child.send("\x1b[C")
                 tomorrow = today + timedelta(days=1)
-                _expect_task_picker_frame(child, tomorrow)
+                frame = _expect_task_picker_frame(child, tomorrow)
+                if "OVERDUE · Overdue acceptance Task" in frame:
+                    raise AssertionError(
+                        "overdue backlog leaked into a non-today date filter"
+                    )
                 child.send("\x1b[D")
                 _expect_task_picker_frame(child, today)
                 print("PASS: Task Picker changes date with left/right arrow keys")
