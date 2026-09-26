@@ -224,7 +224,7 @@ def main() -> int:
                 )
                 entered = child.expect(
                     [
-                        r"Task Picker: .*i input date",
+                        r"Task Picker: .*i input date|Choose a Task to work on",
                         r"What do you want to do\?",
                     ]
                 )
@@ -236,7 +236,9 @@ def main() -> int:
                         )
                     continue
 
-                child.expect(r"Choose a Task to work on")
+                # Alternate-screen redraw can replace the title before pexpect
+                # consumes it. The date-filtered Task count is the stable state
+                # marker that proves the composite picker is actually active.
                 today = datetime.now().astimezone().date()
                 child.expect(rf"Tasks · {today.isoformat()} · \d+")
                 print("PASS: Task Picker defaults to today's date")
@@ -252,7 +254,6 @@ def main() -> int:
                 child.send("i")
                 child.expect(r"Task date \[[0-9-]+\]:")
                 child.sendline(target_date.isoformat())
-                child.expect(r"Choose a Task to work on")
                 child.expect(rf"Tasks · {target_date.isoformat()} · \d+")
                 child.expect(r"Paging acceptance Task 01")
 
