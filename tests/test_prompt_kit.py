@@ -1,4 +1,9 @@
-from datetime import date, datetime, time, timedelta\nfrom io import StringIO\n\nfrom caldav_assistant.internal.clients.terminal import StdConsoleIO\nfrom caldav_assistant.internal.prompts import Menu, PromptKit\n
+from datetime import date, datetime, time, timedelta
+from io import StringIO
+
+from caldav_assistant.internal.clients.terminal import StdConsoleIO
+from caldav_assistant.internal.prompts import Menu, PromptKit
+
 
 class FakeIO:
     def __init__(self, *answers):
