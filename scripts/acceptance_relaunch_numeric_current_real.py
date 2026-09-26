@@ -16,7 +16,7 @@ services directly for the lifecycle under test.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import os
 import shutil
@@ -197,11 +197,16 @@ def main() -> int:
             first.sendline("1")
             _expect(
                 first,
-                "Choose by number; type /keyword to search",
-                "primary action entered Task picker",
+                "Task Picker: ←/→ date",
+                "primary action entered shared Task Picker",
             )
-            _expect(first, "Choose a Task to work on", "Task chooser shown")
-            first.sendline("1")
+            _expect(first, "Choose a Task to work on", "Task Picker shown")
+            target_date = (now + timedelta(hours=2)).date()
+            first.send("i")
+            first.expect(r"Task date \[[0-9-]+\]:")
+            first.sendline(target_date.isoformat())
+            _expect(first, "English writing acceptance", "seeded Task visible on selected date")
+            first.send("\r")
             _expect(first, "How long do you want to work", "Task selected")
             first.sendline("7")
             _expect(first, "Planned end: not set", "open-ended work period selected")

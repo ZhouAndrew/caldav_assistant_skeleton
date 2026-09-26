@@ -135,33 +135,43 @@ def test_real_terminal_adapter_owns_width_aware_menu_rendering():
     assert "3. Three   4. Four" in visible
 
 
-def test_horizontal_menu_uses_stable_aligned_column_starts_with_mixed_lengths():
+def test_horizontal_menu_orders_top_to_bottom_then_left_to_right():
     menu = Menu(FakeIO())
     view = menu.presentation(
         "Tasks",
-        [
-            "Short",
-            "A much longer second item",
-            "Third",
-            "A very long first-column item on row two",
-            "Mid",
-            "Sixth",
-        ],
-        page_size=10,
+        [f"Item {index}" for index in range(1, 11)],
+        page_size=20,
     )
 
-    lines = TextRenderer(max_width=90).render_lines(view)
+    # 50 columns is the narrowest width that enables the horizontal grid. With
+    # these short labels it yields four columns and three rows.
+    lines = TextRenderer(max_width=50).render_lines(view)
     choice_lines = [line for line in lines if ". " in line and not line.startswith("0.")]
 
-    assert len(choice_lines) == 2
-    first, second = choice_lines
+    assert len(choice_lines) == 3
 
-    # Row-major order stays natural, but column 2 and 3 begin at exactly the same
-    # display-cell positions on every row, even though row-1/row-2 labels differ.
-    first_col2 = _display_width(first[: first.index("2. ")])
-    second_col2 = _display_width(second[: second.index("5. ")])
-    first_col3 = _display_width(first[: first.index("3. ")])
-    second_col3 = _display_width(second[: second.index("6. ")])
+    # Column-major order: fill downward first, then continue in the next column.
+    assert "1. Item 1" in choice_lines[0]
+    assert "4. Item 4" in choice_lines[0]
+    assert "7. Item 7" in choice_lines[0]
+    assert "10. Item 10" in choice_lines[0]
 
-    assert first_col2 == second_col2
-    assert first_col3 == second_col3
+    assert "2. Item 2" in choice_lines[1]
+    assert "5. Item 5" in choice_lines[1]
+    assert "8. Item 8" in choice_lines[1]
+
+    assert "3. Item 3" in choice_lines[2]
+    assert "6. Item 6" in choice_lines[2]
+    assert "9. Item 9" in choice_lines[2]
+
+    # Shared columns begin at exactly the same display-cell position on every row.
+    starts_col2 = [
+        _display_width(line[: line.index(f"{number}. ")])
+        for line, number in zip(choice_lines, (4, 5, 6))
+    ]
+    starts_col3 = [
+        _display_width(line[: line.index(f"{number}. ")])
+        for line, number in zip(choice_lines, (7, 8, 9))
+    ]
+    assert len(set(starts_col2)) == 1
+    assert len(set(starts_col3)) == 1

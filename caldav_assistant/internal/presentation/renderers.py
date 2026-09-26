@@ -21,8 +21,9 @@ def _display_width(text: str) -> int:
 class TextRenderer:
     """Plain-text renderer used by terminal-like clients.
 
-    max_width is optional. When supplied, short menu choices are packed
-    left-to-right onto the same line while preserving numeric order. Long choices,
+    max_width is optional. When supplied, short menu choices are arranged in an
+    aligned column-major grid: numbering runs top-to-bottom first, then left-to-right.
+    Long choices,
     narrow terminals, redirected output, and clients that do not provide a width
     naturally keep the historical one-item-per-line rendering.
     """
@@ -36,14 +37,20 @@ class TextRenderer:
         """Pad by terminal-cell width rather than Python character count."""
         return text + (" " * max(0, int(width) - _display_width(text)))
 
-    def _grid_for_columns(self, cells: list[str], columns: int) -> tuple[list[int], int]:
-        """Return per-column widths and total rendered width for row-major layout."""
-        widths = [0] * columns
+    def _grid_for_columns(
+        self,
+        cells: list[str],
+        columns: int,
+    ) -> tuple[list[int], int, int]:
+        """Return widths, total width, and row count for column-major layout."""
+        rows = (len(cells) + columns - 1) // columns
+        actual_columns = (len(cells) + rows - 1) // rows
+        widths = [0] * actual_columns
         for index, cell in enumerate(cells):
-            column = index % columns
+            column = index // rows
             widths[column] = max(widths[column], _display_width(cell))
-        total = sum(widths) + self.column_gap * (columns - 1)
-        return widths, total
+        total = sum(widths) + self.column_gap * (actual_columns - 1)
+        return widths, total, rows
 
     def _render_choice_lines(self, view: MenuView) -> list[str]:
         cells = [f"{item.key}. {item.label}" for item in view.items]
@@ -57,11 +64,13 @@ class TextRenderer:
         # fewer columns than a greedy packer would.
         max_columns = min(len(cells), 8)
         chosen_columns = 1
+        chosen_rows = len(cells)
         chosen_widths = [_display_width(cell) for cell in cells[:1]]
         for columns in range(max_columns, 1, -1):
-            widths, total = self._grid_for_columns(cells, columns)
+            widths, total, rows = self._grid_for_columns(cells, columns)
             if total <= width:
-                chosen_columns = columns
+                chosen_columns = len(widths)
+                chosen_rows = rows
                 chosen_widths = widths
                 break
 
@@ -70,16 +79,24 @@ class TextRenderer:
 
         gap = " " * self.column_gap
         lines: list[str] = []
-        for row_start in range(0, len(cells), chosen_columns):
-            row = cells[row_start : row_start + chosen_columns]
+        for row in range(chosen_rows):
             rendered: list[str] = []
-            for column, cell in enumerate(row):
-                is_last = column == len(row) - 1
+            present_columns: list[int] = []
+            for column in range(chosen_columns):
+                index = column * chosen_rows + row
+                if index >= len(cells):
+                    continue
+                present_columns.append(column)
+                rendered.append(cells[index])
+
+            aligned: list[str] = []
+            for offset, (column, cell) in enumerate(zip(present_columns, rendered)):
+                is_last = offset == len(rendered) - 1
                 if is_last:
-                    rendered.append(cell)
+                    aligned.append(cell)
                 else:
-                    rendered.append(self._pad_display(cell, chosen_widths[column]))
-            lines.append(gap.join(rendered))
+                    aligned.append(self._pad_display(cell, chosen_widths[column]))
+            lines.append(gap.join(aligned))
         return lines
 
     def render_lines(self, view: MenuView) -> list[str]:

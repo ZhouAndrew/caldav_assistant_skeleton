@@ -258,6 +258,11 @@ def test_unverified_guided_start_chooses_before_retry_and_uses_refreshed_task(mo
             events.append(("choose", title, tuple(items)))
             return tuple(items)[0]
 
+        def choose_task(self, title=None, items=None, **kwargs):
+            values = tuple(items or ())
+            events.append(("choose", title or "Choose task", values))
+            return values[0] if values else None
+
         def show(self, value):
             events.append(("show", str(value)))
 

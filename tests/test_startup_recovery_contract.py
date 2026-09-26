@@ -220,7 +220,9 @@ def test_guided_start_reuses_snapshot_tasks_and_known_current(monkeypatch):
             return items[0]
 
         def choose_task(self, **options):
-            raise AssertionError("must not perform a second tasks.list")
+            items = list(options.get("items") or ())
+            chosen.extend(items)
+            return items[0] if items else None
 
         def show(self, value):
             return None

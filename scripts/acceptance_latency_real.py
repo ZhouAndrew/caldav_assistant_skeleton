@@ -294,15 +294,13 @@ def main() -> int:
             child.sendline("1")
             _expect(
                 child,
-                "Choose by number; type /keyword to search",
-                "Enter -> 1 entered Task selection without another live Task read",
+                "Task Picker: ←/→ date",
+                "Enter -> 1 entered shared Task Picker without another live Task read",
             )
-            _expect(child, "Choose a Task to work on", "Task chooser shown")
-            # ``0`` in the nested Task chooser means Back, so it returns to the
-            # already-open guided menu.  Exit that parent menu explicitly before
-            # opening a second visit; otherwise an empty line is merely another menu
-            # answer and no fresh snapshot should be expected.
-            child.sendline("0")
+            _expect(child, "Choose a Task to work on", "Task Picker shown")
+            # q exits the key-driven Task Picker without leaving a cooked-mode
+            # newline behind for the parent guided menu.
+            child.send("q")
             _expect(
                 child,
                 r"What do you want to do\?",

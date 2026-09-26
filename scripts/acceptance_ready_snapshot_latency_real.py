@@ -13,7 +13,7 @@ proves the contract that matters after the startup redesign:
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import os
 import shutil
@@ -247,7 +247,7 @@ def main() -> int:
                 child.timeout = min(15.0, remaining)
                 entered = child.expect(
                     [
-                        "Choose by number; type /keyword to search",
+                        "Task Picker: ←/→ date",
                         r"What do you want to do\?",
                     ]
                 )
@@ -260,7 +260,12 @@ def main() -> int:
                     continue
 
                 child.expect("Choose a Task to work on")
-                child.sendline("1")
+                target_date = (now + timedelta(hours=2)).date()
+                child.send("i")
+                child.expect(r"Task date \[[0-9-]+\]:")
+                child.sendline(target_date.isoformat())
+                child.expect("Latency acceptance Task")
+                child.send("\r")
                 index = child.expect(
                     [
                         "How long do you want to work",

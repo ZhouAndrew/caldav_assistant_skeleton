@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -38,6 +39,20 @@ def _settings_for_home(home: Path) -> SettingsService:
 def _expect(child: pexpect.spawn, pattern: str, *, label: str) -> None:
     child.expect(pattern)
     print(f"PASS: {label}")
+
+
+def _expect_menu_snapshot(
+    child: pexpect.spawn,
+    checks: tuple[tuple[str, str], ...],
+) -> str:
+    """Read one rendered menu to its prompt and verify items regardless of columns."""
+    child.expect(r"> ")
+    text = child.before
+    for pattern, label in checks:
+        if re.search(pattern, text) is None:
+            raise AssertionError(f"{label} missing from menu snapshot:\n{text}")
+        print(f"PASS: {label}")
+    return text
 
 
 def main() -> int:
@@ -71,29 +86,36 @@ def main() -> int:
             )
 
             _expect(child, "Settings", label="installed Settings menu opened")
-            _expect(child, "Notifications", label="Notifications category is visible")
-            _expect(child, "Agenda", label="Agenda settings are reachable from the root")
-            _expect(child, "Developer", label="Developer tools are reachable from the root")
+            _expect_menu_snapshot(
+                child,
+                (
+                    ("Notifications", "Notifications category is visible"),
+                    ("Agenda", "Agenda settings are reachable from the root"),
+                    ("Developer", "Developer tools are reachable from the root"),
+                ),
+            )
             child.sendline("3")
 
             _expect(child, "Notifications & sound", label="rich Notifications panel opened")
-            _expect(child, "Reminder sound: On", label="reminder sound has a readable On/Off control")
-            _expect(child, "Terminal bell: On", label="terminal bell has a readable On/Off control")
-            _expect(
+            _expect_menu_snapshot(
                 child,
-                "Terminal bell rings per reminder: 3",
-                label="default three-ring pattern is visible",
-            )
-            _expect(
-                child,
-                r"Pause between bell rings \(ms\): 400",
-                label="bell interval includes its unit",
-            )
-            _expect(child, "Test terminal bell", label="real bell test is visible")
-            _expect(
-                child,
-                "How persistent acknowledgement works",
-                label="persistent acknowledgement behavior is discoverable",
+                (
+                    ("Reminder sound: On", "reminder sound has a readable On/Off control"),
+                    ("Terminal bell: On", "terminal bell has a readable On/Off control"),
+                    (
+                        "Terminal bell rings per reminder: 3",
+                        "default three-ring pattern is visible",
+                    ),
+                    (
+                        r"Pause between bell rings \(ms\): 400",
+                        "bell interval includes its unit",
+                    ),
+                    ("Test terminal bell", "real bell test is visible"),
+                    (
+                        "How persistent acknowledgement works",
+                        "persistent acknowledgement behavior is discoverable",
+                    ),
+                ),
             )
 
             child.sendline("4")
@@ -157,22 +179,45 @@ def main() -> int:
 
             child.sendline("0")
             _expect(child, "Settings", label="Back returns to Settings root")
+            child.expect(r"> ")
 
             # Extensions is item 7 in the richer Settings root. Create a real small
             # Task template through the numbered wizard and enable it immediately.
             child.sendline("7")
             _expect(child, "Extensions", label="Extensions management panel opened")
-            _expect(child, "Create user extension", label="extension creation is visible")
-            _expect(child, "Extension folder", label="extension folder is discoverable")
-            _expect(child, "Prepare editor workspace", label="editor setup is discoverable")
+            _expect_menu_snapshot(
+                child,
+                (
+                    ("Create user extension", "extension creation is visible"),
+                    ("Extension folder", "extension folder is discoverable"),
+                    ("Prepare editor workspace", "editor setup is discoverable"),
+                ),
+            )
             child.sendline("2")
 
             _expect(child, "Choose extension template", label="extension template wizard opened")
-            _expect(child, "Command — add one small command", label="Command template is offered")
-            _expect(child, "Task automation — choose and start a Task", label="Task template is offered")
-            _expect(child, "Reminder — ask when and create a reminder", label="Reminder template is offered")
-            _expect(child, "Daily workflow — show today's Agenda", label="Daily template is offered")
-            _expect(child, "Empty Easy API — smallest possible file", label="Empty template is offered")
+            _expect_menu_snapshot(
+                child,
+                (
+                    ("Command — add one small command", "Command template is offered"),
+                    (
+                        "Task automation — choose and start a Task",
+                        "Task template is offered",
+                    ),
+                    (
+                        "Reminder — ask when and create a reminder",
+                        "Reminder template is offered",
+                    ),
+                    (
+                        "Daily workflow — show today's Agenda",
+                        "Daily template is offered",
+                    ),
+                    (
+                        "Empty Easy API — smallest possible file",
+                        "Empty template is offered",
+                    ),
+                ),
+            )
             child.sendline("2")
 
             _expect(child, "Extension name for create", label="wizard asks for extension name")

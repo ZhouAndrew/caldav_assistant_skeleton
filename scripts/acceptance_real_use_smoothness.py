@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -71,6 +72,60 @@ def _paging_todo_ics(index: int, now: datetime) -> str:
 def _elapsed(started: float) -> float:
     return time.monotonic() - started
 
+
+def _assert_column_major_menu(text: str) -> None:
+    """Verify displayed numbering reads downward first, then across columns."""
+    rows: list[list[int]] = []
+    for raw_line in text.splitlines():
+        numbers = [
+            int(value)
+            for value in re.findall(r"(?:^|\s)(\d+)\.\s", raw_line)
+            if int(value) != 0
+        ]
+        if numbers:
+            rows.append(numbers)
+
+    if not rows or max(len(row) for row in rows) < 2:
+        raise AssertionError(f"menu did not render a horizontal grid:\n{text}")
+
+    read_order: list[int] = []
+    for column in range(max(len(row) for row in rows)):
+        for row in rows:
+            if column < len(row):
+                read_order.append(row[column])
+
+    expected = list(range(1, max(read_order) + 1))
+    if read_order != expected:
+        raise AssertionError(
+            "menu numbering is not top-to-bottom then left-to-right: "
+            f"{read_order!r} != {expected!r}\n{text}"
+        )
+
+
+
+
+def _expect_task_picker_frame(
+    child: pexpect.spawn,
+    selected_date,
+    *,
+    timeout: float | None = None,
+) -> str:
+    """Consume one complete ANSI-redrawn Task Picker frame and validate its date."""
+    previous_timeout = child.timeout
+    if timeout is not None:
+        child.timeout = timeout
+    try:
+        child.expect(r"i input date · t today · / search · q cancel")
+        frame = child.before + child.after
+    finally:
+        child.timeout = previous_timeout
+
+    marker = f"Tasks · {selected_date.isoformat()} · "
+    if marker not in frame:
+        raise AssertionError(
+            f"Task Picker frame did not contain selected date {selected_date}:\n{frame}"
+        )
+    return frame
 
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
@@ -162,8 +217,12 @@ def main() -> int:
             started = time.monotonic()
             child.sendline("")
             child.expect(r"What do you want to do\?")
-            child.expect(r"1\. Choose a Task to work on[ ]{3,}2\.")
-            print("PASS: real terminal menu expands horizontally at 120 columns")
+            child.expect(r"> ")
+            _assert_column_major_menu(child.before)
+            print(
+                "PASS: real terminal menu orders top-to-bottom before "
+                "left-to-right at 120 columns"
+            )
             print(f"REAL-USE: first_menu_open={_elapsed(started):.3f}s")
             child.sendline("0")
             child.expect(r"> ")
@@ -183,8 +242,6 @@ def main() -> int:
             verify_deadline = time.monotonic() + 20.0
             verification_retries = 0
             while True:
-                # The primary home action is human Task choice, even while a newly
-                # restarted background generation is still verifying Current Work.
                 child.sendline("1")
                 child.timeout = min(
                     30,
@@ -192,7 +249,7 @@ def main() -> int:
                 )
                 entered = child.expect(
                     [
-                        r"Choose by number; type /keyword to search",
+                        r"Task Picker: [^\r\n]*i input date",
                         r"What do you want to do\?",
                     ]
                 )
@@ -204,36 +261,41 @@ def main() -> int:
                         )
                     continue
 
-                # Consume the actual nested Task-picker title, not the identical
-                # home-menu label that may still be present in pexpect's buffer.
-                child.expect(r"Choose a Task to work on")
-                child.expect(r"Page 1/2")
-                child.expect(r"n/next\. Next page")
-
-                # Human-path regression: a bare Enter must be neutral rather than
-                # accusing the user of an invalid choice.
-                child.sendline("")
-                blank_result = child.expect(
-                    [
-                        r"Invalid choice",
-                        r"Choose a Task to work on",
-                    ]
+                # Consume a complete redraw frame. Looking for the title in a
+                # separate expect() is racy because alternate-screen redraw may
+                # deliver the title and footer in one read, especially on one CPU.
+                today = datetime.now().astimezone().date()
+                _expect_task_picker_frame(
+                    child,
+                    today,
+                    timeout=max(0.1, verify_deadline - time.monotonic()),
                 )
-                if blank_result == 0:
-                    raise AssertionError(
-                        "bare Enter in Task picker was still treated as Invalid choice"
-                    )
-                child.expect(r"Page 1/2")
-                child.expect(r"n/next\. Next page")
-                print("PASS: bare Enter keeps the Task picker usable without an error")
+                print("PASS: Task Picker defaults to today's date")
 
-                # Paging controls must be visible without opening ?/help, and a Task
-                # beyond the first ten entries must be directly selectable.
-                child.sendline("n")
-                child.expect(r"Choose a Task to work on")
-                child.expect(r"Page 2/2")
-                child.expect(r"p/prev\. Previous page")
-                child.sendline("11")
+                child.send("\x1b[C")
+                tomorrow = today + timedelta(days=1)
+                _expect_task_picker_frame(child, tomorrow)
+                child.send("\x1b[D")
+                _expect_task_picker_frame(child, today)
+                print("PASS: Task Picker changes date with left/right arrow keys")
+
+                target_date = (now + timedelta(hours=4, minutes=1)).date()
+                child.send("i")
+                child.expect(r"Task date \[[0-9-]+\]:")
+                child.sendline(target_date.isoformat())
+                frame = _expect_task_picker_frame(child, target_date)
+                if "Paging acceptance Task 01" not in frame:
+                    raise AssertionError(
+                        "typed-date Task Picker frame did not show the expected Task"
+                    )
+
+                child.send("\x1b[B")
+                frame = _expect_task_picker_frame(child, target_date)
+                if re.search(r">\s+2\.", frame) is None:
+                    raise AssertionError(
+                        "down-arrow did not move the Task Picker cursor to item 2"
+                    )
+                child.send("\r")
 
                 index = child.expect(
                     [
@@ -249,6 +311,11 @@ def main() -> int:
                     raise AssertionError(
                         "current-work verification did not become ready within 20s"
                     )
+
+            print(
+                "PASS: real Task Picker accepted date navigation, typed date, "
+                "arrow scrolling and Enter selection"
+            )
             print(
                 f"REAL-USE: choose_start_to_duration={_elapsed(started):.3f}s "
                 f"(verification_retries={verification_retries})"
