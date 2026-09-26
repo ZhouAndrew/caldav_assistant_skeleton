@@ -30,6 +30,32 @@ def task_matches_date(task: Any, selected: date) -> bool:
     )
 
 
+def _task_is_finished(task: Any) -> bool:
+    if bool(getattr(task, "completed", False)):
+        return True
+    status = str(getattr(task, "status", "") or "").strip().upper()
+    return status in {"COMPLETED", "CANCELLED"}
+
+
+def task_is_overdue(task: Any, today: date) -> bool:
+    """Return whether an unfinished Task belongs to today's overdue backlog."""
+    if _task_is_finished(task):
+        return False
+    if bool(getattr(task, "overdue", False)):
+        return True
+    due = _as_date(getattr(task, "due", None))
+    return due is not None and due < today
+
+
+def task_matches_picker_date(task: Any, selected: date, today: date) -> bool:
+    """Task Picker semantics: actionable only; today also includes overdue backlog."""
+    if _task_is_finished(task):
+        return False
+    if selected == today and task_is_overdue(task, today):
+        return True
+    return task_matches_date(task, selected)
+
+
 @dataclass
 class DateCursor:
     selected: date
@@ -187,10 +213,27 @@ class TaskPickerController:
         self.refresh()
 
     def refresh(self) -> None:
-        self._filtered = [
-            task for task in self.all_tasks if task_matches_date(task, self.date.selected)
+        selected = self.date.selected
+        today = self.date.today
+        matched = [
+            task
+            for task in self.all_tasks
+            if task_matches_picker_date(task, selected, today)
         ]
-        self._labels = [self.labeler(task) for task in self._filtered]
+        if selected == today:
+            overdue = [task for task in matched if task_is_overdue(task, today)]
+            overdue_ids = {id(task) for task in overdue}
+            due_today = [task for task in matched if id(task) not in overdue_ids]
+            matched = overdue + due_today
+        self._filtered = matched
+        self._labels = [
+            (
+                f"OVERDUE · {self.labeler(task)}"
+                if selected == today and task_is_overdue(task, today)
+                else self.labeler(task)
+            )
+            for task in self._filtered
+        ]
         self.tasks.replace(self._filtered)
 
     def set_date(self, value: date) -> None:
@@ -224,13 +267,28 @@ class TaskPickerController:
         if not needle:
             self.refresh()
             return
-        self._filtered = [
+        selected = self.date.selected
+        today = self.date.today
+        matched = [
             task
             for task in self.all_tasks
-            if task_matches_date(task, self.date.selected)
+            if task_matches_picker_date(task, selected, today)
             and needle in self.labeler(task).casefold()
         ]
-        self._labels = [self.labeler(task) for task in self._filtered]
+        if selected == today:
+            overdue = [task for task in matched if task_is_overdue(task, today)]
+            overdue_ids = {id(task) for task in overdue}
+            due_today = [task for task in matched if id(task) not in overdue_ids]
+            matched = overdue + due_today
+        self._filtered = matched
+        self._labels = [
+            (
+                f"OVERDUE · {self.labeler(task)}"
+                if selected == today and task_is_overdue(task, today)
+                else self.labeler(task)
+            )
+            for task in self._filtered
+        ]
         self.tasks.replace(self._filtered)
 
     def marked_dates(self) -> tuple[date, ...]:
@@ -247,6 +305,14 @@ class TaskPickerController:
             "←/→ date · PgUp/PgDn month · ↑/↓ task · Enter choose · "
             "i input date · t today · / search · q cancel"
         )
+        overdue_count = 0
+        if self.date.selected == self.date.today:
+            overdue_count = sum(
+                1 for task in self._filtered if task_is_overdue(task, self.date.today)
+            )
+        count_text = f"{len(self._filtered)}"
+        if overdue_count:
+            count_text += f" · {overdue_count} overdue"
         return TaskPickerView(
             title=self.title,
             calendar=self.date.view(
@@ -254,7 +320,7 @@ class TaskPickerController:
                 marked_dates=self.marked_dates(),
             ),
             tasks=self.tasks.view(
-                f"Tasks · {self.date.selected.isoformat()} · {len(self._filtered)}",
+                f"Tasks · {self.date.selected.isoformat()} · {count_text}",
                 self._labels,
             ),
             footer=footer,
@@ -267,4 +333,6 @@ __all__ = [
     "ScrollCursor",
     "TaskPickerController",
     "task_matches_date",
+    "task_matches_picker_date",
+    "task_is_overdue",
 ]

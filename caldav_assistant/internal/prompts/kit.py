@@ -22,6 +22,8 @@ from .pickers import (
     ScrollCursor,
     TaskPickerController,
     task_matches_date,
+    task_matches_picker_date,
+    task_is_overdue,
 )
 from .task_labels import task_labeler
 
@@ -469,7 +471,11 @@ class PromptKit:
             # date parsing, preserve the historical all-Tasks menu.
             if not callable(getattr(self.temporal, "parse_date", None)):
                 return self.menu.choose(title, source, item_label=label)
-            dated = [task for task in source if task_matches_date(task, selected_date)]
+            dated = [
+                task
+                for task in source
+                if task_matches_picker_date(task, selected_date, today)
+            ]
             if not dated:
                 chosen_date = self.ask_date(
                     "Task date",
@@ -478,10 +484,28 @@ class PromptKit:
                 if chosen_date is None:
                     return None
                 selected_date = self._coerce_date(chosen_date, selected_date)
-                dated = [task for task in source if task_matches_date(task, selected_date)]
+                dated = [
+                    task
+                    for task in source
+                    if task_matches_picker_date(task, selected_date, today)
+                ]
             if not dated:
                 self._write(f"No Tasks on {selected_date.isoformat()}.")
                 return None
+            if selected_date == today:
+                overdue = [task for task in dated if task_is_overdue(task, today)]
+                overdue_ids = {id(task) for task in overdue}
+                dated = overdue + [task for task in dated if id(task) not in overdue_ids]
+
+                def fallback_label(task: Any) -> str:
+                    value = label(task)
+                    return (
+                        f"OVERDUE · {value}"
+                        if task_is_overdue(task, today)
+                        else value
+                    )
+
+                return self.menu.choose(title, dated, item_label=fallback_label)
             return self.menu.choose(title, dated, item_label=label)
 
         controller = TaskPickerController(
