@@ -6,6 +6,7 @@ client is a terminal, browser, PWA, or another future frontend.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any
 
 
@@ -81,3 +82,52 @@ class MenuView:
                 "match_count": self.visible_match_count,
             },
         }
+
+
+@dataclass(frozen=True, slots=True)
+class DatePickerView:
+    """Client-neutral month grid with one selected date."""
+
+    title: str
+    selected: date
+    today: date
+    month_label: str
+    weeks: tuple[tuple[date, ...], ...]
+
+    @property
+    def kind(self) -> str:
+        return "date_picker"
+
+
+@dataclass(frozen=True, slots=True)
+class ScrollableListView:
+    """Client-neutral scrollable list state."""
+
+    title: str
+    labels: tuple[str, ...]
+    selected_index: int = 0
+    offset: int = 0
+    page_size: int = 8
+
+    @property
+    def visible_labels(self) -> tuple[str, ...]:
+        end = self.offset + self.page_size
+        return self.labels[self.offset:end]
+
+    @property
+    def visible_selected_index(self) -> int:
+        return self.selected_index - self.offset
+
+
+@dataclass(frozen=True, slots=True)
+class TaskPickerView:
+    """Composite Task picker: calendar/date filter + scrollable Task list."""
+
+    title: str
+    calendar: DatePickerView
+    tasks: ScrollableListView
+    footer: str = ""
+
+    @property
+    def kind(self) -> str:
+        return "task_picker"
