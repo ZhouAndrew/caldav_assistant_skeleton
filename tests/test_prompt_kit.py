@@ -1,7 +1,4 @@
-from datetime import date, datetime, time, timedelta
-
-from caldav_assistant.internal.prompts import Menu, PromptKit
-
+from datetime import date, datetime, time, timedelta\nfrom io import StringIO\n\nfrom caldav_assistant.internal.clients.terminal import StdConsoleIO\nfrom caldav_assistant.internal.prompts import Menu, PromptKit\n
 
 class FakeIO:
     def __init__(self, *answers):
@@ -96,3 +93,65 @@ def test_confirm_and_confirm_danger_are_distinct_bricks():
 
     kit, _ = make("y")
     assert kit.confirm_danger("Delete everything?") is False
+
+
+def make_interactive(*actions, tasks=None, events=None):
+    action_iter = iter(actions)
+    output = StringIO()
+    io = StdConsoleIO(
+        input_fn=lambda _prompt: "",
+        stdout=output,
+        ui_key_fn=lambda: next(action_iter),
+        terminal_width_fn=lambda: 100,
+    )
+    kit = PromptKit(io, Menu(io), FakeTemporal(), tasks, events)
+    return kit, output
+
+
+def test_choose_date_uses_reusable_interactive_calendar_and_defaults_today():
+    kit, output = make_interactive("right", "enter")
+
+    assert kit.choose_date() == date(2026, 8, 31)
+    text = output.getvalue()
+    assert "August 2026" in text
+    assert "Selected: 2026-08-30" in text
+    assert "Selected: 2026-08-31" in text
+
+
+def test_choose_scrollable_uses_arrow_selection_and_enter():
+    kit, _ = make_interactive("down", "enter")
+
+    assert kit.choose_scrollable("Pick", ["A", "B", "C"]) == "B"
+
+
+def test_choose_task_defaults_to_today_and_arrow_selects_today_task():
+    tasks = ListAPI(
+        [
+            Item("First", due=date(2026, 8, 30)),
+            Item("Second", start=datetime(2026, 8, 30, 17, 0)),
+            Item("Tomorrow", due=date(2026, 8, 31)),
+        ]
+    )
+    kit, output = make_interactive("down", "enter", tasks=tasks)
+
+    selected = kit.choose_task(title="Choose a Task to work on")
+
+    assert selected.summary == "Second"
+    text = output.getvalue()
+    assert "Tasks · 2026-08-30 · 2" in text
+    assert "Tomorrow" not in text
+
+
+def test_choose_task_left_right_changes_date_before_enter_selection():
+    tasks = ListAPI(
+        [
+            Item("Today", due=date(2026, 8, 30)),
+            Item("Tomorrow", due=date(2026, 8, 31)),
+        ]
+    )
+    kit, output = make_interactive("right", "enter", tasks=tasks)
+
+    selected = kit.choose_task()
+
+    assert selected.summary == "Tomorrow"
+    assert "Tasks · 2026-08-31 · 1" in output.getvalue()
