@@ -79,7 +79,10 @@ python -m pip install -e . && caldav-assistant-web
 核验的快照，无快照时才读取实时数据。更完整的设置、日志、扩展和
 复杂事件编辑仍通过 CLI 操作。
 
-独立的真实 CalDAV + HTTP 验收脚本（需要仅用于验收的 `radicale`）：
+独立的真实 CalDAV + HTTP 验收脚本（需要仅用于验收的 `radicale`）。
+本地默认用同一 Core 的进程内桥接，以兼容禁用 Unix Socket 的沙盒；
+CI 设置 `CALDAV_ASSISTANT_WEB_ACCEPTANCE_PRODUCTION=1` 后还会启动已安装
+的网页程序和真实后台 IPC：
 
 ```bash
 python scripts/acceptance_web_real.py

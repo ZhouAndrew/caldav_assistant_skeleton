@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """HTTP human-path acceptance against real local Radicale and production Core.
 
-This runner uses an in-process dispatcher because some CI sandboxes cannot bind
-AF_UNIX. It exercises actual HTTP requests and real CalDAV VTODO/VEVENT writes;
-the separate production IPC process tests cover the transport where supported.
+The default mode uses an in-process dispatcher for sandboxes that cannot bind
+AF_UNIX. With CALDAV_ASSISTANT_WEB_ACCEPTANCE_PRODUCTION=1 it launches the installed
+web entrypoint and real background service over production IPC.
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from types import SimpleNamespace
 import json
 import os
 import secrets
+import shutil
 import site
 import socket
 import subprocess
@@ -71,6 +72,7 @@ def main() -> int:
             env={**os.environ, "PYTHONPATH": os.pathsep.join((user_site, os.environ.get("PYTHONPATH", "")))},
         )
         server = None
+        web_process = None
         try:
             for _ in range(100):
                 try:
@@ -103,17 +105,41 @@ def main() -> int:
                 WORDPRESS_ENABLED: False,
             }.items(): settings.set(key, value)
 
-            from caldav_assistant.internal.bootstrap import build_service_application
-            application = build_service_application()
-            class DirectRuntime:
-                def call(self, method, **payload):
-                    return application.background.dispatcher.handle(method, payload)
-            app = SimpleNamespace(ctx=application.ctx, runtime=DirectRuntime())
             web_port = free_port()
-            token = secrets.token_urlsafe(32)
-            server = ThreadingHTTPServer(("127.0.0.1", web_port), make_handler(WebActions(app), port=web_port, token=token))
-            thread = Thread(target=server.serve_forever, daemon=True); thread.start()
             base = f"http://127.0.0.1:{web_port}"
+            if os.getenv("CALDAV_ASSISTANT_WEB_ACCEPTANCE_PRODUCTION") == "1":
+                # Use the same installed entrypoint and AF_UNIX background bridge
+                # as a user running caldav-assistant-web in a terminal.
+                web_log = (root / "web.log").open("w")
+                executable = shutil.which("caldav-assistant-web")
+                if not executable:
+                    raise RuntimeError("Install the package before the production web acceptance")
+                web_process = subprocess.Popen(
+                    [executable, "--port", str(web_port)],
+                    env={**os.environ, "PYTHONPATH": os.pathsep.join((user_site, os.environ.get("PYTHONPATH", "")))},
+                    stdout=web_log, stderr=subprocess.STDOUT,
+                )
+                for _ in range(100):
+                    try:
+                        if http(base + "/")[0] == 200:
+                            break
+                    except Exception:
+                        time.sleep(.1)
+                else:
+                    raise RuntimeError(f"Installed web entrypoint did not start: {web_log.name}: {Path(web_log.name).read_text()[-2500:]}")
+            else:
+                from caldav_assistant.internal.bootstrap import build_service_application
+                application = build_service_application()
+                class DirectRuntime:
+                    def call(self, method, **payload):
+                        return application.background.dispatcher.handle(method, payload)
+                app = SimpleNamespace(ctx=application.ctx, runtime=DirectRuntime())
+                server = ThreadingHTTPServer(
+                    ("127.0.0.1", web_port),
+                    make_handler(WebActions(app), port=web_port, token=secrets.token_urlsafe(32)),
+                )
+                thread = Thread(target=server.serve_forever, daemon=True); thread.start()
+            token = http(base + "/api/token")[1]["token"]
             post_headers = {"Content-Type": "application/json", "X-Assistant-Token": token}
 
             code, page = http(base + "/")
@@ -163,6 +189,15 @@ def main() -> int:
         finally:
             if server is not None:
                 server.shutdown(); server.server_close()
+            if web_process is not None:
+                web_process.terminate()
+                try: web_process.wait(timeout=5)
+                except subprocess.TimeoutExpired: web_process.kill(); web_process.wait()
+                from caldav_assistant.internal.bootstrap import build_cli_application
+                runtime = build_cli_application().runtime
+                if runtime.status().get("status") == "running":
+                    runtime.stop(timeout=5)
+                web_log.close()
             process.terminate()
             try: process.wait(timeout=5)
             except subprocess.TimeoutExpired: process.kill(); process.wait()
