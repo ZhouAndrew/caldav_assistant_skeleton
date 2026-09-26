@@ -44,11 +44,12 @@ class TextRenderer:
     ) -> tuple[list[int], int, int]:
         """Return widths, total width, and row count for column-major layout."""
         rows = (len(cells) + columns - 1) // columns
-        widths = [0] * columns
+        actual_columns = (len(cells) + rows - 1) // rows
+        widths = [0] * actual_columns
         for index, cell in enumerate(cells):
             column = index // rows
             widths[column] = max(widths[column], _display_width(cell))
-        total = sum(widths) + self.column_gap * (columns - 1)
+        total = sum(widths) + self.column_gap * (actual_columns - 1)
         return widths, total, rows
 
     def _render_choice_lines(self, view: MenuView) -> list[str]:
@@ -68,7 +69,7 @@ class TextRenderer:
         for columns in range(max_columns, 1, -1):
             widths, total, rows = self._grid_for_columns(cells, columns)
             if total <= width:
-                chosen_columns = columns
+                chosen_columns = len(widths)
                 chosen_rows = rows
                 chosen_widths = widths
                 break
