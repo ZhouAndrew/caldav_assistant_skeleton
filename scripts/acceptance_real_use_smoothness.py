@@ -162,8 +162,16 @@ def main() -> int:
             started = time.monotonic()
             child.sendline("")
             child.expect(r"What do you want to do\?")
-            child.expect(r"1\. Choose a Task to work on[ ]{3,}2\.")
-            print("PASS: real terminal menu expands horizontally at 120 columns")
+            child.expect(
+                r"1\. Choose a Task to work on[ ]{3,}"
+                r"4\. Today[ ]{3,}"
+                r"7\. Guide Book[ ]{3,}"
+                r"10\. Settings and setup"
+            )
+            print(
+                "PASS: real terminal menu is aligned and orders top-to-bottom "
+                "before left-to-right at 120 columns"
+            )
             print(f"REAL-USE: first_menu_open={_elapsed(started):.3f}s")
             child.sendline("0")
             child.expect(r"> ")
