@@ -23,6 +23,7 @@ from .pickers import (
     TaskPickerController,
     task_matches_date,
     task_matches_picker_date,
+    task_is_overdue,
 )
 from .task_labels import task_labeler
 
@@ -491,6 +492,20 @@ class PromptKit:
             if not dated:
                 self._write(f"No Tasks on {selected_date.isoformat()}.")
                 return None
+            if selected_date == today:
+                overdue = [task for task in dated if task_is_overdue(task, today)]
+                overdue_ids = {id(task) for task in overdue}
+                dated = overdue + [task for task in dated if id(task) not in overdue_ids]
+
+                def fallback_label(task: Any) -> str:
+                    value = label(task)
+                    return (
+                        f"OVERDUE · {value}"
+                        if task_is_overdue(task, today)
+                        else value
+                    )
+
+                return self.menu.choose(title, dated, item_label=fallback_label)
             return self.menu.choose(title, dated, item_label=label)
 
         controller = TaskPickerController(
