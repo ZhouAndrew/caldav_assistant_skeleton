@@ -135,33 +135,36 @@ def test_real_terminal_adapter_owns_width_aware_menu_rendering():
     assert "3. Three   4. Four" in visible
 
 
-def test_horizontal_menu_uses_stable_aligned_column_starts_with_mixed_lengths():
+def test_horizontal_menu_orders_top_to_bottom_then_left_to_right():
     menu = Menu(FakeIO())
     view = menu.presentation(
         "Tasks",
-        [
-            "Short",
-            "A much longer second item",
-            "Third",
-            "A very long first-column item on row two",
-            "Mid",
-            "Sixth",
-        ],
-        page_size=10,
+        [f"Item {index}" for index in range(1, 11)],
+        page_size=20,
     )
 
-    lines = TextRenderer(max_width=90).render_lines(view)
+    lines = TextRenderer(max_width=45).render_lines(view)
     choice_lines = [line for line in lines if ". " in line and not line.startswith("0.")]
 
-    assert len(choice_lines) == 2
-    first, second = choice_lines
+    assert len(choice_lines) == 4
+    assert "1. Item 1" in choice_lines[0]
+    assert "5. Item 5" in choice_lines[0]
+    assert "9. Item 9" in choice_lines[0]
+    assert "2. Item 2" in choice_lines[1]
+    assert "6. Item 6" in choice_lines[1]
+    assert "10. Item 10" in choice_lines[1]
+    assert "3. Item 3" in choice_lines[2]
+    assert "7. Item 7" in choice_lines[2]
+    assert "4. Item 4" in choice_lines[3]
+    assert "8. Item 8" in choice_lines[3]
 
-    # Row-major order stays natural, but column 2 and 3 begin at exactly the same
-    # display-cell positions on every row, even though row-1/row-2 labels differ.
-    first_col2 = _display_width(first[: first.index("2. ")])
-    second_col2 = _display_width(second[: second.index("5. ")])
-    first_col3 = _display_width(first[: first.index("3. ")])
-    second_col3 = _display_width(second[: second.index("6. ")])
+    # Column starts stay fixed on every row that contains that column.
+    first_col2 = _display_width(choice_lines[0][: choice_lines[0].index("5. ")])
+    second_col2 = _display_width(choice_lines[1][: choice_lines[1].index("6. ")])
+    third_col2 = _display_width(choice_lines[2][: choice_lines[2].index("7. ")])
+    fourth_col2 = _display_width(choice_lines[3][: choice_lines[3].index("8. ")])
+    assert len({first_col2, second_col2, third_col2, fourth_col2}) == 1
 
-    assert first_col2 == second_col2
+    first_col3 = _display_width(choice_lines[0][: choice_lines[0].index("9. ")])
+    second_col3 = _display_width(choice_lines[1][: choice_lines[1].index("10. ")])
     assert first_col3 == second_col3
