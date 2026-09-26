@@ -57,6 +57,34 @@ caldav-assistant today
 caldav-assistant next
 ```
 
+## 本机网页版（GUI）
+
+网页版是同一个 Assistant 的本机图形入口：任务与日程仍由 CalDAV
+保存，修改与工作时长仍交给既有 Core 和后台服务处理。它不启动第二个
+Task 数据库，也不要求长期打开网页才能接收后台提醒。CLI 仍可同时使用。
+
+在已配置 CalDAV 的同一个系统用户及 Python 环境中，安装并启动：
+
+```bash
+python -m pip install -e . && caldav-assistant-web
+```
+
+然后打开命令输出的 `http://127.0.0.1:8765/`。`--open` 可以启动时
+自动打开默认浏览器；`--port 8766` 可以更换本机端口。按 Ctrl-C 只关闭
+网页入口，不停止后台 Assistant。网页只监听 `127.0.0.1`，不会向局域网开放。
+
+当前网页提供：当前任务与工作时长、未来七天的 Task/Event 日程、推荐
+任务、未完成任务列表、新建与编辑任务、开始/暂停/继续/完成。网页的
+“刷新”与写入后的刷新会读取实时 CalDAV；初次打开优先使用后台已
+核验的快照，无快照时才读取实时数据。更完整的设置、日志、扩展和
+复杂事件编辑仍通过 CLI 操作。
+
+独立的真实 CalDAV + HTTP 验收脚本（需要仅用于验收的 `radicale`）：
+
+```bash
+python scripts/acceptance_web_real.py
+```
+
 ## 首次配置
 
 进入：
