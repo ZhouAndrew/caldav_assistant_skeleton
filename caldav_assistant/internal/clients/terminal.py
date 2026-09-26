@@ -321,6 +321,30 @@ class StdConsoleIO:
         )
         self._render_panel_lines(lines)
 
+    def render_scrollable_list(self, view: Any, *, footer: str = "") -> None:
+        """Render a generic scrollable selector."""
+        lines = [str(view.title), ""]
+        labels = view.visible_labels
+        start = view.offset
+        selected_visible = view.visible_selected_index
+        width = max(24, int(self.display_width() or 80) - 8)
+        if not labels:
+            lines.append("  (No choices)")
+        else:
+            for visible_index, label in enumerate(labels):
+                number = start + visible_index + 1
+                pointer = ">" if visible_index == selected_visible else " "
+                shown = self._truncate_terminal_text(str(label), width)
+                lines.append(f"{pointer} {number:>2}. {shown}")
+        total = len(view.labels)
+        if total > view.page_size:
+            first = view.offset + 1
+            last = min(total, view.offset + view.page_size)
+            lines.append(f"  showing {first}-{last} of {total}")
+        if footer:
+            lines.extend(["", str(footer)])
+        self._render_panel_lines(lines)
+
     def render_task_picker(self, view: Any) -> None:
         lines = [str(view.title), ""]
         lines.extend(self._calendar_lines(view.calendar))
