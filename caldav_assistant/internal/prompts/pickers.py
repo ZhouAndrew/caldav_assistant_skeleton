@@ -48,7 +48,9 @@ def task_is_overdue(task: Any, today: date) -> bool:
 
 
 def task_matches_picker_date(task: Any, selected: date, today: date) -> bool:
-    """Task Picker semantics: today includes overdue backlog; other dates stay exact."""
+    """Task Picker semantics: actionable only; today also includes overdue backlog."""
+    if _task_is_finished(task):
+        return False
     if selected == today and task_is_overdue(task, today):
         return True
     return task_matches_date(task, selected)
