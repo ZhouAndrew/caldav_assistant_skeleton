@@ -23,7 +23,7 @@ def _as_date(value: Any) -> date | None:
 
 
 def task_matches_date(task: Any, selected: date) -> bool:
-    """Presentation-only date match: DTSTART or DUE falls on the selected date."""
+    """Presentation-only match: DTSTART or DUE falls on the selected date."""
     return any(
         _as_date(getattr(task, field_name, None)) == selected
         for field_name in ("start", "due")
@@ -42,8 +42,7 @@ class DateCursor:
         self.move_days(int(weeks) * 7)
 
     def move_months(self, months: int) -> None:
-        months = int(months)
-        absolute = self.selected.year * 12 + (self.selected.month - 1) + months
+        absolute = self.selected.year * 12 + (self.selected.month - 1) + int(months)
         year, month_index = divmod(absolute, 12)
         month = month_index + 1
         day = min(self.selected.day, monthrange(year, month)[1])
@@ -52,7 +51,12 @@ class DateCursor:
     def reset_today(self) -> None:
         self.selected = self.today
 
-    def view(\n        self,\n        title: str = "Choose date",\n        *,\n        marked_dates: Iterable[date] = (),\n    ) -> DatePickerView:
+    def view(
+        self,
+        title: str = "Choose date",
+        *,
+        marked_dates: Iterable[date] = (),
+    ) -> DatePickerView:
         weeks = Calendar(firstweekday=0).monthdatescalendar(
             self.selected.year,
             self.selected.month,
@@ -63,6 +67,7 @@ class DateCursor:
             today=self.today,
             month_label=f"{month_name[self.selected.month]} {self.selected.year}",
             weeks=tuple(tuple(day for day in week) for week in weeks),
+            marked_dates=tuple(dict.fromkeys(marked_dates)),
         )
 
 
@@ -128,20 +133,17 @@ class DatePickerController:
     """Standalone date-picker state reusable by any future UI workflow."""
 
     def __init__(self, selected: date, *, today: date | None = None) -> None:
-        current = today or selected
-        self.cursor = DateCursor(selected=selected, today=current)
+        self.cursor = DateCursor(selected=selected, today=today or selected)
 
     @property
     def selected(self) -> date:
         return self.cursor.selected
 
     def apply(self, action: str) -> None:
-        mapping = {
-            "left": -1,
-            "right": 1,
-        }
-        if action in mapping:
-            self.cursor.move_days(mapping[action])
+        if action == "left":
+            self.cursor.move_days(-1)
+        elif action == "right":
+            self.cursor.move_days(1)
         elif action == "week_up":
             self.cursor.move_weeks(-1)
         elif action == "week_down":
@@ -153,8 +155,13 @@ class DatePickerController:
         elif action == "today":
             self.cursor.reset_today()
 
-    def view(self, title: str = "Choose date") -> DatePickerView:
-        return self.cursor.view(title)
+    def view(
+        self,
+        title: str = "Choose date",
+        *,
+        marked_dates: Iterable[date] = (),
+    ) -> DatePickerView:
+        return self.cursor.view(title, marked_dates=marked_dates)
 
 
 class TaskPickerController:
@@ -198,6 +205,10 @@ class TaskPickerController:
         self.date.move_months(months)
         self.refresh()
 
+    def reset_today(self) -> None:
+        self.date.reset_today()
+        self.refresh()
+
     def move_task(self, delta: int) -> None:
         self.tasks.move(delta)
 
@@ -208,20 +219,40 @@ class TaskPickerController:
     def selected_task(self) -> Any | None:
         return self.tasks.selected
 
+    def search(self, query: str) -> None:
+        needle = str(query).strip().casefold()
+        if not needle:
+            self.refresh()
+            return
+        self._filtered = [
+            task
+            for task in self.all_tasks
+            if task_matches_date(task, self.date.selected)
+            and needle in self.labeler(task).casefold()
+        ]
+        self._labels = [self.labeler(task) for task in self._filtered]
+        self.tasks.replace(self._filtered)
+
+    def marked_dates(self) -> tuple[date, ...]:
+        values: list[date] = []
+        for task in self.all_tasks:
+            for field_name in ("start", "due"):
+                value = _as_date(getattr(task, field_name, None))
+                if value is not None:
+                    values.append(value)
+        return tuple(dict.fromkeys(values))
+
     def view(self) -> TaskPickerView:
         footer = (
             "←/→ date · PgUp/PgDn month · ↑/↓ task · Enter choose · "
             "i input date · t today · / search · q cancel"
         )
-        marked_dates = []
-        for task in self.all_tasks:
-            for field_name in ("start", "due"):
-                value = _as_date(getattr(task, field_name, None))
-                if value is not None:
-                    marked_dates.append(value)
         return TaskPickerView(
             title=self.title,
-            calendar=self.date.view("Calendar", marked_dates=marked_dates),
+            calendar=self.date.view(
+                "Calendar",
+                marked_dates=self.marked_dates(),
+            ),
             tasks=self.tasks.view(
                 f"Tasks · {self.date.selected.isoformat()} · {len(self._filtered)}",
                 self._labels,
