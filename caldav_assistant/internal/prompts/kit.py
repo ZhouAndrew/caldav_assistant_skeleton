@@ -464,6 +464,11 @@ class PromptKit:
             and callable(render)
             and callable(read_action)
         ):
+            # Compatibility for non-terminal/custom clients that implement Menu but
+            # not the newer calendar picker contract. If they also lack Temporal
+            # date parsing, preserve the historical all-Tasks menu.
+            if not callable(getattr(self.temporal, "parse_date", None)):
+                return self.menu.choose(title, source, item_label=label)
             dated = [task for task in source if task_matches_date(task, selected_date)]
             if not dated:
                 chosen_date = self.ask_date(
