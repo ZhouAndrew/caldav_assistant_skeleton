@@ -224,7 +224,7 @@ def main() -> int:
                 )
                 entered = child.expect(
                     [
-                        r"Task Picker: .*i input date|Choose a Task to work on",
+                        r"Task Picker: .*i input date",
                         r"What do you want to do\?",
                     ]
                 )
