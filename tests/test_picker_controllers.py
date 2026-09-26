@@ -10,14 +10,7 @@ from caldav_assistant.internal.prompts.pickers import (
 
 
 class Task:
-    def __init__(self, summary, *, due=None, start=None, task_id=""):
-        self.summary = summary
-        self.due = due
-        self.start = start
-        self.id = task_id
-        self.status = "NEEDS-ACTION"
-        self.categories = []
-
+    def __init__(\n        self,\n        summary,\n        *,\n        due=None,\n        start=None,\n        task_id="",\n        status="NEEDS-ACTION",\n        completed=False,\n        overdue=False,\n    ):\n        self.summary = summary\n        self.due = due\n        self.start = start\n        self.id = task_id\n        self.status = status\n        self.completed = completed\n        self.overdue = overdue\n        self.categories = []\n
 
 def test_date_cursor_moves_days_weeks_and_months_without_invalid_dates():
     cursor = DateCursor(selected=date(2026, 1, 31), today=date(2026, 1, 15))
@@ -129,3 +122,91 @@ def test_task_picker_search_only_filters_tasks_on_selected_date():
 
     controller.search("")
     assert controller.view().tasks.labels == ("Math review", "English review")
+
+
+def test_today_task_picker_includes_overdue_unfinished_tasks_before_today_tasks():
+    today = date(2026, 9, 26)
+    tasks = [
+        Task("Today", due=today, task_id="today"),
+        Task("Oldest overdue", due=date(2026, 9, 20), task_id="old"),
+        Task("Recent overdue", due=date(2026, 9, 25), task_id="recent"),
+        Task("Tomorrow", due=date(2026, 9, 27), task_id="tomorrow"),
+    ]
+    controller = TaskPickerController(
+        tasks,
+        labeler=lambda task: task.summary,
+        selected_date=today,
+        today=today,
+    )
+
+    view = controller.view()
+
+    assert view.tasks.labels == (
+        "OVERDUE · Oldest overdue",
+        "OVERDUE · Recent overdue",
+        "Today",
+    )
+    assert controller.selected_task.summary == "Oldest overdue"
+    assert view.tasks.title == "Tasks · 2026-09-26 · 3 · 2 overdue"
+
+
+def test_today_task_picker_hides_completed_and_cancelled_overdue_tasks():
+    today = date(2026, 9, 26)
+    controller = TaskPickerController(
+        [
+            Task("Open overdue", due=date(2026, 9, 20), task_id="open"),
+            Task(
+                "Completed overdue",
+                due=date(2026, 9, 20),
+                task_id="done",
+                status="COMPLETED",
+                completed=True,
+            ),
+            Task(
+                "Cancelled overdue",
+                due=date(2026, 9, 20),
+                task_id="cancel",
+                status="CANCELLED",
+            ),
+            Task("Today", due=today, task_id="today"),
+        ],
+        labeler=lambda task: task.summary,
+        selected_date=today,
+        today=today,
+    )
+
+    assert controller.view().tasks.labels == (
+        "OVERDUE · Open overdue",
+        "Today",
+    )
+
+
+def test_non_today_task_picker_remains_exact_date_without_overdue_backlog():
+    today = date(2026, 9, 26)
+    controller = TaskPickerController(
+        [
+            Task("Old overdue", due=date(2026, 9, 20), task_id="old"),
+            Task("Tomorrow", due=date(2026, 9, 27), task_id="tomorrow"),
+        ],
+        labeler=lambda task: task.summary,
+        selected_date=date(2026, 9, 27),
+        today=today,
+    )
+
+    assert controller.view().tasks.labels == ("Tomorrow",)
+    assert "overdue" not in controller.view().tasks.title
+
+
+def test_explicit_overdue_flag_is_respected_for_today():
+    today = date(2026, 9, 26)
+    controller = TaskPickerController(
+        [
+            Task("Server-marked overdue", task_id="flagged", overdue=True),
+            Task("Today", due=today, task_id="today"),
+        ],
+        labeler=lambda task: task.summary,
+        selected_date=today,
+        today=today,
+    )
+
+    assert controller.view().tasks.labels[0] == "OVERDUE · Server-marked overdue"
