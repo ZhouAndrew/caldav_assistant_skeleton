@@ -220,10 +220,18 @@ class TaskPickerController:
         ]
         if selected == today:
             overdue = [task for task in matched if task_is_overdue(task, today)]
-            due_today = [task for task in matched if task not in overdue]
+            overdue_ids = {id(task) for task in overdue}
+            due_today = [task for task in matched if id(task) not in overdue_ids]
             matched = overdue + due_today
         self._filtered = matched
-        self._labels = [self.labeler(task) for task in self._filtered]
+        self._labels = [
+            (
+                f"OVERDUE · {self.labeler(task)}"
+                if selected == today and task_is_overdue(task, today)
+                else self.labeler(task)
+            )
+            for task in self._filtered
+        ]
         self.tasks.replace(self._filtered)
 
     def set_date(self, value: date) -> None:
@@ -267,10 +275,18 @@ class TaskPickerController:
         ]
         if selected == today:
             overdue = [task for task in matched if task_is_overdue(task, today)]
-            due_today = [task for task in matched if task not in overdue]
+            overdue_ids = {id(task) for task in overdue}
+            due_today = [task for task in matched if id(task) not in overdue_ids]
             matched = overdue + due_today
         self._filtered = matched
-        self._labels = [self.labeler(task) for task in self._filtered]
+        self._labels = [
+            (
+                f"OVERDUE · {self.labeler(task)}"
+                if selected == today and task_is_overdue(task, today)
+                else self.labeler(task)
+            )
+            for task in self._filtered
+        ]
         self.tasks.replace(self._filtered)
 
     def marked_dates(self) -> tuple[date, ...]:
