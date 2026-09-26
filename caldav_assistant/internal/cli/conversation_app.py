@@ -369,25 +369,19 @@ def _choose_task_for_work(
         app,
         "Choose by number; type /keyword to search; use n/p for pages; 0 goes back.",
     )
+    chooser = getattr(app.ctx.ui, "choose_task", None)
+    if not callable(chooser):
+        raise ValidationError("Guided start requires Task selection")
+
     if task_choices is not None:
         if not task_choices:
             _show(app, "No actionable Tasks are available in this snapshot.")
             return None
-        chooser = getattr(app.ctx.ui, "choose", None)
-        if not callable(chooser):
-            raise ValidationError("Guided start requires Task selection")
         return chooser(
-            "Choose a Task to work on",
-            task_choices,
-            help_text=(
-                "Number = choose · /keyword = search · n/next and p/prev = page · "
-                "0/back = return."
-            ),
+            title="Choose a Task to work on",
+            items=task_choices,
         )
 
-    chooser = getattr(app.ctx.ui, "choose_task", None)
-    if not callable(chooser):
-        raise ValidationError("Guided start requires Task selection")
     return chooser(title="Choose a Task to work on")
 
 
