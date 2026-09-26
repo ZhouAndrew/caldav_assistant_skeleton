@@ -102,6 +102,31 @@ def _assert_column_major_menu(text: str) -> None:
         )
 
 
+
+
+def _expect_task_picker_frame(
+    child: pexpect.spawn,
+    selected_date,
+    *,
+    timeout: float | None = None,
+) -> str:
+    """Consume one complete ANSI-redrawn Task Picker frame and validate its date."""
+    previous_timeout = child.timeout
+    if timeout is not None:
+        child.timeout = timeout
+    try:
+        child.expect(r"i input date · t today · / search · q cancel")
+        frame = child.before + child.after
+    finally:
+        child.timeout = previous_timeout
+
+    marker = f"Tasks · {selected_date.isoformat()} · "
+    if marker not in frame:
+        raise AssertionError(
+            f"Task Picker frame did not contain selected date {selected_date}:\n{frame}"
+        )
+    return frame
+
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     executable = shutil.which("caldav-assistant")
@@ -236,29 +261,40 @@ def main() -> int:
                         )
                     continue
 
-                # Alternate-screen redraw can replace the title before pexpect
-                # consumes it. The date-filtered Task count is the stable state
-                # marker that proves the composite picker is actually active.
+                # Consume a complete redraw frame. Looking for the title in a
+                # separate expect() is racy because alternate-screen redraw may
+                # deliver the title and footer in one read, especially on one CPU.
                 today = datetime.now().astimezone().date()
-                child.expect(rf"Tasks · {today.isoformat()} · \d+")
+                _expect_task_picker_frame(
+                    child,
+                    today,
+                    timeout=max(0.1, verify_deadline - time.monotonic()),
+                )
                 print("PASS: Task Picker defaults to today's date")
 
                 child.send("\x1b[C")
                 tomorrow = today + timedelta(days=1)
-                child.expect(rf"Tasks · {tomorrow.isoformat()} · \d+")
+                _expect_task_picker_frame(child, tomorrow)
                 child.send("\x1b[D")
-                child.expect(rf"Tasks · {today.isoformat()} · \d+")
+                _expect_task_picker_frame(child, today)
                 print("PASS: Task Picker changes date with left/right arrow keys")
 
                 target_date = (now + timedelta(hours=4, minutes=1)).date()
                 child.send("i")
                 child.expect(r"Task date \[[0-9-]+\]:")
                 child.sendline(target_date.isoformat())
-                child.expect(rf"Tasks · {target_date.isoformat()} · \d+")
-                child.expect(r"Paging acceptance Task 01")
+                frame = _expect_task_picker_frame(child, target_date)
+                if "Paging acceptance Task 01" not in frame:
+                    raise AssertionError(
+                        "typed-date Task Picker frame did not show the expected Task"
+                    )
 
                 child.send("\x1b[B")
-                child.expect(r">\s+2\.")
+                frame = _expect_task_picker_frame(child, target_date)
+                if re.search(r">\s+2\.", frame) is None:
+                    raise AssertionError(
+                        "down-arrow did not move the Task Picker cursor to item 2"
+                    )
                 child.send("\r")
 
                 index = child.expect(
