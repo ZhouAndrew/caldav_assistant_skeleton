@@ -179,6 +179,7 @@ def main() -> int:
 
             child.sendline("0")
             _expect(child, "Settings", label="Back returns to Settings root")
+            child.expect(r"> ")
 
             # Extensions is item 7 in the richer Settings root. Create a real small
             # Task template through the numbered wizard and enable it immediately.
