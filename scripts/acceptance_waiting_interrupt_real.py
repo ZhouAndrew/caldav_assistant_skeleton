@@ -207,7 +207,9 @@ def main() -> int:
             )
             principal = client.principal()
             calendar = principal.make_calendar(name="WaitingAcceptance")
-            calendar.save_todo(_todo_ics(datetime.now(timezone.utc)))
+            now = datetime.now(timezone.utc)
+            task_date = (now + timedelta(hours=1)).date()
+            calendar.save_todo(_todo_ics(now))
             calendar_url = str(calendar.url)
             _configure(home, base_url, calendar_url)
             print(f"PASS: real Radicale ready at {base_url}")
@@ -241,11 +243,15 @@ def main() -> int:
             child.sendline("1")
             _expect(
                 child,
-                "Choose by number; type /keyword to search",
-                "Task picker entered",
+                "Task Picker: ←/→ date",
+                "shared Task Picker entered",
             )
-            _expect(child, "Choose a Task to work on", "Task chooser shown")
-            child.sendline("1")
+            _expect(child, "Choose a Task to work on", "Task Picker shown")
+            child.send("i")
+            child.expect(r"Task date \[[0-9-]+\]:")
+            child.sendline(task_date.isoformat())
+            _expect(child, TASK_SUMMARY, "Task visible on selected date")
+            child.send("\r")
             _expect(child, "How long do you want to work", "duration menu opened")
             child.sendline("6")
             _expect(child, "Duration", "custom duration prompt shown")
