@@ -229,3 +229,30 @@ def test_explicit_overdue_flag_is_respected_for_today():
     )
 
     assert controller.view().tasks.labels[0] == "OVERDUE · Server-marked overdue"
+
+
+def test_task_picker_never_offers_finished_tasks_even_on_the_exact_date():
+    today = date(2026, 9, 26)
+    controller = TaskPickerController(
+        [
+            Task("Open", due=today, task_id="open"),
+            Task(
+                "Completed today",
+                due=today,
+                task_id="done",
+                status="COMPLETED",
+                completed=True,
+            ),
+            Task(
+                "Cancelled today",
+                due=today,
+                task_id="cancel",
+                status="CANCELLED",
+            ),
+        ],
+        labeler=lambda task: task.summary,
+        selected_date=today,
+        today=today,
+    )
+
+    assert controller.view().tasks.labels == ("Open",)
