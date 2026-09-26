@@ -22,6 +22,7 @@ from .pickers import (
     ScrollCursor,
     TaskPickerController,
     task_matches_date,
+    task_matches_picker_date,
 )
 from .task_labels import task_labeler
 
@@ -469,7 +470,7 @@ class PromptKit:
             # date parsing, preserve the historical all-Tasks menu.
             if not callable(getattr(self.temporal, "parse_date", None)):
                 return self.menu.choose(title, source, item_label=label)
-            dated = [task for task in source if task_matches_date(task, selected_date)]
+            dated = [\n                task\n                for task in source\n                if task_matches_picker_date(task, selected_date, today)\n            ]
             if not dated:
                 chosen_date = self.ask_date(
                     "Task date",
@@ -478,7 +479,7 @@ class PromptKit:
                 if chosen_date is None:
                     return None
                 selected_date = self._coerce_date(chosen_date, selected_date)
-                dated = [task for task in source if task_matches_date(task, selected_date)]
+                dated = [\n                    task\n                    for task in source\n                    if task_matches_picker_date(task, selected_date, today)\n                ]
             if not dated:
                 self._write(f"No Tasks on {selected_date.isoformat()}.")
                 return None
