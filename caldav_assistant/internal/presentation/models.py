@@ -93,6 +93,7 @@ class DatePickerView:
     today: date
     month_label: str
     weeks: tuple[tuple[date, ...], ...]
+    marked_dates: tuple[date, ...] = ()
 
     @property
     def kind(self) -> str:
