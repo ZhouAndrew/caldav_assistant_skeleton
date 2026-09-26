@@ -10,7 +10,26 @@ from caldav_assistant.internal.prompts.pickers import (
 
 
 class Task:
-    def __init__(\n        self,\n        summary,\n        *,\n        due=None,\n        start=None,\n        task_id="",\n        status="NEEDS-ACTION",\n        completed=False,\n        overdue=False,\n    ):\n        self.summary = summary\n        self.due = due\n        self.start = start\n        self.id = task_id\n        self.status = status\n        self.completed = completed\n        self.overdue = overdue\n        self.categories = []\n
+    def __init__(
+        self,
+        summary,
+        *,
+        due=None,
+        start=None,
+        task_id="",
+        status="NEEDS-ACTION",
+        completed=False,
+        overdue=False,
+    ):
+        self.summary = summary
+        self.due = due
+        self.start = start
+        self.id = task_id
+        self.status = status
+        self.completed = completed
+        self.overdue = overdue
+        self.categories = []
+
 
 def test_date_cursor_moves_days_weeks_and_months_without_invalid_dates():
     cursor = DateCursor(selected=date(2026, 1, 31), today=date(2026, 1, 15))
