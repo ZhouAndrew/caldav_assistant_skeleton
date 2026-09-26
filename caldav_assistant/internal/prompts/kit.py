@@ -17,7 +17,12 @@ from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 from .menu import Menu
-from .pickers import (\n    DatePickerController,\n    ScrollCursor,\n    TaskPickerController,\n    task_matches_date,\n)
+from .pickers import (
+    DatePickerController,
+    ScrollCursor,
+    TaskPickerController,
+    task_matches_date,
+)
 from .task_labels import task_labeler
 
 
