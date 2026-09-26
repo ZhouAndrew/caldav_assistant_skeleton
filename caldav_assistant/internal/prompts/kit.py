@@ -17,7 +17,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 from .menu import Menu
-from .pickers import DatePickerController, TaskPickerController, task_matches_date
+from .pickers import (\n    DatePickerController,\n    ScrollCursor,\n    TaskPickerController,\n    task_matches_date,\n)
 from .task_labels import task_labeler
 
 
@@ -220,6 +220,104 @@ class PromptKit:
         items, options = self._prepare_choices(items, options)
         return self.menu.choose(title, items, **options)
 
+    def choose_scrollable(
+        self,
+        title: str,
+        items: Any,
+        *,
+        page_size: int = 8,
+        item_label: Callable[[Any], str] | None = None,
+        searchable: bool = True,
+    ) -> Any:
+        """Reusable key-driven selector with a normal Menu fallback."""
+        materialized, prepared = self._prepare_choices(
+            items,
+            {"item_label": item_label} if item_label is not None else {},
+        )
+        if not materialized:
+            self._write("No choices available.")
+            return None
+        labeler = prepared.get("item_label") or self.menu._label
+        source = list(materialized)
+        labels = [str(labeler(item)) for item in source]
+
+        supports = getattr(self.io, "supports_interactive_picker", None)
+        render = getattr(self.io, "render_scrollable_list", None)
+        read_action = getattr(self.io, "read_ui_action", None)
+        begin = getattr(self.io, "begin_interactive_panel", None)
+        end = getattr(self.io, "end_interactive_panel", None)
+        if not (
+            callable(supports)
+            and supports()
+            and callable(render)
+            and callable(read_action)
+        ):
+            return self.menu.choose(
+                title,
+                source,
+                item_label=labeler,
+                searchable=searchable,
+                page_size=page_size,
+            )
+
+        cursor = ScrollCursor(source, page_size=max(1, int(page_size)))
+        active_labels = list(labels)
+        footer = "↑/↓ move · PgUp/PgDn page · Enter choose · / search · q cancel"
+        if callable(begin):
+            begin()
+        try:
+            while True:
+                render(cursor.view(title, active_labels), footer=footer)
+                action = str(read_action())
+                if action == "up":
+                    cursor.move(-1)
+                elif action == "down":
+                    cursor.move(1)
+                elif action == "page_up":
+                    cursor.page(-1)
+                elif action == "page_down":
+                    cursor.page(1)
+                elif action == "home":
+                    cursor.selected_index = 0
+                    cursor._clamp()
+                elif action == "end":
+                    cursor.selected_index = max(0, len(cursor.items) - 1)
+                    cursor._clamp()
+                elif action == "enter":
+                    return cursor.selected
+                elif action.startswith("number:"):
+                    raw = action.split(":", 1)[1]
+                    if raw == "0":
+                        return None
+                    if raw.isdigit():
+                        index = int(raw) - 1
+                        if 0 <= index < len(cursor.items):
+                            cursor.selected_index = index
+                            return cursor.selected
+                elif action == "search" and searchable:
+                    if callable(end):
+                        end()
+                    query = self.ask_text("Search", allow_empty=True)
+                    if callable(begin):
+                        begin()
+                    if query is None or not query.strip():
+                        cursor.replace(source)
+                        active_labels = list(labels)
+                    else:
+                        needle = query.strip().casefold()
+                        pairs = [
+                            (item, label)
+                            for item, label in zip(source, labels)
+                            if needle in label.casefold()
+                        ]
+                        cursor.replace([item for item, _ in pairs])
+                        active_labels = [label for _, label in pairs]
+                elif action == "cancel":
+                    return None
+        finally:
+            if callable(end):
+                end()
+
     def choose_many(self, title: str, items: Any, **options: Any) -> list[Any]:
         items, options = self._prepare_choices(items, options)
         return self.menu.choose_many(title, items, **options)
@@ -401,8 +499,14 @@ class PromptKit:
                     controller.move_date_months(-1)
                 elif action == "page_down":
                     controller.move_date_months(1)
-                elif action in {"home", "today"}:
+                elif action == "today":
                     controller.reset_today()
+                elif action == "home":
+                    controller.tasks.selected_index = 0
+                    controller.tasks._clamp()
+                elif action == "end":
+                    controller.tasks.selected_index = max(0, len(controller.tasks.items) - 1)
+                    controller.tasks._clamp()
                 elif action == "enter":
                     if controller.selected_task is not None:
                         return controller.selected_task
