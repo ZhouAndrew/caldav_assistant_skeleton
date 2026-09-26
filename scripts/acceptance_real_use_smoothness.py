@@ -217,8 +217,6 @@ def main() -> int:
             verify_deadline = time.monotonic() + 20.0
             verification_retries = 0
             while True:
-                # The primary home action is human Task choice, even while a newly
-                # restarted background generation is still verifying Current Work.
                 child.sendline("1")
                 child.timeout = min(
                     30,
@@ -226,7 +224,7 @@ def main() -> int:
                 )
                 entered = child.expect(
                     [
-                        r"Choose by number; type /keyword to search",
+                        r"Task Picker: .*i input date",
                         r"What do you want to do\?",
                     ]
                 )
@@ -238,36 +236,29 @@ def main() -> int:
                         )
                     continue
 
-                # Consume the actual nested Task-picker title, not the identical
-                # home-menu label that may still be present in pexpect's buffer.
                 child.expect(r"Choose a Task to work on")
-                child.expect(r"Page 1/2")
-                child.expect(r"n/next\. Next page")
+                today = datetime.now().astimezone().date()
+                child.expect(rf"Tasks · {today.isoformat()} · \d+")
+                print("PASS: Task Picker defaults to today's date")
 
-                # Human-path regression: a bare Enter must be neutral rather than
-                # accusing the user of an invalid choice.
-                child.sendline("")
-                blank_result = child.expect(
-                    [
-                        r"Invalid choice",
-                        r"Choose a Task to work on",
-                    ]
-                )
-                if blank_result == 0:
-                    raise AssertionError(
-                        "bare Enter in Task picker was still treated as Invalid choice"
-                    )
-                child.expect(r"Page 1/2")
-                child.expect(r"n/next\. Next page")
-                print("PASS: bare Enter keeps the Task picker usable without an error")
+                child.send("\x1b[C")
+                tomorrow = today + timedelta(days=1)
+                child.expect(rf"Tasks · {tomorrow.isoformat()} · \d+")
+                child.send("\x1b[D")
+                child.expect(rf"Tasks · {today.isoformat()} · \d+")
+                print("PASS: Task Picker changes date with left/right arrow keys")
 
-                # Paging controls must be visible without opening ?/help, and a Task
-                # beyond the first ten entries must be directly selectable.
-                child.sendline("n")
+                target_date = (now + timedelta(hours=4, minutes=1)).date()
+                child.send("i")
+                child.expect(r"Task date \[[0-9-]+\]:")
+                child.sendline(target_date.isoformat())
                 child.expect(r"Choose a Task to work on")
-                child.expect(r"Page 2/2")
-                child.expect(r"p/prev\. Previous page")
-                child.sendline("11")
+                child.expect(rf"Tasks · {target_date.isoformat()} · \d+")
+                child.expect(r"Paging acceptance Task 01")
+
+                child.send("\x1b[B")
+                child.expect(r">\s+2\.")
+                child.send("\r")
 
                 index = child.expect(
                     [
@@ -283,6 +274,11 @@ def main() -> int:
                     raise AssertionError(
                         "current-work verification did not become ready within 20s"
                     )
+
+            print(
+                "PASS: real Task Picker accepted date navigation, typed date, "
+                "arrow scrolling and Enter selection"
+            )
             print(
                 f"REAL-USE: choose_start_to_duration={_elapsed(started):.3f}s "
                 f"(verification_retries={verification_retries})"
