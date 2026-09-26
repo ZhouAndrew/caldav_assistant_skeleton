@@ -52,7 +52,7 @@ class DateCursor:
     def reset_today(self) -> None:
         self.selected = self.today
 
-    def view(self, title: str = "Choose date") -> DatePickerView:
+    def view(\n        self,\n        title: str = "Choose date",\n        *,\n        marked_dates: Iterable[date] = (),\n    ) -> DatePickerView:
         weeks = Calendar(firstweekday=0).monthdatescalendar(
             self.selected.year,
             self.selected.month,
@@ -213,9 +213,15 @@ class TaskPickerController:
             "←/→ date · PgUp/PgDn month · ↑/↓ task · Enter choose · "
             "i input date · t today · / search · q cancel"
         )
+        marked_dates = []
+        for task in self.all_tasks:
+            for field_name in ("start", "due"):
+                value = _as_date(getattr(task, field_name, None))
+                if value is not None:
+                    marked_dates.append(value)
         return TaskPickerView(
             title=self.title,
-            calendar=self.date.view("Calendar"),
+            calendar=self.date.view("Calendar", marked_dates=marked_dates),
             tasks=self.tasks.view(
                 f"Tasks · {self.date.selected.isoformat()} · {len(self._filtered)}",
                 self._labels,
