@@ -151,6 +151,7 @@ class StdConsoleIO:
         stdout: TextIO | None = None,
         stderr: TextIO | None = None,
         terminal_width_fn: Callable[[], int] | None = None,
+        ui_key_fn: Callable[[], str] | None = None,
         terminal_bell_profile: TerminalBellProfile | None = None,
         sleep_fn: Callable[[float], None] = sleep,
     ) -> None:
@@ -158,6 +159,9 @@ class StdConsoleIO:
         self._secret_fn = secret_fn
         self.stdin = stdin or sys.stdin
         self._terminal_width_fn = terminal_width_fn
+        self._ui_key_fn = ui_key_fn
+        self._panel_active = False
+        self._windows_vt_enabled: bool | None = None
         output_stream = stdout or sys.stdout
         self.stdout = (
             _BellAwareTextStream(
@@ -205,6 +209,223 @@ class StdConsoleIO:
             return max(20, int(shutil.get_terminal_size(fallback=(80, 24)).columns))
         except OSError:
             return 80
+
+    def supports_interactive_picker(self) -> bool:
+        """Whether this client can drive key-oriented picker widgets."""
+        if self._ui_key_fn is not None:
+            return True
+        if self._input_fn is not None:
+            return False
+        input_tty = getattr(self.stdin, "isatty", None)
+        output_tty = getattr(self.stdout, "isatty", None)
+        return bool(
+            callable(input_tty)
+            and input_tty()
+            and callable(output_tty)
+            and output_tty()
+        )
+
+    def _enable_windows_vt(self) -> bool:
+        if os.name != "nt":
+            return True
+        if self._windows_vt_enabled is not None:
+            return self._windows_vt_enabled
+        try:
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+            mode = ctypes.c_uint()
+            if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+                self._windows_vt_enabled = False
+                return False
+            enabled = int(mode.value) | 0x0004  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+            self._windows_vt_enabled = bool(kernel32.SetConsoleMode(handle, enabled))
+        except Exception:
+            self._windows_vt_enabled = False
+        return bool(self._windows_vt_enabled)
+
+    def begin_interactive_panel(self) -> None:
+        """Enter a redraw-friendly terminal panel without leaking ANSI upward."""
+        if self._panel_active:
+            return
+        self._panel_active = True
+        if self.is_interactive() and self._enable_windows_vt():
+            self.stdout.write("\x1b[?1049h\x1b[H")
+            self.stdout.flush()
+
+    def end_interactive_panel(self) -> None:
+        if not self._panel_active:
+            return
+        if self.is_interactive() and self._enable_windows_vt():
+            self.stdout.write("\x1b[?1049l")
+            self.stdout.flush()
+        self._panel_active = False
+
+    def _render_panel_lines(self, lines: list[str]) -> None:
+        text = "\n".join(str(line) for line in lines)
+        if self.is_interactive() and self._enable_windows_vt():
+            self.stdout.write("\x1b[H" + text + "\x1b[J")
+            self.stdout.flush()
+            return
+        self.write(text)
+
+    def _calendar_lines(self, view: Any) -> list[str]:
+        marked = set(getattr(view, "marked_dates", ()) or ())
+        selected = getattr(view, "selected")
+        today = getattr(view, "today")
+        month = selected.month
+        lines = [f"        < {view.month_label} >", " Mon  Tue  Wed  Thu  Fri  Sat  Sun"]
+        for week in view.weeks:
+            cells = []
+            for day in week:
+                if day.month != month:
+                    cell = "    "
+                elif day == selected:
+                    cell = f"[{day.day:2d}]"
+                elif day in marked:
+                    cell = f" {day.day:2d}•"
+                elif day == today:
+                    cell = f"*{day.day:2d} "
+                else:
+                    cell = f" {day.day:2d} "
+                cells.append(cell)
+            lines.append(" ".join(cells).rstrip())
+        return lines
+
+    @staticmethod
+    def _truncate_terminal_text(text: str, width: int) -> str:
+        from ..presentation.renderers import _display_width
+
+        value = str(text)
+        if width <= 1 or _display_width(value) <= width:
+            return value
+        suffix = "…"
+        target = max(1, width - 1)
+        result = ""
+        for char in value:
+            if _display_width(result + char) > target:
+                break
+            result += char
+        return result + suffix
+
+    def render_date_picker(self, view: Any) -> None:
+        lines = [str(getattr(view, "title", "Choose date")), ""]
+        lines.extend(self._calendar_lines(view))
+        lines.extend(
+            [
+                "",
+                f"Selected: {view.selected.isoformat()}",
+                "←/→ day · ↑/↓ week · PgUp/PgDn month · Enter choose · i input · t today · q cancel",
+            ]
+        )
+        self._render_panel_lines(lines)
+
+    def render_task_picker(self, view: Any) -> None:
+        lines = [str(view.title), ""]
+        lines.extend(self._calendar_lines(view.calendar))
+        lines.extend(["", str(view.tasks.title)])
+        labels = view.tasks.visible_labels
+        start = view.tasks.offset
+        selected_visible = view.tasks.visible_selected_index
+        width = max(24, int(self.display_width() or 80) - 8)
+        if not labels:
+            lines.append("  (No tasks on this date)")
+        else:
+            for visible_index, label in enumerate(labels):
+                number = start + visible_index + 1
+                pointer = ">" if visible_index == selected_visible else " "
+                shown = self._truncate_terminal_text(str(label), width)
+                lines.append(f"{pointer} {number:>2}. {shown}")
+        total = len(view.tasks.labels)
+        if total > view.tasks.page_size:
+            first = view.tasks.offset + 1
+            last = min(total, view.tasks.offset + view.tasks.page_size)
+            lines.append(f"  showing {first}-{last} of {total}")
+        lines.extend(["", str(view.footer)])
+        self._render_panel_lines(lines)
+
+    def read_ui_action(self) -> str:
+        """Read one key and translate terminal-specific bytes to a UI action."""
+        if self._ui_key_fn is not None:
+            return str(self._ui_key_fn())
+        if not self.supports_interactive_picker():
+            return "unsupported"
+
+        if os.name == "nt":
+            import msvcrt
+
+            char = msvcrt.getwch()
+            if char in {"\x00", "\xe0"}:
+                special = msvcrt.getwch()
+                return {
+                    "H": "up",
+                    "P": "down",
+                    "K": "left",
+                    "M": "right",
+                    "I": "page_up",
+                    "Q": "page_down",
+                    "G": "home",
+                    "O": "end",
+                }.get(special, "unknown")
+            if char in {"\r", "\n"}:
+                return "enter"
+            if char == "\x1b":
+                return "cancel"
+            return {
+                "q": "cancel",
+                "Q": "cancel",
+                "i": "input_date",
+                "I": "input_date",
+                "t": "today",
+                "T": "today",
+                "/": "search",
+            }.get(char, f"number:{char}" if char.isdigit() else "unknown")
+
+        import select
+        import termios
+        import tty
+
+        fd = self.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            char = self.stdin.read(1)
+            if char in {"\r", "\n"}:
+                return "enter"
+            if char != "\x1b":
+                return {
+                    "q": "cancel",
+                    "Q": "cancel",
+                    "i": "input_date",
+                    "I": "input_date",
+                    "t": "today",
+                    "T": "today",
+                    "/": "search",
+                }.get(char, f"number:{char}" if char.isdigit() else "unknown")
+
+            sequence = ""
+            for _ in range(4):
+                ready, _, _ = select.select([self.stdin], [], [], 0.03)
+                if not ready:
+                    break
+                sequence += self.stdin.read(1)
+                if sequence.endswith("~") or sequence in {"[A", "[B", "[C", "[D"}:
+                    break
+            return {
+                "[A": "up",
+                "[B": "down",
+                "[C": "right",
+                "[D": "left",
+                "[5~": "page_up",
+                "[6~": "page_down",
+                "[H": "home",
+                "[F": "end",
+                "OH": "home",
+                "OF": "end",
+            }.get(sequence, "cancel" if not sequence else "unknown")
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
     def push_line(self, value: Any) -> None:
         """Make one line the next value returned by read() without parsing it."""
