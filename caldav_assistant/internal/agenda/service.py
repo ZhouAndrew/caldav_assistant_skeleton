@@ -289,6 +289,7 @@ class AgendaService:
             "agenda": agenda,
             "recommendation": recommendation,
             "current_task": current_task,
+            "paused_task_ids": tuple(paused_uids),
             # The guided start menu reuses this exact Task set instead of issuing a
             # second full tasks.list call after startup.
             "tasks": tuple(tasks),

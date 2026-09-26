@@ -23,6 +23,10 @@ jobs:
           python -m pip install -e . pytest "radicale==3.5.4" pexpect
       - name: Test
         run: python -m pytest -q
+      - name: Real installed web GUI and background acceptance
+        env:
+          CALDAV_ASSISTANT_WEB_ACCEPTANCE_PRODUCTION: "1"
+        run: python scripts/acceptance_web_real.py
       - name: Real RFC 6578 sync-token acceptance
         shell: bash
         run: |
