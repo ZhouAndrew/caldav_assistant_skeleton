@@ -104,4 +104,4 @@ Terminal Adapter 统一拥有：
 
 `PromptKit` / `Menu` 提供类似常用对话框库的固定交互积木：`show`, `ask_text`, `ask_secret`, `ask_date`, `ask_time`, `ask_datetime`, `ask_duration`, `ask_yes_no`, `confirm`, `confirm_danger`, `choose`, `choose_many`, `choose_task`, `choose_event`。
 
-终端菜单由 Terminal Adapter 根据实际宽度布局：空间足够时按编号顺序横向扩展，多行自动换行；窄终端、重定向输出或长项目自动退回稳定的纵向布局。业务代码不得自行拼接列宽或 ANSI/CR 控制字符。
+终端菜单由 Terminal Adapter 根据实际宽度布局：空间足够时使用对齐网格，编号顺序必须先从上到下、再从左到右；列宽按终端显示宽度（含中文双宽字符）统一对齐。窄终端、重定向输出或长项目自动减少列数，必要时退回单列。业务代码不得自行拼接列宽或 ANSI/CR 控制字符。
