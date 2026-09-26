@@ -258,8 +258,10 @@ def main() -> int:
             )
             principal = client.principal()
             calendar = principal.make_calendar(name="Acceptance")
-            calendar.save_todo(_todo_ics(datetime.now(timezone.utc)))
-            calendar.save_event(_event_ics(datetime.now(timezone.utc)))
+            seed_now = datetime.now(timezone.utc)
+            task_date = (seed_now + timedelta(hours=2)).date()
+            calendar.save_todo(_todo_ics(seed_now))
+            calendar.save_event(_event_ics(seed_now))
             calendar_url = str(calendar.url)
             _configure_assistant(home, base_url, calendar_url)
             print(f"PASS: real Radicale ready at {base_url}")
@@ -301,11 +303,19 @@ def main() -> int:
             child.sendline("1")
             _expect(
                 child,
-                "Choose by number; type /keyword to search",
-                label="Task picker entered",
+                "Task Picker: ←/→ date",
+                label="shared Task Picker entered",
             )
-            _expect(child, "Choose a Task to work on", label="Task chooser shown")
-            child.sendline("1")
+            _expect(child, "Choose a Task to work on", label="Task Picker shown")
+            child.send("i")
+            child.expect(r"Task date \[[0-9-]+\]:")
+            child.sendline(task_date.isoformat())
+            _expect(
+                child,
+                "English writing acceptance",
+                label="typed date filters the Task Picker",
+            )
+            child.send("\r")
             _expect(child, "How long do you want to work", label="duration menu shown")
             child.sendline("1")
             _expect(child, "Ready to start", label="start/end plan preview shown")
