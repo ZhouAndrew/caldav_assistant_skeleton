@@ -13,10 +13,11 @@ prompt is repeated. q/cancel/back may leave a prompt without crashing the REPL.
 from __future__ import annotations
 
 import re
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 from .menu import Menu
+from .pickers import DatePickerController, TaskPickerController, task_matches_date
 from .task_labels import task_labeler
 
 
@@ -229,13 +230,220 @@ class PromptKit:
         when = getattr(item, "due", None) or getattr(item, "start", None)
         return f"{summary} — {when}" if when is not None else str(summary)
 
-    def choose_task(self, title: str | None = None, **filters: Any) -> Any:
-        if self.tasks is None:
-            self._write("Task service is unavailable.")
-            return None
-        items, label = task_labeler(self.tasks.list(**filters) or ())
+    def _today(self) -> date:
+        parser = getattr(self.temporal, "parse_date", None)
+        if callable(parser):
+            try:
+                value = parser("today")
+                if isinstance(value, datetime):
+                    return value.date()
+                if isinstance(value, date):
+                    return value
+            except Exception:
+                pass
+        return datetime.now().astimezone().date()
+
+    @staticmethod
+    def _coerce_date(value: Any, fallback: date) -> date:
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        return fallback
+
+    def choose_date(
+        self,
+        title: str = "Choose date",
+        *,
+        default: Any = None,
+        marked_dates: Any = (),
+    ) -> date | None:
+        """Reusable calendar/date picker with a text-input fallback."""
+        today = self._today()
+        selected = self._coerce_date(default, today)
+        supports = getattr(self.io, "supports_interactive_picker", None)
+        render = getattr(self.io, "render_date_picker", None)
+        read_action = getattr(self.io, "read_ui_action", None)
+        begin = getattr(self.io, "begin_interactive_panel", None)
+        end = getattr(self.io, "end_interactive_panel", None)
+
+        if not (
+            callable(supports)
+            and supports()
+            and callable(render)
+            and callable(read_action)
+        ):
+            return self.ask_date(title, default=selected.isoformat())
+
+        controller = DatePickerController(selected, today=today)
+        if callable(begin):
+            begin()
+        try:
+            while True:
+                render(controller.view(title, marked_dates=marked_dates))
+                action = str(read_action())
+                if action == "left":
+                    controller.apply("left")
+                elif action == "right":
+                    controller.apply("right")
+                elif action == "up":
+                    controller.apply("week_up")
+                elif action == "down":
+                    controller.apply("week_down")
+                elif action == "page_up":
+                    controller.apply("page_up")
+                elif action == "page_down":
+                    controller.apply("page_down")
+                elif action in {"home", "today"}:
+                    controller.apply("today")
+                elif action == "enter":
+                    return controller.selected
+                elif action == "input_date":
+                    if callable(end):
+                        end()
+                    value = self.ask_date(
+                        "Date",
+                        default=controller.selected.isoformat(),
+                    )
+                    if value is None:
+                        if callable(begin):
+                            begin()
+                        continue
+                    controller.cursor.selected = self._coerce_date(
+                        value,
+                        controller.selected,
+                    )
+                    if callable(begin):
+                        begin()
+                elif action == "cancel":
+                    return None
+        finally:
+            if callable(end):
+                end()
+
+    def choose_task(
+        self,
+        title: str | None = None,
+        *,
+        items: Any = None,
+        default_date: Any = None,
+        **filters: Any,
+    ) -> Any:
+        """Choose a Task through the reusable date-filtered Task Picker interface."""
+        if items is None:
+            if self.tasks is None:
+                self._write("Task service is unavailable.")
+                return None
+            source = list(self.tasks.list(**filters) or ())
+        else:
+            source = list(items or ())
+
+        source, label = task_labeler(source)
         title = title or self.t("prompt.choose_task", "Choose task")
-        return self.menu.choose(title, items, item_label=label)
+        if not source:
+            self._write("No Tasks are available.")
+            return None
+
+        today = self._today()
+        selected_date = self._coerce_date(default_date, today)
+        supports = getattr(self.io, "supports_interactive_picker", None)
+        render = getattr(self.io, "render_task_picker", None)
+        read_action = getattr(self.io, "read_ui_action", None)
+        begin = getattr(self.io, "begin_interactive_panel", None)
+        end = getattr(self.io, "end_interactive_panel", None)
+
+        # Non-terminal clients retain a stable, line-oriented fallback. The default
+        # date is still today; if today is empty, ask for a date instead of silently
+        # switching to unrelated Tasks.
+        if not (
+            callable(supports)
+            and supports()
+            and callable(render)
+            and callable(read_action)
+        ):
+            dated = [task for task in source if task_matches_date(task, selected_date)]
+            if not dated:
+                chosen_date = self.ask_date(
+                    "Task date",
+                    default=selected_date.isoformat(),
+                )
+                if chosen_date is None:
+                    return None
+                selected_date = self._coerce_date(chosen_date, selected_date)
+                dated = [task for task in source if task_matches_date(task, selected_date)]
+            if not dated:
+                self._write(f"No Tasks on {selected_date.isoformat()}.")
+                return None
+            return self.menu.choose(title, dated, item_label=label)
+
+        controller = TaskPickerController(
+            source,
+            labeler=label,
+            selected_date=selected_date,
+            today=today,
+            title=title,
+        )
+        if callable(begin):
+            begin()
+        try:
+            while True:
+                render(controller.view())
+                action = str(read_action())
+                if action == "up":
+                    controller.move_task(-1)
+                elif action == "down":
+                    controller.move_task(1)
+                elif action == "left":
+                    controller.move_date_days(-1)
+                elif action == "right":
+                    controller.move_date_days(1)
+                elif action == "page_up":
+                    controller.move_date_months(-1)
+                elif action == "page_down":
+                    controller.move_date_months(1)
+                elif action in {"home", "today"}:
+                    controller.reset_today()
+                elif action == "enter":
+                    if controller.selected_task is not None:
+                        return controller.selected_task
+                elif action.startswith("number:"):
+                    raw = action.split(":", 1)[1]
+                    if raw.isdigit() and raw != "0":
+                        index = int(raw) - 1
+                        if 0 <= index < len(controller.tasks.items):
+                            controller.tasks.selected_index = index
+                            return controller.selected_task
+                    elif raw == "0":
+                        return None
+                elif action == "input_date":
+                    if callable(end):
+                        end()
+                    value = self.ask_date(
+                        "Task date",
+                        default=controller.date.selected.isoformat(),
+                    )
+                    if callable(begin):
+                        begin()
+                    if value is not None:
+                        controller.set_date(
+                            self._coerce_date(value, controller.date.selected)
+                        )
+                elif action == "search":
+                    if callable(end):
+                        end()
+                    query = self.ask_text(
+                        "Search Tasks on this date",
+                        allow_empty=True,
+                    )
+                    if callable(begin):
+                        begin()
+                    if query is not None:
+                        controller.search(query)
+                elif action == "cancel":
+                    return None
+        finally:
+            if callable(end):
+                end()
 
     def choose_event(self, title: str | None = None, **filters: Any) -> Any:
         if self.events is None:
