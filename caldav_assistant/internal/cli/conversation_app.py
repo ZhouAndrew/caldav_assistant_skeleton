@@ -367,7 +367,7 @@ def _choose_task_for_work(
     """Choose one Task with the shared searchable/paged PromptKit menu."""
     _show(
         app,
-        "Choose by number; type /keyword to search; use n/p for pages; 0 goes back.",
+        "Task Picker: ←/→ date · ↑/↓ task · Enter choose · i input date · / search · q back.",
     )
     chooser = getattr(app.ctx.ui, "choose_task", None)
     if not callable(chooser):
