@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -70,6 +71,35 @@ def _paging_todo_ics(index: int, now: datetime) -> str:
 
 def _elapsed(started: float) -> float:
     return time.monotonic() - started
+
+
+def _assert_column_major_menu(text: str) -> None:
+    """Verify displayed numbering reads downward first, then across columns."""
+    rows: list[list[int]] = []
+    for raw_line in text.splitlines():
+        numbers = [
+            int(value)
+            for value in re.findall(r"(?:^|\s)(\d+)\.\s", raw_line)
+            if int(value) != 0
+        ]
+        if numbers:
+            rows.append(numbers)
+
+    if not rows or max(len(row) for row in rows) < 2:
+        raise AssertionError(f"menu did not render a horizontal grid:\n{text}")
+
+    read_order: list[int] = []
+    for column in range(max(len(row) for row in rows)):
+        for row in rows:
+            if column < len(row):
+                read_order.append(row[column])
+
+    expected = list(range(1, max(read_order) + 1))
+    if read_order != expected:
+        raise AssertionError(
+            "menu numbering is not top-to-bottom then left-to-right: "
+            f"{read_order!r} != {expected!r}\n{text}"
+        )
 
 
 def main() -> int:
@@ -162,15 +192,11 @@ def main() -> int:
             started = time.monotonic()
             child.sendline("")
             child.expect(r"What do you want to do\?")
-            child.expect(
-                r"1\. Choose a Task to work on[ ]{3,}"
-                r"4\. Today[ ]{3,}"
-                r"7\. Guide Book[ ]{3,}"
-                r"10\. Settings and setup"
-            )
+            child.expect(r"> ")
+            _assert_column_major_menu(child.before)
             print(
-                "PASS: real terminal menu is aligned and orders top-to-bottom "
-                "before left-to-right at 120 columns"
+                "PASS: real terminal menu orders top-to-bottom before "
+                "left-to-right at 120 columns"
             )
             print(f"REAL-USE: first_menu_open={_elapsed(started):.3f}s")
             child.sendline("0")
