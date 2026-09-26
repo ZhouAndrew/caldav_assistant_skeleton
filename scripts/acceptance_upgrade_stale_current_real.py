@@ -384,11 +384,16 @@ def main() -> int:
             first.sendline("1")
             _expect(
                 first,
-                "Choose by number; type /keyword to search",
+                "Task Picker: ←/→ date",
                 "cached Task can be selected before verification",
             )
-            _expect(first, "Choose a Task to work on", "cached Task chooser shown")
-            first.sendline("1")
+            _expect(first, "Choose a Task to work on", "cached Task Picker shown")
+            target_date = (now + timedelta(hours=2)).date()
+            first.send("i")
+            first.expect(r"Task date \[[0-9-]+\]:")
+            first.sendline(target_date.isoformat())
+            _expect(first, "English writing acceptance", "cached Task visible on selected date")
+            first.send("\r")
             _expect(
                 first,
                 r"Current Task state is still unavailable|Current work is still unverified",
