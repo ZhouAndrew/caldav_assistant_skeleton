@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from inspect import signature
 
 from caldav_assistant.api import Task
@@ -41,3 +42,29 @@ def test_wordpress_thunderbird_helpers_stay_internal():
     assert not hasattr(WordPressService, "daily_log_reference")
     assert hasattr(WordPressService, "_attach_file")
     assert hasattr(WordPressService, "_daily_log_reference")
+
+
+class _ActivityRepo:
+    def __init__(self):
+        self.rows = []
+
+    def record(self, timestamp, action, object_id, metadata):
+        self.rows.append((timestamp, action, object_id, metadata))
+
+    def between(self, start, end):
+        return []
+
+    def for_object(self, object_id):
+        return []
+
+
+def test_public_activity_record_still_treats_at_as_metadata():
+    fixed_now = datetime(2026, 9, 27, 4, 0, tzinfo=timezone.utc)
+    supplied_metadata_time = datetime(2026, 9, 26, 1, 2, tzinfo=timezone.utc)
+    repo = _ActivityRepo()
+    activity = ActivityService(repo, clock=lambda: fixed_now)
+
+    item = activity.record("custom_event", "x", at=supplied_metadata_time)
+
+    assert item.timestamp == fixed_now
+    assert item.metadata["at"] == supplied_metadata_time
