@@ -150,7 +150,11 @@ def _queue(text: str, **metadata: Any) -> Any:
     # The line already contains its start/end range; suppress the transport's
     # ordinary "logged at" prefix so WordPress contains exactly the human entry.
     metadata = dict(metadata)
-    metadata.setdefault("_calendar_link", True)
+    if metadata.get("_work_event_id"):
+        metadata.setdefault("_calendar_link", True)
+    else:
+        metadata.pop("_work_event_id", None)
+        metadata.pop("_calendar_link", None)
     return writer(text, _show_clock=False, **metadata)
 
 
