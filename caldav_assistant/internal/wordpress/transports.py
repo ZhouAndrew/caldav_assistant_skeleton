@@ -238,6 +238,22 @@ class WPCLIAdapter:
     def _post_content(self, post_id: Any) -> str:
         return self._run(["post", "get", str(post_id), "--field=post_content"])
 
+    def _post_url(self, post_id: Any) -> str:
+        """Resolve the current public permalink instead of treating WordPress GUID as one."""
+        output = self._run(
+            [
+                "post",
+                "list",
+                self._argument("post__in", post_id),
+                "--fields=ID,url",
+                "--format=json",
+            ]
+        )
+        for item in self._decode_post_list(output):
+            if str(item.get("ID")) == str(post_id):
+                return str(item.get("url") or "").strip()
+        return ""
+
     @staticmethod
     def _append_content(existing: str, entry: str) -> str:
         left = str(existing or "").rstrip()
@@ -279,25 +295,27 @@ class WPCLIAdapter:
         post_id = self._find_daily_post(now, post_type=post_type)
 
         if post_id is None:
-            return self.create_post(
+            created = self.create_post(
                 daily_title,
                 entry,
                 post_status=post_status,
                 post_type=post_type,
                 **metadata,
             )
+            post_id = created["id"]
+            return {"id": post_id, "post_url": self._post_url(post_id)}
 
         existing = self._post_content(post_id)
         if marker and marker in existing:
             # At-least-once Outbox retry after a remote success must not duplicate
             # the same visible diary line.
-            return {"id": post_id}
+            return {"id": post_id, "post_url": self._post_url(post_id)}
 
         self.update_post(
             post_id,
             post_content=self._append_content(existing, entry),
         )
-        return {"id": post_id}
+        return {"id": post_id, "post_url": self._post_url(post_id)}
 
     def read_daily_log(
         self,
@@ -318,6 +336,7 @@ class WPCLIAdapter:
         return {
             "id": post_id,
             "title": item["title"],
+            "url": self._post_url(post_id),
             "content": self._post_content(post_id),
         }
 
@@ -459,7 +478,7 @@ class WPCLIAdapter:
             post_content=self._append_content(existing, entry),
         )
         try:
-            post_url = self._run(["post", "get", str(post_id), "--field=guid"])
+            post_url = self._post_url(post_id)
         except Exception:
             post_url = ""
         return {
