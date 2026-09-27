@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOST_NAME="local.caldav_assistant"
+HOST_NAME="local.caldav_assistant_experimental"
 BASE_DIR="$HOME/.local/share/caldav-assistant-thunderbird-experimental"
 BIN="$HOME/.local/bin/caldav-assistant-thunderbird-host-experimental"
 MANIFEST="$HOME/.mozilla/native-messaging-hosts/$HOST_NAME.json"
