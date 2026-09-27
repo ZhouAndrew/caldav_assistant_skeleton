@@ -251,3 +251,4 @@ def test_log_panel_never_remains_indefinitely_loading():
     assert "Promise.allSettled" in source
     assert 'command == "logs_open"' in host
     assert "open_log_folder" in host
+    assert 'command not in {"logs", "logs_clear", "logs_open"}' in host
