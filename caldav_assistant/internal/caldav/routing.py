@@ -223,6 +223,16 @@ class CollectionRoutingCalDAVAdapter:
                 pass
         return calendar.get_events()
 
+    def get_event_in_collection(self, collection_url: str, event_id: str) -> Event:
+        calendar = self._selected_calendar(collection_url)
+        mapper = getattr(self.adapter, "_to_event", None)
+        if calendar is None or not callable(mapper):
+            return self.adapter.get_event(event_id)
+        try:
+            return mapper(calendar.get_event_by_uid(event_id), calendar)
+        except Exception as exc:
+            raise _app_error(exc) from exc
+
     def list_events_in_collection(self, collection_url: str, **filters: Any):
         calendar = self._selected_calendar(collection_url)
         mapper = getattr(self.adapter, "_to_event", None)
