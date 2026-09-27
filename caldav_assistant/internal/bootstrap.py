@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -332,6 +333,7 @@ def build_service_application() -> ServiceApplication:
         assistant_state,
         sync.cached_tasks,
         _ordinary_cached_events(sync.cached_events),
+        max_lateness=timedelta(minutes=30),
     )
     work_periods = WorkPeriodService(
         reminders,
