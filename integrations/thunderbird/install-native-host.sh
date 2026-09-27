@@ -27,11 +27,51 @@ chmod 600 "$LOG_PATH"
 ln -sfn "$LOG_PATH" "$BASE_DIR/native-host.log"
 
 if [[ ! -x "$VENV_DIR/bin/python" ]]; then
+  echo "== Create isolated Thunderbird Native Host environment =="
   "$python3_bin" -m venv "$VENV_DIR"
 fi
 
-"$VENV_DIR/bin/python" -m pip install --upgrade pip
-"$VENV_DIR/bin/python" -m pip install --upgrade "$ROOT"
+export PIP_DISABLE_PIP_VERSION_CHECK=1
+
+run_with_heartbeat() {
+  local label="$1"
+  shift
+  echo "== $label =="
+  "$@" &
+  local pid=$!
+  local started=$SECONDS
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 2
+    if kill -0 "$pid" 2>/dev/null; then
+      printf '   … still working (%ss)\n' "$((SECONDS - started))"
+    fi
+  done
+  wait "$pid"
+}
+
+# Do not upgrade pip on every repair/update. That added avoidable network work and
+# could make the installer appear frozen at "Processing ./.".
+if ! "$VENV_DIR/bin/python" - <<'PY'
+from __future__ import annotations
+import importlib.metadata
+
+def version(name: str) -> str | None:
+    try:
+        return importlib.metadata.version(name)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+caldav = version("caldav")
+setuptools = version("setuptools")
+raise SystemExit(0 if caldav == "3.2.1" and setuptools is not None else 1)
+PY
+then
+  run_with_heartbeat     "Install Native Host runtime prerequisites"     "$VENV_DIR/bin/python" -m pip install "setuptools>=68" "caldav==3.2.1"
+else
+  echo "Native Host runtime prerequisites: already satisfied"
+fi
+
+run_with_heartbeat   "Install current CalDAV Assistant Core (local, no dependency/network resolution)"   "$VENV_DIR/bin/python" -m pip install     --no-deps     --no-build-isolation     --force-reinstall     "$ROOT"
 
 cp "$ROOT/integrations/thunderbird/native_host.py" "$LIB_DIR/native_host.py"
 chmod 700 "$LIB_DIR/native_host.py"
