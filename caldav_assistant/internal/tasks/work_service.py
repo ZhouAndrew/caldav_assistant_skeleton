@@ -49,9 +49,15 @@ class CalDAVWorkTaskService(TaskService):
 
     def _work_call(self, name: str, *args: Any, snapshot: Any = None, **kwargs: Any):
         method = getattr(self.worklog, name)
+        if kwargs.get("at", object()) is None:
+            kwargs.pop("at", None)
         if snapshot is not None:
             kwargs["snapshot"] = snapshot
         return method(*args, **kwargs)
+
+    @staticmethod
+    def _call_with_optional_time(method: Any, task: Any, at: Any = None):
+        return method(task) if at is None else method(task, at=at)
 
     def _segments_for_command(self, task: Task, *, fallback_snapshot: Any):
         """Use per-Task server narrowing when production WorkLog supports it."""
@@ -134,7 +140,7 @@ class CalDAVWorkTaskService(TaskService):
             # not. Refresh a Task selected from cached UI before delegating to the
             # base lifecycle implementation.
             obj = self._require_live_start_task(self.get(lookup))
-            return super().start(obj, at=at)
+            return self._call_with_optional_time(super().start, obj, at)
 
         # A guided menu may legitimately pass a Task object that came from the
         # explicitly stale startup cache. Convert it back to its stable id before
@@ -201,7 +207,7 @@ class CalDAVWorkTaskService(TaskService):
 
     def pause(self, task: Task | str, *, at: Any = None) -> ActionResult:
         if not self._worklog_configured():
-            return super().pause(task, at=at)
+            return self._call_with_optional_time(super().pause, task, at)
 
         obj = self.get(task)
         task_id = self._require_id(obj)
@@ -237,7 +243,7 @@ class CalDAVWorkTaskService(TaskService):
 
     def resume(self, task: Task | str, *, at: Any = None) -> ActionResult:
         if not self._worklog_configured():
-            return super().resume(task, at=at)
+            return self._call_with_optional_time(super().resume, task, at)
 
         obj = self.get(task)
         task_id = self._require_id(obj)
@@ -287,7 +293,7 @@ class CalDAVWorkTaskService(TaskService):
 
     def complete(self, task: Task | str, *, at: Any = None) -> ActionResult:
         if not self._worklog_configured():
-            return super().complete(task, at=at)
+            return self._call_with_optional_time(super().complete, task, at)
 
         obj = self.get(task)
         task_id = self._require_id(obj)
@@ -363,7 +369,7 @@ class CalDAVWorkTaskService(TaskService):
 
     def cancel(self, task: Task | str, *, at: Any = None) -> ActionResult:
         if not self._worklog_configured():
-            return super().cancel(task, at=at)
+            return self._call_with_optional_time(super().cancel, task, at)
 
         obj = self.get(task)
         task_id = self._require_id(obj)
