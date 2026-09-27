@@ -1,6 +1,7 @@
 const $ = id => document.getElementById(id);
 let token = null;
 let snapshot = null;
+let setupState = null;
 
 function say(message, error = false) {
   const node = $('notice');
@@ -31,6 +32,76 @@ async function post(path, payload) {
   if (!token) token = (await request('/api/token')).token;
   return request(path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Assistant-Token': token}, body: JSON.stringify(payload)});
 }
+
+function fillSetup(state) {
+  setupState = state || {};
+  const candidates = setupState.discovered_candidates || [];
+  const suggested = setupState.base_url || (candidates.length === 1 ? candidates[0] : '');
+  if (!$('caldav-url').value && suggested) $('caldav-url').value = suggested;
+  const bits = [];
+  if (setupState.base_url_source === 'ambiguous' && candidates.length > 1) bits.push('发现多个本机 CalDAV 服务器，请确认地址。');
+  else if (candidates.length === 1 && !setupState.base_url) bits.push('已自动发现本机 CalDAV 服务器。');
+  if (setupState.credentials_configured) bits.push('已保存账号密码；留空会继续保留。');
+  $('setup-hint').textContent = bits.join(' ');
+}
+
+function showFirstRun(state) {
+  fillSetup(state);
+  $('setup-panel').hidden = false;
+  $('app-shell').hidden = true;
+  $('refresh').hidden = true;
+  $('setup-toggle').hidden = true;
+}
+
+function showReady(state) {
+  fillSetup(state);
+  $('setup-panel').hidden = true;
+  $('app-shell').hidden = false;
+  $('refresh').hidden = false;
+  $('setup-toggle').hidden = false;
+}
+
+async function bootstrap() {
+  try {
+    const state = await request('/api/setup/status');
+    if (!state.ready) {
+      showFirstRun(state);
+      say('首次使用只需在这里连接一次 CalDAV。');
+      return;
+    }
+    showReady(state);
+    await refresh(false);
+  } catch (error) {
+    showFirstRun({});
+    say(error.message, true);
+  }
+}
+
+async function connectSetup(event) {
+  event.preventDefault();
+  const submit = $('setup-submit');
+  submit.disabled = true;
+  try {
+    say('正在连接并自动配置…');
+    const state = await post('/api/setup/connect', {
+      base_url: $('caldav-url').value,
+      username: $('caldav-user').value,
+      password: $('caldav-password').value,
+      clear_credentials: $('clear-credentials').checked,
+    });
+    $('caldav-password').value = '';
+    $('clear-credentials').checked = false;
+    showReady(state);
+    const ok = await refresh(true);
+    if (ok) say('已连接 CalDAV，网页版可以直接使用。');
+  } catch (error) {
+    showFirstRun(setupState || {});
+    say(error.message, true);
+  } finally {
+    submit.disabled = false;
+  }
+}
+
 async function perform(payload) {
   if (payload.action === 'complete' && !confirm('确定完成这项任务？')) return;
   if (payload.action === 'start' || payload.action === 'resume') {
@@ -116,6 +187,12 @@ async function refresh(live = false) {
   return false;
 }
 $('refresh').addEventListener('click', () => refresh(true));
+$('setup-form').addEventListener('submit', connectSetup);
+$('setup-toggle').addEventListener('click', () => {
+  const panel = $('setup-panel');
+  panel.hidden = !panel.hidden;
+  if (!panel.hidden) fillSetup(setupState || {});
+});
 $('edit-cancel').addEventListener('click', () => $('edit-dialog').close());
 $('create-form').addEventListener('submit', async event => {
   event.preventDefault();
@@ -135,4 +212,4 @@ $('edit-form').addEventListener('submit', async event => {
   }
   catch (error) { say(error.message, true); }
 });
-refresh();
+bootstrap();
