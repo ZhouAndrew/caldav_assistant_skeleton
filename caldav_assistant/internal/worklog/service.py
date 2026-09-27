@@ -328,10 +328,30 @@ class WorkLogService:
         for line in additions:
             if line not in lines:
                 lines.append(line)
-        updated = self._update_work_event(
-            str(event_id),
-            {"description": "\n".join(lines)},
+
+        description = "\n".join(lines)
+        specialized = getattr(
+            self.adapter,
+            "update_event_references_in_collection",
+            None,
         )
+        if callable(specialized):
+            updated = specialized(
+                str(target),
+                str(event_id),
+                description=description,
+                wordpress_url=clean_wordpress or None,
+                attachment_urls=[
+                    str(value or "").strip()
+                    for value in attachment_urls or ()
+                    if str(value or "").strip()
+                ],
+            )
+        else:
+            updated = self._update_work_event(
+                str(event_id),
+                {"description": description},
+            )
         if not isinstance(updated, Event):
             raise TypeError("CalDAVAdapter must return Event for work-log update")
         return updated
