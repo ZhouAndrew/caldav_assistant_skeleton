@@ -281,6 +281,11 @@ class WPCLIAdapter:
         entry_title = metadata.pop("title", None)
         request_id = metadata.pop("_request_id", None)
         show_clock = bool(metadata.pop("_show_clock", True))
+        # Integration metadata is consumed by WordPressService's delivery observer,
+        # not forwarded as arbitrary wp_insert_post fields.
+        metadata.pop("_calendar_link", None)
+        metadata.pop("_work_event_id", None)
+        metadata.pop("_calendar_attachment_link", None)
         post_status = metadata.pop("post_status", metadata.pop("status", "draft"))
         post_type = str(metadata.pop("post_type", "post") or "post")
 
@@ -424,6 +429,9 @@ class WPCLIAdapter:
             now = self._local_now()
 
         request_id = metadata.pop("_request_id", None)
+        metadata.pop("_calendar_link", None)
+        metadata.pop("_work_event_id", None)
+        metadata.pop("_calendar_attachment_link", None)
         post_status = metadata.pop("post_status", metadata.pop("status", "publish"))
         post_type = str(metadata.pop("post_type", "post") or "post")
         display_name = str(metadata.pop("filename", "") or value.name)
