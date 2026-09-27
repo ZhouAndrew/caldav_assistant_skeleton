@@ -1,8 +1,18 @@
 from caldav_assistant.internal.cli.io import StdConsoleIO as LegacyStdConsoleIO
 from caldav_assistant.internal.clients.terminal import StdConsoleIO
-from caldav_assistant.internal.presentation import HtmlRenderer, JsonRenderer, TextRenderer
+from caldav_assistant.internal.presentation import (
+    DatePickerView,
+    HtmlRenderer,
+    JsonRenderer,
+    ScrollableListView,
+    TaskPickerView,
+    TextRenderer,
+)
 from caldav_assistant.internal.presentation.renderers import _display_width
 from caldav_assistant.internal.prompts import Choice, Menu
+from datetime import date
+from io import StringIO
+import os
 
 
 class FakeIO:
@@ -175,3 +185,108 @@ def test_horizontal_menu_orders_top_to_bottom_then_left_to_right():
     ]
     assert len(set(starts_col2)) == 1
     assert len(set(starts_col3)) == 1
+
+
+def test_terminal_menu_uses_viewport_capacity_and_keeps_column_major_order():
+    output = StringIO()
+    io = StdConsoleIO(
+        input_fn=lambda _prompt: "11",
+        stdout=output,
+        terminal_width_fn=lambda: 120,
+        terminal_height_fn=lambda: 40,
+    )
+    menu = Menu(io)
+
+    selected = menu.choose("Home", [f"Item {index}" for index in range(1, 12)])
+
+    assert selected == "Item 11"
+    rendered = output.getvalue()
+    assert "Page 1/2" not in rendered
+    choice_lines = [
+        line for line in rendered.splitlines()
+        if ". Item " in line
+    ]
+    assert len(choice_lines) < 11
+    # Reading down each column yields 1,2,3...; the next column starts only
+    # after the row count, never by greedy left-to-right numbering.
+    first_row = choice_lines[0]
+    second_row = choice_lines[1]
+    assert "1. Item 1" in first_row
+    assert "3. Item 3" in first_row
+    assert "2. Item 2" in second_row
+    assert "4. Item 4" in second_row
+
+
+def test_picker_views_render_as_json_and_html_from_the_same_models():
+    calendar = DatePickerView(
+        title="Calendar",
+        selected=date(2026, 9, 27),
+        today=date(2026, 9, 27),
+        month_label="September 2026",
+        weeks=((date(2026, 9, 21), date(2026, 9, 22), date(2026, 9, 23),
+                date(2026, 9, 24), date(2026, 9, 25), date(2026, 9, 26),
+                date(2026, 9, 27)),),
+        marked_dates=(date(2026, 9, 23), date(2026, 9, 27)),
+    )
+    tasks = ScrollableListView(
+        title="Tasks · 2026-09-27 · 2",
+        labels=("OVERDUE · Old task", "Today task"),
+        selected_index=1,
+        offset=0,
+        page_size=8,
+    )
+    view = TaskPickerView(
+        title="Choose a Task to work on",
+        calendar=calendar,
+        tasks=tasks,
+        footer="Enter choose",
+    )
+
+    payload = JsonRenderer().render(view)
+    assert payload["type"] == "task_picker"
+    assert payload["calendar"]["selected"] == "2026-09-27"
+    assert payload["tasks"]["labels"][0] == "OVERDUE · Old task"
+
+    html = HtmlRenderer().render(view)
+    assert 'data-view="task_picker"' in html
+    assert 'data-view="date_picker"' in html
+    assert 'data-view="scrollable_list"' in html
+    assert 'data-date="2026-09-27"' in html
+    assert "OVERDUE · Old task" in html
+    assert 'aria-current="true"' in html
+
+
+class _TTYStringIO(StringIO):
+    def isatty(self):
+        return True
+
+    def fileno(self):
+        raise OSError("synthetic tty has no fd")
+
+
+def test_posix_dumb_terminal_disables_ansi_picker_and_keeps_line_fallback(monkeypatch):
+    if os.name == "nt":
+        return
+    monkeypatch.setenv("TERM", "dumb")
+    io = StdConsoleIO(stdin=_TTYStringIO(), stdout=_TTYStringIO())
+
+    assert io.supports_ansi_panel() is False
+    assert io.supports_interactive_picker() is False
+
+
+def test_posix_panel_clears_before_each_redraw_to_prevent_stale_tail_text(monkeypatch):
+    if os.name == "nt":
+        return
+    monkeypatch.setenv("TERM", "xterm-256color")
+    output = _TTYStringIO()
+    io = StdConsoleIO(stdin=_TTYStringIO(), stdout=output)
+
+    io.begin_interactive_panel()
+    io._render_panel_lines(["A very long old line", "second"])
+    io._render_panel_lines(["short"])
+    io.end_interactive_panel()
+
+    rendered = output.getvalue()
+    assert rendered.count("\x1b[H\x1b[2J") >= 3
+    assert "\x1b[?25l" in rendered
+    assert "\x1b[?25h" in rendered
