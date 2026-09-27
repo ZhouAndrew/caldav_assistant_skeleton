@@ -17,6 +17,8 @@ dependencies = [
 caldav-assistant = "caldav_assistant.internal.cli.versioned_entrypoint:main"
 caldav-assistant-service = "caldav_assistant.internal.runtime.versioned_observable_service:main"
 caldav-assistant-web = "caldav_assistant.internal.web.server:main"
+caldav-assistant-thunderbird-host = "caldav_assistant.internal.thunderbird.native_host:main"
+caldav-assistant-thunderbird-install = "caldav_assistant.internal.thunderbird.install:main"
 
 [tool.setuptools.package-data]
 caldav_assistant = ["py.typed", "*.pyi", "internal/web/static/*"]
