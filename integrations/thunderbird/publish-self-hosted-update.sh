@@ -5,8 +5,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE_DIR="${CALDAV_ASSISTANT_TB_UPDATE_STATE:-$HOME/.local/share/caldav-assistant-thunderbird-update-server}"
 WWW_DIR="$STATE_DIR/www/experimental"
 CONTAINER="caldav-assistant-thunderbird-update-server"
-PORT="${CALDAV_ASSISTANT_TB_UPDATE_PORT:-17443}"
-HOSTNAME="${CALDAV_ASSISTANT_TB_UPDATE_HOST:-andrew.local}"
+PORT="17443"
+HOSTNAME="andrew.local"
 UPDATE_URL="https://$HOSTNAME:$PORT/experimental/updates.json"
 
 if ! docker inspect "$CONTAINER" >/dev/null 2>&1; then
