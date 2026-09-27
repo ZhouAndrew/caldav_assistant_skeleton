@@ -2,6 +2,7 @@
 """Real Radicale acceptance for Thunderbird History calendar provisioning."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 import socket
 import subprocess
@@ -12,9 +13,12 @@ import urllib.request
 
 from caldav.davclient import DAVClient
 
+from caldav_assistant.api import Task
+from caldav_assistant.internal.caldav import CollectionRoutingCalDAVAdapter
 from caldav_assistant.internal.caldav.library_adapter import LibraryCalDAVAdapter
 from caldav_assistant.internal.caldav.setup import CalDAVSetupService
 from caldav_assistant.internal.settings.keys import CALDAV_WORKLOG_COLLECTION_URL
+from caldav_assistant.internal.worklog import WorkLogService
 
 
 class Provider:
@@ -65,7 +69,7 @@ def _wait_http(url: str, timeout: float = 10.0) -> None:
 
 
 def _matching_calendars(base_url: str):
-    client = DAVClient(url=base_url)
+    client = DAVClient(url=base_url, username="work", password="work")
     principal = client.principal()
     matches = []
     for calendar in principal.get_calendars():
@@ -113,7 +117,10 @@ def main() -> int:
         try:
             _wait_http(base_url)
             settings = Settings()
-            adapter = LibraryCalDAVAdapter(Provider(base_url), None)
+            adapter = LibraryCalDAVAdapter(
+                Provider(base_url),
+                {"username": "work", "password": "work"},
+            )
             setup = CalDAVSetupService(settings, Discovery(), adapter)
 
             first = setup.ensure_worklog_collection()
@@ -150,6 +157,60 @@ def main() -> int:
                     f"idempotent setup duplicated History calendar: {len(matches)} copies"
                 )
             print("PASS: settings loss reused the existing server calendar without duplication")
+
+            # Prove integration links are written to the History VEVENT itself,
+            # even when a separate ordinary Event calendar is configured.
+            principal = verification_client.principal()
+            normal_events = principal.make_calendar(name="Normal Events")
+            routed = CollectionRoutingCalDAVAdapter(
+                adapter,
+                task_collection_url=lambda: None,
+                event_collection_url=lambda: str(normal_events.url),
+            )
+            worklog = WorkLogService(
+                routed,
+                lambda: settings.get(CALDAV_WORKLOG_COLLECTION_URL),
+            )
+            task = Task(id="link-task", summary="Link Test")
+            started_at = datetime(2026, 9, 27, 9, 20, tzinfo=timezone.utc)
+            ended_at = datetime(2026, 9, 27, 10, 5, tzinfo=timezone.utc)
+            opened = worklog.start_segment(task, at=started_at, snapshot=())
+            closed = worklog.close_segment(task, at=ended_at, snapshot=(opened,))
+
+            wordpress_url = "https://example.test/log/2026-09-27/"
+            attachment_url = "https://example.test/uploads/evidence.pdf"
+            worklog.add_references(
+                closed.id,
+                wordpress_url=wordpress_url,
+                attachment_urls=[attachment_url],
+            )
+
+            history_resource = matches[0].get_event_by_uid(closed.id)
+            component = history_resource.get_icalendar_component()
+            if str(component.get("URL") or "") != wordpress_url:
+                raise AssertionError(
+                    f"History VEVENT URL mismatch: {component.get('URL')!r}"
+                )
+            raw_attach = component.get("ATTACH")
+            attach_values = (
+                {str(value) for value in raw_attach}
+                if isinstance(raw_attach, (list, tuple))
+                else {str(raw_attach)} if raw_attach is not None else set()
+            )
+            if attachment_url not in attach_values:
+                raise AssertionError(
+                    f"History VEVENT ATTACH missing {attachment_url!r}: {attach_values!r}"
+                )
+            description = str(component.get("DESCRIPTION") or "")
+            if f"WordPress: {wordpress_url}" not in description:
+                raise AssertionError("History VEVENT DESCRIPTION lost WordPress reference")
+            if f"Attachment: {attachment_url}" not in description:
+                raise AssertionError("History VEVENT DESCRIPTION lost attachment reference")
+            if list(normal_events.get_events()):
+                raise AssertionError(
+                    "WordPress references leaked into the ordinary Event calendar"
+                )
+            print("PASS: History VEVENT stores URL + ATTACH and ordinary Event calendar stays untouched")
 
             print("REAL THUNDERBIRD HISTORY CALENDAR ACCEPTANCE: PASS")
             return 0
