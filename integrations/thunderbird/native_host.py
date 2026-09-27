@@ -10,7 +10,7 @@ import sys
 from typing import Any
 from uuid import uuid4
 
-from caldav_assistant.internal.bootstrap import build_cli_application
+from caldav_assistant.internal.bootstrap import build_service_application
 
 
 APP = None
@@ -19,8 +19,12 @@ APP = None
 def app():
     global APP
     if APP is None:
-        APP = build_cli_application()
+        APP = build_service_application()
     return APP
+
+
+def core_call(method: str, **payload: Any) -> Any:
+    return app().background.dispatcher.handle(method, payload)
 
 
 def read_message() -> dict[str, Any] | None:
@@ -47,7 +51,7 @@ def write_message(value: dict[str, Any]) -> None:
 
 
 def ensure_history_calendar() -> dict[str, Any]:
-    return app().runtime.call(
+    return core_call(
         "caldav.ensure_worklog_collection",
         name="CalDAV Assistant History",
     )
@@ -75,7 +79,7 @@ def parse_at(value: Any) -> datetime:
 
 def latest_work_event_id(task_id: str) -> str | None:
     try:
-        opened = app().runtime.call("worklog.open_for", task=task_id)
+        opened = core_call("worklog.open_for", task=task_id)
         event_id = str(getattr(opened, "id", "") or "").strip()
         if event_id:
             return event_id
@@ -100,11 +104,11 @@ def link_event(event_id: str | None, *, at: datetime, attachment_urls=()) -> dic
     if not event_id:
         return None
     try:
-        reference = app().runtime.call("wordpress.daily_log_reference", at=at)
+        reference = core_call("wordpress.daily_log_reference", at=at)
         url = str((reference or {}).get("url") or "").strip()
         if not url and not attachment_urls:
             return None
-        app().runtime.call(
+        core_call(
             "worklog.add_references",
             event_id=event_id,
             wordpress_url=url or None,
@@ -171,7 +175,7 @@ def action(message: dict[str, Any]) -> dict[str, Any]:
     wp = None
     if action_name in {"pause", "cancel", "complete"}:
         try:
-            app().runtime.call("wordpress.flush")
+            core_call("wordpress.flush")
             wp = {"message": "WordPress log updated"}
         except Exception as exc:
             wp = {"message": "WordPress update pending", "error": str(exc)}
@@ -222,7 +226,7 @@ def attachment(message: dict[str, Any]) -> dict[str, Any]:
     path = store / f"{uuid4().hex}-{filename}"
     path.write_bytes(base64.b64decode(encoded, validate=True))
 
-    result = app().runtime.call(
+    result = core_call(
         "wordpress.attach_file",
         path=str(path),
         _logged_at=at.isoformat(),
@@ -237,7 +241,7 @@ def attachment(message: dict[str, Any]) -> dict[str, Any]:
     if bool(message.get("calendar_link", True)) and event_id:
         attachment_urls = [file_url] if bool(message.get("attachment_link", False)) and file_url else []
         try:
-            app().runtime.call(
+            core_call(
                 "worklog.add_references",
                 event_id=event_id,
                 wordpress_url=post_url or None,
