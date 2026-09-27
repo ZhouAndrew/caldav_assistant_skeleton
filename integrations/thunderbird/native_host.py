@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import base64
+from collections import deque
 from datetime import datetime
 import json
 from pathlib import Path
 import struct
 import sys
+import time
 from typing import Any
 from uuid import uuid4
 
@@ -14,7 +16,64 @@ from caldav_assistant.internal.bootstrap import build_service_application
 
 
 APP = None
+HISTORY_CALENDAR: dict[str, Any] | None = None
 UPLOADS: dict[str, dict[str, Any]] = {}
+LOG_LINES: deque[str] = deque(maxlen=500)
+LOG_PATH = (
+    Path.home()
+    / ".local"
+    / "state"
+    / "caldav-assistant"
+    / "thunderbird"
+    / "native-host.log"
+)
+
+
+def _elapsed_ms(started: float) -> float:
+    return round((time.perf_counter() - started) * 1000.0, 1)
+
+
+def log_event(event: str, **fields: Any) -> None:
+    record = {
+        "at": datetime.now().astimezone().isoformat(timespec="milliseconds"),
+        "event": event,
+        **fields,
+    }
+    line = json.dumps(record, ensure_ascii=False, default=str, sort_keys=True)
+    LOG_LINES.append(line)
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with LOG_PATH.open("a", encoding="utf-8") as stream:
+            stream.write(line + "\n")
+        if LOG_PATH.stat().st_size > 2_000_000:
+            lines = LOG_PATH.read_text(encoding="utf-8", errors="replace").splitlines()
+            LOG_PATH.write_text(
+                "\n".join(lines[-500:]) + "\n",
+                encoding="utf-8",
+            )
+    except OSError:
+        pass
+
+
+def log_lines(limit: int = 300) -> list[str]:
+    clean_limit = min(500, max(1, int(limit or 300)))
+    try:
+        if LOG_PATH.is_file():
+            return LOG_PATH.read_text(
+                encoding="utf-8",
+                errors="replace",
+            ).splitlines()[-clean_limit:]
+    except OSError:
+        pass
+    return list(LOG_LINES)[-clean_limit:]
+
+
+def clear_logs() -> None:
+    LOG_LINES.clear()
+    try:
+        LOG_PATH.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def app():
@@ -52,10 +111,13 @@ def write_message(value: dict[str, Any]) -> None:
 
 
 def ensure_history_calendar() -> dict[str, Any]:
-    return core_call(
-        "caldav.ensure_worklog_collection",
-        name="CalDAV Assistant History",
-    )
+    global HISTORY_CALENDAR
+    if HISTORY_CALENDAR is None:
+        HISTORY_CALENDAR = core_call(
+            "caldav.ensure_worklog_collection",
+            name="CalDAV Assistant History",
+        )
+    return HISTORY_CALENDAR
 
 
 def task_json(task: Any) -> dict[str, Any]:
@@ -120,15 +182,26 @@ def link_event(event_id: str | None, *, at: datetime, attachment_urls=()) -> dic
         return {"pending": True, "error": f"{type(exc).__name__}: {exc}"}
 
 
-def snapshot() -> dict[str, Any]:
-    history = ensure_history_calendar()
-    try:
-        core_call("wordpress.flush")
-    except Exception:
-        pass
-    tasks = app().ctx.tasks.list(actionable=True)
-    current_id = app().ctx.session.current_task_id()
+def _fast_current_task_id() -> str | None:
+    """Read Assistant-owned session state without triggering CalDAV recovery."""
+    session = app().ctx.session
+    getter = getattr(session, "_get", None)
+    key = getattr(session, "CURRENT_TASK_KEY", "current_task_uid")
+    if callable(getter):
+        value = getter(key, None)
+        return str(value) if value else None
+    return session.current_task_id()
+
+
+def state_snapshot() -> dict[str, Any]:
+    started = time.perf_counter()
+
+    session_started = time.perf_counter()
+    current_id = _fast_current_task_id()
     paused_ids = list(app().ctx.session.paused_task_ids())
+    session_ms = _elapsed_ms(session_started)
+
+    activity_started = time.perf_counter()
     today = []
     for item in app().ctx.activity.today():
         at = getattr(item, "timestamp", None)
@@ -137,27 +210,60 @@ def snapshot() -> dict[str, Any]:
         action = str(getattr(item, "action", "") or "")
         object_id = str(getattr(item, "object_id", "") or "")
         today.append(f"{stamp} {action} {object_id}".strip())
+    activity_ms = _elapsed_ms(activity_started)
+
     return {
         "ok": True,
-        "tasks": [task_json(task) for task in tasks],
         "state": {
             "current_task_id": current_id,
             "paused_task_ids": paused_ids,
         },
         "today": today,
-        "history_calendar": history,
+        "history_calendar": {"name": "CalDAV Assistant History"},
+        "timings": {
+            "session_ms": session_ms,
+            "activity_ms": activity_ms,
+            "total_ms": _elapsed_ms(started),
+            "source": "local-session+sqlite",
+        },
     }
 
 
+def snapshot() -> dict[str, Any]:
+    """Compatibility snapshot for older Thunderbird XPI builds."""
+    started = time.perf_counter()
+    data = state_snapshot()
+
+    tasks_started = time.perf_counter()
+    tasks = app().ctx.tasks.list(actionable=True)
+    tasks_ms = _elapsed_ms(tasks_started)
+
+    data["tasks"] = [task_json(task) for task in tasks]
+    data["timings"] = {
+        **data.get("timings", {}),
+        "tasks_caldav_ms": tasks_ms,
+        "total_ms": _elapsed_ms(started),
+        "source": "caldav-fallback",
+    }
+    return data
+
+
 def action(message: dict[str, Any]) -> dict[str, Any]:
+    started = time.perf_counter()
+    timings: dict[str, Any] = {}
+
     action_name = str(message.get("action") or "").strip()
     task_id = str(message.get("task_id") or "").strip()
     at = parse_at(message.get("at"))
     if not task_id:
         raise ValueError("task_id is required")
 
+    history_started = time.perf_counter()
     ensure_history_calendar()
+    timings["ensure_history_ms"] = _elapsed_ms(history_started)
+
     tasks = app().ctx.tasks
+    task_action_started = time.perf_counter()
     if action_name == "start":
         if task_id in app().ctx.session.paused_task_ids():
             result = tasks._resume(task_id, at=at)
@@ -176,27 +282,34 @@ def action(message: dict[str, Any]) -> dict[str, Any]:
         verb = "Completed"
     else:
         raise ValueError("unsupported action")
+    timings["task_action_ms"] = _elapsed_ms(task_action_started)
 
     wp = None
     if action_name in {"pause", "cancel", "complete"}:
+        wordpress_started = time.perf_counter()
         try:
             core_call("wordpress.flush")
             wp = {"message": "WordPress log updated"}
         except Exception as exc:
             wp = {"message": "WordPress update pending", "error": str(exc)}
+        timings["wordpress_flush_ms"] = _elapsed_ms(wordpress_started)
 
         if bool(message.get("calendar_link", True)):
+            link_started = time.perf_counter()
             event_id = latest_work_event_id(task_id)
             ref = link_event(event_id, at=at)
+            timings["calendar_link_ms"] = _elapsed_ms(link_started)
             if ref and ref.get("pending"):
                 wp = wp or {}
                 wp["calendar_link_pending"] = True
 
+    timings["total_ms"] = _elapsed_ms(started)
     return {
         "ok": True,
         "message": f"{verb} at {at.astimezone().strftime('%H:%M')}",
         "task": task_json(getattr(result, "affected", None)),
         "wordpress": wp,
+        "timings": timings,
     }
 
 
@@ -371,6 +484,8 @@ def attachment(message: dict[str, Any]) -> dict[str, Any]:
 
 def dispatch(message: dict[str, Any]) -> dict[str, Any]:
     command = str(message.get("command") or "")
+    if command == "state":
+        return state_snapshot()
     if command == "snapshot":
         return snapshot()
     if command == "action":
@@ -387,13 +502,25 @@ def dispatch(message: dict[str, Any]) -> dict[str, Any]:
         return attachment_abort(message)
     if command == "attachment":
         return attachment(message)
+    if command == "logs":
+        return {
+            "ok": True,
+            "lines": log_lines(int(message.get("limit") or 300)),
+            "path": str(LOG_PATH),
+        }
+    if command == "logs_clear":
+        clear_logs()
+        return {"ok": True, "cleared": True, "path": str(LOG_PATH)}
     if command == "ping":
         return {"ok": True, "name": "CalDAV Assistant Thunderbird host"}
     raise ValueError(f"unsupported command: {command}")
 
 
 def main() -> int:
+    log_event("native_host_started")
     while True:
+        message: dict[str, Any] | None = None
+        started = time.perf_counter()
         try:
             message = read_message()
             if message is None:
@@ -403,9 +530,36 @@ def main() -> int:
                     except OSError:
                         pass
                 UPLOADS.clear()
+                log_event("native_host_stopped")
                 return 0
-            write_message(dispatch(message))
+
+            command = str(message.get("command") or "")
+            result = dispatch(message)
+            total_ms = _elapsed_ms(started)
+            if isinstance(result, dict):
+                timings = result.setdefault("timings", {})
+                if isinstance(timings, dict):
+                    timings.setdefault("host_total_ms", total_ms)
+
+            if command != "logs_clear":
+                log_event(
+                    "request",
+                    command=command,
+                    ok=True,
+                    total_ms=total_ms,
+                    timings=result.get("timings") if isinstance(result, dict) else None,
+                )
+            write_message(result)
         except Exception as exc:
+            command = str((message or {}).get("command") or "")
+            total_ms = _elapsed_ms(started)
+            log_event(
+                "request",
+                command=command,
+                ok=False,
+                total_ms=total_ms,
+                error=f"{type(exc).__name__}: {exc}",
+            )
             write_message({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
 
 
