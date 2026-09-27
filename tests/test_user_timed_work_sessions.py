@@ -68,6 +68,39 @@ class EventAdapter:
         return values
 
 
+class ReferenceEventAdapter(EventAdapter):
+    def __init__(self):
+        super().__init__()
+        self.reference_calls = []
+        self.get_collection_calls = []
+
+    def get_event_in_collection(self, collection_url, event_id):
+        self.get_collection_calls.append((collection_url, event_id))
+        return self.events[event_id]
+
+    def update_event_references_in_collection(
+        self,
+        collection_url,
+        event_id,
+        *,
+        description,
+        wordpress_url=None,
+        attachment_urls=(),
+    ):
+        self.reference_calls.append(
+            {
+                "collection_url": collection_url,
+                "event_id": event_id,
+                "description": description,
+                "wordpress_url": wordpress_url,
+                "attachment_urls": list(attachment_urls),
+            }
+        )
+        event = self.events[event_id]
+        event.description = description
+        return event
+
+
 def test_activity_can_use_user_entered_timestamp():
     repo = ActivityRepo()
     service = ActivityService(repo)
@@ -129,3 +162,38 @@ def test_work_segment_can_point_back_to_wordpress_and_attachment():
 
     assert "WordPress: https://wordpress.example/2026/09/27/log/" in updated.description
     assert "Attachment: https://wordpress.example/uploads/lesson.png" in updated.description
+
+
+def test_references_are_read_and_written_in_the_work_history_collection():
+    adapter = ReferenceEventAdapter()
+    work_url = "http://example.invalid/history/"
+    service = WorkLogService(adapter, lambda: work_url)
+    task = Task(id="task-1", summary="Prepare Python course")
+    start = datetime(2026, 9, 27, 9, 20, tzinfo=timezone.utc)
+    end = datetime(2026, 9, 27, 10, 5, tzinfo=timezone.utc)
+
+    opened = service.start_segment(task, at=start, snapshot=())
+    closed = service.close_segment(task, at=end, snapshot=(opened,))
+    service.add_references(
+        closed.id,
+        wordpress_url="https://wordpress.example/log/",
+        attachment_urls=["https://wordpress.example/uploads/evidence.pdf"],
+    )
+
+    assert adapter.get_collection_calls == [(work_url, closed.id)]
+    assert adapter.reference_calls == [
+        {
+            "collection_url": work_url,
+            "event_id": closed.id,
+            "description": (
+                "CalDAV Assistant Work Segment\n"
+                "Task-UID: task-1\n"
+                "WordPress: https://wordpress.example/log/\n"
+                "Attachment: https://wordpress.example/uploads/evidence.pdf"
+            ),
+            "wordpress_url": "https://wordpress.example/log/",
+            "attachment_urls": [
+                "https://wordpress.example/uploads/evidence.pdf"
+            ],
+        }
+    ]
