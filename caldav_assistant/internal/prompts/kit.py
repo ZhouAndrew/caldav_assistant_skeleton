@@ -267,13 +267,44 @@ class PromptKit:
                 page_size=page_size,
             )
 
-        cursor = ScrollCursor(source, page_size=max(1, int(page_size)))
+        preferred_rows = getattr(self.io, "preferred_list_page_size", None)
+        effective_page_size = max(1, int(page_size))
+        if callable(preferred_rows):
+            try:
+                effective_page_size = max(
+                    1,
+                    int(
+                        preferred_rows(
+                            reserved_rows=5,
+                            fallback=effective_page_size,
+                            minimum=4,
+                        )
+                    ),
+                )
+            except Exception:
+                pass
+        cursor = ScrollCursor(source, page_size=effective_page_size)
         active_labels = list(labels)
         footer = "↑/↓ move · PgUp/PgDn page · Enter choose · / search · q cancel"
         if callable(begin):
             begin()
         try:
             while True:
+                if callable(preferred_rows):
+                    try:
+                        cursor.page_size = max(
+                            1,
+                            int(
+                                preferred_rows(
+                                    reserved_rows=5,
+                                    fallback=cursor.page_size,
+                                    minimum=4,
+                                )
+                            ),
+                        )
+                        cursor._clamp()
+                    except Exception:
+                        pass
                 render(cursor.view(title, active_labels), footer=footer)
                 action = str(read_action())
                 if action == "up":
@@ -508,17 +539,49 @@ class PromptKit:
                 return self.menu.choose(title, dated, item_label=fallback_label)
             return self.menu.choose(title, dated, item_label=label)
 
+        preferred_rows = getattr(self.io, "preferred_list_page_size", None)
+        task_page_size = 8
+        if callable(preferred_rows):
+            try:
+                task_page_size = max(
+                    4,
+                    int(
+                        preferred_rows(
+                            reserved_rows=15,
+                            fallback=8,
+                            minimum=4,
+                        )
+                    ),
+                )
+            except Exception:
+                task_page_size = 8
         controller = TaskPickerController(
             source,
             labeler=label,
             selected_date=selected_date,
             today=today,
             title=title,
+            page_size=task_page_size,
         )
         if callable(begin):
             begin()
         try:
             while True:
+                if callable(preferred_rows):
+                    try:
+                        controller.tasks.page_size = max(
+                            4,
+                            int(
+                                preferred_rows(
+                                    reserved_rows=15,
+                                    fallback=controller.tasks.page_size,
+                                    minimum=4,
+                                )
+                            ),
+                        )
+                        controller.tasks._clamp()
+                    except Exception:
+                        pass
                 render(controller.view())
                 action = str(read_action())
                 if action == "up":
