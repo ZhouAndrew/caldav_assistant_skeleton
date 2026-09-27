@@ -100,7 +100,7 @@ def test_confirm_and_confirm_danger_are_distinct_bricks():
     assert kit.confirm_danger("Delete everything?") is False
 
 
-def make_interactive(*actions, tasks=None, events=None):
+def make_interactive(*actions, tasks=None, events=None, terminal_height=24):
     action_iter = iter(actions)
     output = StringIO()
     io = StdConsoleIO(
@@ -108,6 +108,7 @@ def make_interactive(*actions, tasks=None, events=None):
         stdout=output,
         ui_key_fn=lambda: next(action_iter),
         terminal_width_fn=lambda: 100,
+        terminal_height_fn=lambda: terminal_height,
     )
     kit = PromptKit(io, Menu(io), FakeTemporal(), tasks, events)
     return kit, output
@@ -160,3 +161,34 @@ def test_choose_task_left_right_changes_date_before_enter_selection():
 
     assert selected.summary == "Tomorrow"
     assert "Tasks · 2026-08-31 · 1" in output.getvalue()
+
+
+def test_task_picker_uses_available_terminal_height_instead_of_fixed_eight_rows():
+    due = date(2026, 8, 30)
+    tasks = ListAPI(
+        [Item(f"Task {index:02d}", due=due) for index in range(1, 31)]
+    )
+    kit, output = make_interactive(
+        "enter",
+        tasks=tasks,
+        terminal_height=40,
+    )
+
+    selected = kit.choose_task()
+
+    assert selected.summary == "Task 01"
+    text = output.getvalue()
+    assert "showing 1-25 of 30" in text
+    assert "Task 25" in text
+    assert "Task 26" not in text
+
+
+def test_scrollable_selector_uses_available_terminal_height():
+    kit, output = make_interactive("enter", terminal_height=20)
+
+    assert kit.choose_scrollable("Pick", [f"Item {i}" for i in range(20)]) == "Item 0"
+
+    text = output.getvalue()
+    assert "showing 1-15 of 20" in text
+    assert "Item 14" in text
+    assert "Item 15" not in text
