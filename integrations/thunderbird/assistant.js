@@ -1,4 +1,4 @@
-const HOST = "local.caldav_assistant";
+const HOST = "local.caldav_assistant_experimental";
 const ATTACHMENT_CHUNK_BYTES = 256 * 1024;
 const $ = (id) => document.getElementById(id);
 
