@@ -152,7 +152,15 @@ class ThunderbirdBridge:
         text = str(message.get("text") or "").strip()
         if not text:
             raise ValueError("log text must not be empty")
-        metadata: dict[str, Any] = {}
+        task_id = str(message.get("task_id") or "").strip()
+        work_event_id = (
+            str(message.get("work_event_id") or "").strip()
+            or (self._related_work_event_id(task_id) if task_id else None)
+        )
+        metadata: dict[str, Any] = {
+            "_calendar_link": bool(message.get("calendar_link", True)),
+            "_work_event_id": work_event_id,
+        }
         at = message.get("at")
         if at:
             metadata["_logged_at"] = at
