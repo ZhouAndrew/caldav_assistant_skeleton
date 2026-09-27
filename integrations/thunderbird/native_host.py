@@ -160,19 +160,19 @@ def action(message: dict[str, Any]) -> dict[str, Any]:
     tasks = app().ctx.tasks
     if action_name == "start":
         if task_id in app().ctx.session.paused_task_ids():
-            result = tasks.resume(task_id, at=at)
+            result = tasks._resume(task_id, at=at)
             verb = "Started a new work segment"
         else:
-            result = tasks.start(task_id, at=at)
+            result = tasks._start(task_id, at=at)
             verb = "Started"
     elif action_name == "pause":
-        result = tasks.pause(task_id, at=at)
+        result = tasks._pause(task_id, at=at)
         verb = "Paused"
     elif action_name == "cancel":
-        result = tasks.cancel(task_id, at=at)
+        result = tasks._cancel(task_id, at=at)
         verb = "Cancelled"
     elif action_name == "complete":
-        result = tasks.complete(task_id, at=at)
+        result = tasks._complete(task_id, at=at)
         verb = "Completed"
     else:
         raise ValueError("unsupported action")
