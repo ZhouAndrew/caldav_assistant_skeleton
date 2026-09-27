@@ -199,8 +199,14 @@ class TaskService:
         at: datetime | None = None,
         **metadata: Any,
     ) -> None:
-        if self.activity is not None:
-            self.activity.record(action, task.id, at=at, **metadata)
+        if self.activity is None:
+            return
+        if isinstance(at, datetime):
+            writer = getattr(self.activity, "_record_at", None)
+            if callable(writer):
+                writer(at, action, task.id, **metadata)
+                return
+        self.activity.record(action, task.id, **metadata)
 
     def _remember(self, payload: dict[str, Any]) -> bool:
         if self.undo is None:
@@ -334,7 +340,19 @@ class TaskService:
             action = "task_updated"
         return self._update(task, changes, activity_action=action)
 
-    def complete(self, task: Task | str, *, at: datetime | None = None) -> ActionResult:
+    def complete(self, task: Task | str) -> ActionResult:
+        return self._complete(task)
+
+    def start(self, task: Task | str) -> ActionResult:
+        return self._start(task)
+
+    def pause(self, task: Task | str) -> ActionResult:
+        return self._pause(task)
+
+    def resume(self, task: Task | str) -> ActionResult:
+        return self._resume(task)
+
+    def _complete(self, task: Task | str, *, at: datetime | None = None) -> ActionResult:
         obj = self.get(task)
         task_id = self._require_id(obj)
         work_session_before = (
@@ -367,7 +385,7 @@ class TaskService:
         )
         return result
 
-    def start(self, task: Task | str, *, at: datetime | None = None) -> ActionResult:
+    def _start(self, task: Task | str, *, at: datetime | None = None) -> ActionResult:
         obj = self.get(task)
         task_id = self._require_id(obj)
         if obj.completed or obj.status in {"COMPLETED", "CANCELLED"}:
@@ -404,7 +422,7 @@ class TaskService:
         )
         return result
 
-    def pause(self, task: Task | str, *, at: datetime | None = None) -> ActionResult:
+    def _pause(self, task: Task | str, *, at: datetime | None = None) -> ActionResult:
         obj = self.get(task)
         task_id = self._require_id(obj)
         if obj.status != "IN-PROCESS":
@@ -427,7 +445,7 @@ class TaskService:
         )
         return ActionResult(True, affected=obj, undo_available=False)
 
-    def resume(self, task: Task | str, *, at: datetime | None = None) -> ActionResult:
+    def _resume(self, task: Task | str, *, at: datetime | None = None) -> ActionResult:
         obj = self.get(task)
         task_id = self._require_id(obj)
         if obj.completed or obj.status in {"COMPLETED", "CANCELLED"}:
@@ -467,7 +485,7 @@ class TaskService:
         )
         return result
 
-    def cancel(self, task: Task | str, *, at: datetime | None = None) -> ActionResult:
+    def _cancel(self, task: Task | str, *, at: datetime | None = None) -> ActionResult:
         obj = self.get(task)
         task_id = self._require_id(obj)
         work_session_before = (
