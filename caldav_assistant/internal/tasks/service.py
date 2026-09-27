@@ -22,6 +22,7 @@ from typing import Any
 from ...api import ActionResult, Task
 from ...api.v1.errors import AmbiguousError, NotFoundError, ValidationError
 from ..caldav.adapter import CalDAVAdapter
+from .semantics import task_is_actionable
 
 
 class TaskService:
@@ -227,7 +228,13 @@ class TaskService:
         return tuple(getter()) if callable(getter) else ()
 
     def list(self, **filters: Any) -> list[Task]:
-        return [self._bind(task) for task in self.adapter.list_tasks(**filters)]
+        # actionable is a Core selection semantic, not a CalDAV transport
+        # filter. Consume it here so every client reuses the same rule.
+        actionable = bool(filters.pop("actionable", False))
+        items = [self._bind(task) for task in self.adapter.list_tasks(**filters)]
+        if actionable:
+            items = [task for task in items if task_is_actionable(task)]
+        return items
 
     def find(self, query: str, **filters: Any) -> Task:
         if not isinstance(query, str) or not query.strip():
