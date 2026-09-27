@@ -363,6 +363,8 @@ def build_service_application() -> ServiceApplication:
     extensions.load_enabled()
 
     dispatcher = RuntimeDispatcher(ctx)
+    # Optional browser GUI asks for an authoritative refresh after mutations.
+    dispatcher.register_internal("agenda.live_startup_snapshot", agenda.live_startup_snapshot)
     dispatcher.register_internal("caldav.status", _caldav_setup.status)
     dispatcher.register_internal("caldav.set_base_url", _caldav_setup.set_base_url)
     dispatcher.register_internal("caldav.set_credentials", _caldav_setup.set_credentials)
