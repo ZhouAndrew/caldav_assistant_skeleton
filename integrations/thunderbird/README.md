@@ -84,10 +84,15 @@ On the `andrew.local` server, publish the current feed with:
 bash integrations/thunderbird/publish-self-hosted-update.sh
 ```
 
-By default this publishes to
-`/var/www/html/caldav-assistant/thunderbird/experimental/` and verifies that the
-HTTPS `updates.json` endpoint is reachable. The publish root can be overridden
-with `CALDAV_ASSISTANT_TB_UPDATE_ROOT`.
+On the current `andrew.local` layout, HTTPS is served from the WordPress document
+root, so the publisher automatically uses
+`/var/www/html/wordpress/caldav-assistant/thunderbird/experimental/` when that
+document root exists. Otherwise it falls back to
+`/var/www/html/caldav-assistant/thunderbird/experimental/`. The publish root can
+still be overridden with `CALDAV_ASSISTANT_TB_UPDATE_ROOT`.
+
+The publisher verifies both the HTTPS `updates.json` endpoint and the XPI URL
+advertised by that manifest before reporting success.
 
 **Bootstrap note:** version 0.1.0 did not contain an `update_url`, so an existing
 0.1.0 installation must install 0.1.1 manually once. From 0.1.1 onward, Thunderbird
