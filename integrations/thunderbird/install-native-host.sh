@@ -10,6 +10,8 @@ LIB_DIR="$BASE_DIR/host"
 BIN_DIR="$HOME/.local/bin"
 MANIFEST_DIR="$HOME/.mozilla/native-messaging-hosts"
 DESKTOP_DIR="${XDG_DESKTOP_DIR:-$HOME/Desktop}"
+LOG_DIR="$HOME/.local/state/caldav-assistant/thunderbird"
+LOG_PATH="$LOG_DIR/native-host.log"
 python3_bin="$(command -v python3 || true)"
 if [[ -z "$python3_bin" ]]; then
   echo "python3 is required." >&2
@@ -19,7 +21,10 @@ fi
 VERSION="$("$python3_bin" -c 'import json, pathlib; print(json.loads(pathlib.Path("'"$ROOT"'/integrations/thunderbird/manifest.json").read_text())["version"])')"
 XPI_NAME="caldav-assistant-thunderbird-$VERSION.xpi"
 
-mkdir -p "$BASE_DIR" "$LIB_DIR" "$BIN_DIR" "$MANIFEST_DIR" "$DESKTOP_DIR"
+mkdir -p "$BASE_DIR" "$LIB_DIR" "$BIN_DIR" "$MANIFEST_DIR" "$DESKTOP_DIR" "$LOG_DIR"
+touch "$LOG_PATH"
+chmod 600 "$LOG_PATH"
+ln -sfn "$LOG_PATH" "$BASE_DIR/native-host.log"
 
 if [[ ! -x "$VENV_DIR/bin/python" ]]; then
   "$python3_bin" -m venv "$VENV_DIR"
@@ -64,6 +69,7 @@ from caldav_assistant.internal.bootstrap import build_service_application
 assert callable(build_service_application)
 print("Experimental Core import: OK")
 PY
+"$VENV_DIR/bin/python" "$ROOT/integrations/thunderbird/verify-installed-native-host.py" "$launcher"
 
 echo
 echo "Experimental Thunderbird integration installed."
@@ -72,6 +78,9 @@ echo
 echo "Native host:"
 echo "  $manifest"
 echo "  $launcher"
+echo "Native Host log:"
+echo "  $LOG_PATH"
+echo "  $BASE_DIR/native-host.log -> $LOG_PATH"
 echo
 echo "XPI ready on Desktop:"
 echo "  $DESKTOP_DIR/$XPI_NAME"
