@@ -39,3 +39,19 @@ def test_xpi_contains_only_extension_runtime_files(tmp_path, monkeypatch):
         "assistant.css",
         "assistant.js",
     }
+
+
+def test_native_host_is_side_by_side_and_does_not_use_production_runtime_client():
+    source = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
+    assert "build_service_application" in source
+    assert "build_cli_application" not in source
+    assert ".runtime.call(" not in source
+
+
+def test_experimental_installer_uses_its_own_venv_and_does_not_replace_cli():
+    source = (THUNDERBIRD / "install-native-host.sh").read_text(encoding="utf-8")
+    assert "caldav-assistant-thunderbird-experimental" in source
+    assert 'VENV_DIR="$BASE_DIR/venv"' in source
+    assert 'pip install --upgrade "$ROOT"' in source
+    assert "command -v caldav-assistant" not in source
+    assert "Production caldav-assistant was not replaced." in source
