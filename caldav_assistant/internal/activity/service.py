@@ -111,10 +111,22 @@ class ActivityService:
             failures=len(getattr(report, "failures", ()) or ()),
         )
 
+    @staticmethod
+    def _normalize_timestamp(value: datetime | None) -> datetime:
+        if value is None:
+            raise TypeError("timestamp must be datetime")
+        if not isinstance(value, datetime):
+            raise TypeError("timestamp must be datetime")
+        if value.tzinfo is None:
+            value = value.astimezone()
+        return value.astimezone(timezone.utc)
+
     def record(
         self,
         action: str,
         object_id: str | None = None,
+        *,
+        at: datetime | None = None,
         **metadata: Any,
     ) -> Activity:
         """Persist one minimal Assistant behaviour event and return it.
@@ -124,7 +136,7 @@ class ActivityService:
         """
         normalized_action = self._normalize_action(action)
         normalized_object_id = self._object_id(object_id)
-        timestamp = self._now()
+        timestamp = self._now() if at is None else self._normalize_timestamp(at)
         safe_metadata = deepcopy(metadata)
 
         item = Activity(
