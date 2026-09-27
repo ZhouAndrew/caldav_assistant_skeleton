@@ -34,6 +34,10 @@ def _is_background_admin(argv: Sequence[str]) -> bool:
     return bool(argv and str(argv[0]).strip().casefold() == "background")
 
 
+def _is_web(argv: Sequence[str]) -> bool:
+    return bool(argv and str(argv[0]).strip().casefold() == "web")
+
+
 def ensure_current_background(app: Any) -> bool:
     """Restart a running daemon when it loaded a different source generation."""
     runtime = getattr(app, "runtime", None)
@@ -85,6 +89,15 @@ def ensure_current_background(app: Any) -> bool:
 def run_cli(argv: Sequence[str] | None = None, *, app: Any = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
+
+    # Web is a presentation adapter, not a second application.  Keep the normal
+    # bare "caldav-assistant" CLI contract frozen while making the browser path a
+    # single memorable command: caldav-assistant web.
+    if _is_web(argv):
+        from ..web.server import main as web_main
+
+        return web_main(list(argv[1:]))
+
     if app is None:
         from ..bootstrap import build_cli_application
 
