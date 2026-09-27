@@ -112,7 +112,9 @@ async function saveNote() {
   const result = await nativeRequest({
     type: "log",
     text,
+    task_id: $("task").value || "",
     at: factualTime(),
+    calendar_link: $("calendarLink").checked,
   });
   $("note").value = "";
   showMessage(result?.message || "WordPress record saved.", "ok");
