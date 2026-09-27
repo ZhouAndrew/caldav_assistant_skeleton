@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -304,3 +304,82 @@ def test_reminder_fact_sources_may_be_cache_loader_callables():
 
     assert service.next_due(now) == datetime(2026, 8, 25, 9, 0, tzinfo=timezone.utc)
     assert calls == {"tasks": 1, "events": 1}
+
+
+def test_stale_notification_debt_is_consumed_without_delivery():
+    now = datetime(2026, 9, 27, 10, 0, tzinfo=timezone.utc)
+    stale = Request(
+        "stale-task",
+        "Months old Task",
+        datetime(2026, 5, 18, 17, 0, tzinfo=timezone.utc),
+    )
+    fresh = Request(
+        "fresh-task",
+        "Fresh Task",
+        now - timedelta(minutes=5),
+    )
+    state = FakeState()
+    engine = FakeEngine([stale, fresh])
+    notifications = FakeNotifications()
+    service = ReminderService(
+        engine,
+        notifications,
+        FakeTemporal(),
+        state,
+        FakeQueryService([]),
+        FakeQueryService([]),
+        max_lateness=timedelta(minutes=30),
+    )
+
+    sent = service.process_due(now)
+
+    assert sent == [fresh]
+    assert notifications.calls == [("Fresh Task", "", None)]
+    assert state.get(service._DELIVERED_KEY) == ["fresh-task", "stale-task"]
+
+
+def test_stale_notification_debt_is_not_returned_as_next_due():
+    now = datetime(2026, 9, 27, 10, 0, tzinfo=timezone.utc)
+    stale = Request(
+        "stale",
+        "Old",
+        now - timedelta(days=7),
+    )
+    future = Request(
+        "future",
+        "Future",
+        now + timedelta(minutes=10),
+    )
+    service = ReminderService(
+        FakeEngine([stale, future]),
+        FakeNotifications(),
+        FakeTemporal(),
+        FakeState(),
+        FakeQueryService([]),
+        FakeQueryService([]),
+        max_lateness=timedelta(minutes=30),
+    )
+
+    assert service.next_due(now) == future.due_at
+
+
+def test_notification_inside_lateness_window_still_delivers():
+    now = datetime(2026, 9, 27, 10, 0, tzinfo=timezone.utc)
+    request = Request(
+        "recent",
+        "Recent",
+        now - timedelta(minutes=29, seconds=59),
+    )
+    service = ReminderService(
+        FakeEngine([request]),
+        FakeNotifications(),
+        FakeTemporal(),
+        FakeState(),
+        FakeQueryService([]),
+        FakeQueryService([]),
+        max_lateness=timedelta(minutes=30),
+    )
+
+    sent = service.process_due(now)
+
+    assert sent == [request]
