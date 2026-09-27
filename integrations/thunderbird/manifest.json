@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "CalDAV Assistant Experimental",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Thunderbird workspace for CalDAV Assistant work sessions and WordPress logs.",
   "background": {
     "scripts": [
@@ -10,13 +10,30 @@
   },
   "permissions": [
     "nativeMessaging",
-    "storage"
+    "storage",
+    "clipboardWrite"
   ],
   "browser_specific_settings": {
     "gecko": {
       "id": "caldav-assistant-experimental@zhouandrew.local",
       "strict_min_version": "115.0",
       "update_url": "https://andrew.local:17443/experimental/updates.json"
+    }
+  },
+  "experiment_apis": {
+    "assistantCalendar": {
+      "schema": "experiments/assistantCalendar/schema.json",
+      "parent": {
+        "scopes": [
+          "addon_parent"
+        ],
+        "script": "experiments/assistantCalendar/parent.js",
+        "paths": [
+          [
+            "assistantCalendar"
+          ]
+        ]
+      }
     }
   }
 }
