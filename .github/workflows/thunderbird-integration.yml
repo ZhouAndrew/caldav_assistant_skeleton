@@ -35,7 +35,7 @@ jobs:
           python scripts/acceptance_thunderbird_history_calendar_real.py
           python integrations/thunderbird/build-experimental-bundle.py
           python integrations/thunderbird/build-update-feed.py
-          python -m py_compile             integrations/thunderbird/update-server/server.py             integrations/thunderbird/update-server/verify.py             integrations/thunderbird/update-server/selftest.py
+          python -m py_compile             integrations/thunderbird/update-server/server.py             integrations/thunderbird/update-server/verify.py             integrations/thunderbird/update-server/selftest.py             integrations/thunderbird/setup_gui.py
           python integrations/thunderbird/update-server/selftest.py
           bash -n integrations/thunderbird/update-server/deploy.sh
           bash -n integrations/thunderbird/update-server/stop.sh

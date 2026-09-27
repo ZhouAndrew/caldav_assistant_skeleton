@@ -92,6 +92,13 @@ if [[ "${1:-}" == "--verify" ]]; then
   exit 0
 fi
 
+if [[ "${1:-}" != "--terminal" && -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
+  if python3 -c 'import tkinter' >/dev/null 2>&1; then
+    exec python3 "$HERE/setup_gui.py"
+  fi
+  echo "Desktop GUI is unavailable because Python tkinter is not installed; using terminal setup." >&2
+fi
+
 if [[ ! -t 0 ]]; then
   echo "Interactive setup needs a terminal. Running full deployment instead."
   run_full
