@@ -310,7 +310,15 @@ class StdConsoleIO:
             and callable(output_tty)
             and output_tty()
         )
-        return attached and self.supports_ansi_panel()
+        if not attached or not self.supports_ansi_panel():
+            return False
+        width = self.display_width()
+        height = self.display_height()
+        if width is not None and width < 40:
+            return False
+        if height is not None and height < 18:
+            return False
+        return True
 
     def _enable_windows_vt(self) -> bool:
         if os.name != "nt":
