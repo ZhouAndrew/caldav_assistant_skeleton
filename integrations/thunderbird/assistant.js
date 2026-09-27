@@ -532,6 +532,42 @@ function renderCoreProgress(progress, operationId) {
       received: "—",
       next: "校验通过后执行任务动作",
     });
+  } else if (stage === "caldav.preflight" && state === "started") {
+    setOperationMonitor({
+      doing: "并行读取权威状态",
+      peer: "Radicale · Task collection + Work collection",
+      sent: `同时读取 VTODO ${taskId} 与 open Work VEVENT`,
+      waiting: "等待两条 CalDAV 读取都返回；较慢的一条决定这一阶段耗时",
+      received: "—",
+      next: "用同一轮权威状态做生命周期校验",
+    });
+  } else if (stage === "caldav.preflight" && state === "done") {
+    setOperationMonitor({
+      doing: "权威状态读取完成",
+      peer: "Radicale · CalDAV",
+      sent: `VTODO + open Work query · Task ${taskId}`,
+      waiting: "无",
+      received: `STATUS=${details.status || "?"} · open work=${details.open_work_count ?? "?"}`,
+      next: "执行当前 Task 动作",
+    });
+  } else if (stage === "wordpress.queue" && state === "started") {
+    setOperationMonitor({
+      doing: "保存 WordPress 日志到本地 Outbox",
+      peer: "CalDAV Assistant · SQLite WordPress Outbox",
+      sent: `Task ${taskId} 的日志记录`,
+      waiting: "等待本地持久化确认，不等待 WordPress 网络",
+      received: "—",
+      next: "Outbox 成功后独立上传 WordPress",
+    });
+  } else if (stage === "wordpress.queue" && state === "done") {
+    setOperationMonitor({
+      doing: "WordPress 日志已安全入队",
+      peer: "SQLite WordPress Outbox",
+      sent: `Task ${taskId} log`,
+      waiting: "无",
+      received: `Outbox pending=${details.pending ?? "?"}`,
+      next: "独立通道上传 WordPress",
+    });
   } else if (stage === "worklog.open" && state === "started") {
     setOperationMonitor({
       doing: "创建工作时段",
@@ -819,18 +855,62 @@ async function addNote() {
   const text = $("note").value.trim();
   if (!text) throw new Error("Write a note first.");
 
+  const operationId = newOperationId("note");
+  const at = isoFromInput();
+  visibleOperationId = operationId;
+  resetOperationTrace();
+  setOperationMonitor({
+    doing: "保存工作记录",
+    peer: "Thunderbird → 本地 CalDAV Assistant Native Host",
+    sent: `WordPress note · Task=${task.summary} (${compactId(task.id)}) · ${text.length} chars`,
+    waiting: "等待写入本地持久 Outbox；不等待 WordPress 网络上传",
+    received: "—",
+    next: "入队后立即返回；WordPress 独立同步",
+  });
+  appendOperationTrace("正在把工作记录写入 WordPress Outbox。", "started");
+
   $("add-note").disabled = true;
   try {
-    const response = await host({
-      command: "note",
-      task_id: task.id,
-      text,
-      at: isoFromInput(),
-      calendar_link: $("calendar-link").checked,
-    });
+    const response = await host(
+      {
+        command: "note",
+        task_id: task.id,
+        text,
+        at,
+        calendar_link: $("calendar-link").checked,
+        operation_id: operationId,
+      },
+      10000,
+      progress => renderCoreProgress(progress, operationId)
+    );
     $("note").value = "";
-    show(response.message || "Added to WordPress.");
+    if (visibleOperationId === operationId) {
+      setOperationMonitor({
+        doing: "工作记录已保存",
+        peer: "SQLite WordPress Outbox",
+        sent: `${text.length} chars · Task ${compactId(task.id)}`,
+        waiting: "不等待 WordPress",
+        received: response.message || "Saved to WordPress Outbox.",
+        next: "独立通道上传 WordPress 并补 Calendar 回链",
+      });
+      appendOperationTrace("工作记录已安全进入本地 Outbox。", "done");
+    }
+    show(response.message || "Saved to WordPress Outbox.");
+    runWordpressFollowUp(response.follow_up, operationId);
     refreshLogs().catch(() => {});
+  } catch (error) {
+    if (visibleOperationId === operationId) {
+      setOperationMonitor({
+        doing: "工作记录保存失败",
+        peer: "CalDAV Assistant local Outbox",
+        sent: `${text.length} chars`,
+        waiting: "无",
+        received: error.message,
+        next: "记录未被伪装成已保存",
+      });
+      appendOperationTrace("失败：" + error.message, "failed");
+    }
+    throw error;
   } finally {
     $("add-note").disabled = false;
   }
