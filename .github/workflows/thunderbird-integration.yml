@@ -24,7 +24,12 @@ jobs:
 
       - name: Validate Thunderbird integration
         run: |
-          python -m pytest -q             tests/test_thunderbird_integration.py             tests/test_user_timed_work_sessions.py             tests/test_caldav_auto_history_calendar.py             tests/test_wordpress_work_session_extension.py
+          python -m pytest -q \
+            tests/test_thunderbird_integration.py \
+            tests/test_user_timed_work_sessions.py \
+            tests/test_caldav_auto_history_calendar.py \
+            tests/test_wordpress_work_session_extension.py \
+            tests/test_public_api_freeze_guard.py
           python -m py_compile integrations/thunderbird/native_host.py
           python integrations/thunderbird/selftest_native_host_protocol.py
           python scripts/acceptance_thunderbird_history_calendar_real.py
