@@ -571,7 +571,7 @@ def main() -> int:
                 if isinstance(timings, dict):
                     timings.setdefault("host_total_ms", total_ms)
 
-            if command != "logs_clear":
+            if command not in {"logs", "logs_clear", "logs_open"}:
                 log_event(
                     "request",
                     command=command,
