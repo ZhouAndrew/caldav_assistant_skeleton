@@ -15,23 +15,28 @@ Experimental standalone Thunderbird Space for the existing CalDAV Assistant Core
 - Calendar -> WordPress daily-log linking is enabled by default.
 - Direct Calendar -> attachment links are optional.
 
-## Interactive setup and diagnostics
+## Interactive Thunderbird workspace
 
-Use the interactive setup when installing or repairing the Thunderbird integration:
+The interaction belongs inside the Thunderbird XPI, not in a separate desktop
+launcher.  The Space is a compact tabbed workspace:
+
+- **工作** — searchable actionable Task list, current-work state, recorded time and
+  Start/Pause/Resume/Cancel/Complete actions.
+- **记录** — WordPress note/file capture and the small integration settings.
+- **今天** — Activity Journal for the current day with one-click copy.
+- **诊断** — structured Native Host timings, latest bottleneck analysis, raw logs,
+  Copy/Open-folder/Clear actions.
+
+Task and Work-session reads come from Thunderbird's already-open local
+Calendar/Tasks cache through the narrow read-only Experiment API.  Normal refreshes
+therefore do not wait for a new CalDAV HTTP round trip.  Mutations still go through
+CalDAV Assistant Core so CalDAV remains authoritative.
+
+The terminal setup remains only an installation/repair utility:
 
 ```bash
 bash integrations/thunderbird/setup.sh
 ```
-
-On a graphical Linux desktop this opens a small native desktop window by default.
-It provides one large **Install / Update Everything** button plus separate repair,
-verify, status, log-folder, and Desktop-XPI actions. Command output streams into
-the window live, so an install cannot look frozen at a bare `Processing ./.`
-line. The GUI does not use a browser.
-
-If Python tkinter is unavailable, the same command falls back to the terminal
-menu. Use `bash integrations/thunderbird/setup.sh --terminal` to force that
-terminal interface.
 
 Native Host diagnostics are persisted at:
 
@@ -39,17 +44,8 @@ Native Host diagnostics are persisted at:
 ~/.local/state/caldav-assistant/thunderbird/native-host.log
 ```
 
-The installer creates that file up front, exposes a convenience symlink under
-`~/.local/share/caldav-assistant-thunderbird-experimental/native-host.log`, and
-starts the installed Native Host once to prove the `ping` and `logs` protocol
-works and the file is readable before reporting success.
-
-The Thunderbird Logs panel uses a separate Native Messaging process from the
-normal Core request channel. This keeps log Refresh/Copy/Open-folder usable even
-while a slow CalDAV or WordPress operation is blocking the main request channel.
-The panel has a 5-second diagnostic timeout and must show either real log content,
-an empty state, or a concrete repair error; it must not remain indefinitely at
-`Loading…`.
+The XPI diagnostics tab reads that log through a separate Native Messaging process,
+so log access remains available even when the main Core request channel is slow.
 
 ## Build the XPI
 
