@@ -523,7 +523,25 @@ function renderCoreProgress(progress, operationId) {
   const taskId = compactId(details.task_id);
   const stage = progress.stage || "";
 
-  if (stage === "action.preflight") {
+  if (stage === "history.ensure" && state === "started") {
+    setOperationMonitor({
+      doing: "准备工作历史日历",
+      peer: "CalDAV Assistant Core ↔ Radicale",
+      sent: "检查并创建 CalDAV Assistant History collection",
+      waiting: "等待 Radicale 确认 History collection 可用",
+      received: "—",
+      next: "随后读取 Task 与 Work 权威状态",
+    });
+  } else if (stage === "history.ensure" && state === "done") {
+    setOperationMonitor({
+      doing: "工作历史日历已就绪",
+      peer: "Radicale · CalDAV",
+      sent: "History collection provisioning",
+      waiting: "无",
+      received: details.created ? "已新建 CalDAV Assistant History" : "已复用现有 History collection",
+      next: "继续当前 Task 操作",
+    });
+  } else if (stage === "action.preflight") {
     setOperationMonitor({
       doing: "验证任务与当前工作时段",
       peer: "CalDAV Assistant Core ↔ Radicale",
@@ -705,13 +723,21 @@ async function runWordpressFollowUp(followUp, parentOperationId) {
     );
     if (visibleOperationId === operationId) {
       const wp = response.wordpress || {};
+      const pendingKnown = typeof wp.pending === "number";
+      const waiting = !pendingKnown
+        ? "Outbox 数量未知；Background Service 仍负责 WordPress 发送与重试"
+        : wp.pending > 0
+          ? "WordPress 日志仍在后台 Outbox，等待 Background Service 下一次发送/重试"
+          : "无";
       setOperationMonitor({
         doing: "WordPress 集成交接完成",
         peer: "Assistant Background Service + WordPress + Radicale",
         sent: "Outbox ownership check + Calendar reference",
-        waiting: wp.pending ? "WordPress 日志仍在后台 Outbox，等待 Background Service 周期发送" : "无",
-        received: `delivery=${wp.delivery_owner || "background-service"} · pending=${wp.pending ?? "?"} · calendar-link=${wp.reference?.pending ? "pending" : "done"}`,
-        next: wp.pending ? "后台服务继续发送/重试；前台可以继续工作" : "完成",
+        waiting,
+        received: `delivery=${wp.delivery_owner || "background-service"} · pending=${wp.pending ?? "unknown"} · calendar-link=${wp.calendar_link_state || "unknown"}`,
+        next: pendingKnown && wp.pending === 0
+          ? "WordPress 队列已清空；前台可以继续工作"
+          : "后台服务继续发送/重试；前台可以继续工作",
       });
       appendOperationTrace("WordPress follow-up finished.", "done");
     }
