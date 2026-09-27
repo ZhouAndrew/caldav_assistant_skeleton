@@ -4,14 +4,20 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE_DIR="${CALDAV_ASSISTANT_TB_UPDATE_STATE:-$HOME/.local/share/caldav-assistant-thunderbird-update-server}"
 WWW_DIR="$STATE_DIR/www/experimental"
-CONTAINER="caldav-assistant-thunderbird-update-server"
+CA_CERT="$STATE_DIR/tls/ca.crt"
+VERIFY_PY="$STATE_DIR/verify.py"
+SERVICE_NAME="caldav-assistant-thunderbird-update-server.service"
 PORT="17443"
 HOSTNAME="andrew.local"
 UPDATE_URL="https://$HOSTNAME:$PORT/experimental/updates.json"
 
-if ! docker inspect "$CONTAINER" >/dev/null 2>&1; then
-  echo "Standalone update server is not deployed." >&2
+if ! systemctl --user is-active --quiet "$SERVICE_NAME"; then
+  echo "Standalone Python update server is not running." >&2
   echo "Run: bash $HERE/update-server/deploy.sh" >&2
+  exit 1
+fi
+if [[ ! -f "$CA_CERT" || ! -f "$VERIFY_PY" ]]; then
+  echo "Standalone update server state is incomplete; redeploy it." >&2
   exit 1
 fi
 
@@ -29,9 +35,7 @@ if [[ ${#xpis[@]} -ne 1 ]]; then
 fi
 install -m 0644 "${xpis[0]}" "$WWW_DIR/$(basename "${xpis[0]}")"
 
-manifest_json="$(curl --fail --silent --show-error "$UPDATE_URL")"
-xpi_url="$(python3 -c 'import json, sys; data=json.load(sys.stdin); updates=next(iter(data["addons"].values()))["updates"]; print(updates[0]["update_link"])' <<<"$manifest_json")"
-curl --fail --silent --show-error --head "$xpi_url" >/dev/null
+python3 "$VERIFY_PY" --url "$UPDATE_URL" --ca "$CA_CERT"
 
 echo "Standalone Thunderbird update published: OK"
 echo "Update URL: $UPDATE_URL"
