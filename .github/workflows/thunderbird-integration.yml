@@ -31,6 +31,9 @@ jobs:
             tests/test_wordpress_work_session_extension.py \
             tests/test_public_api_freeze_guard.py
           python -m py_compile integrations/thunderbird/native_host.py
+          node --check integrations/thunderbird/assistant.js
+          node --check integrations/thunderbird/background.js
+          node --check integrations/thunderbird/experiments/assistantCalendar/parent.js
           python integrations/thunderbird/selftest_native_host_protocol.py
           python scripts/acceptance_thunderbird_history_calendar_real.py
           python integrations/thunderbird/build-experimental-bundle.py
