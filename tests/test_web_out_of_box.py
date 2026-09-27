@@ -34,6 +34,7 @@ class FakeSettings:
         self.base_url = None
         self.credentials = None
         self.values = {}
+        self.refreshes = 0
 
     def caldav_status(self):
         return {
@@ -71,6 +72,10 @@ class FakeSettings:
         self.values[key] = value
         return value
 
+    def _experimental_cache_refresh(self):
+        self.refreshes += 1
+        return {"tasks": 1, "events": 1}
+
 
 def test_first_run_connect_normalizes_local_host_and_finishes_in_one_action():
     settings = FakeSettings()
@@ -84,6 +89,7 @@ def test_first_run_connect_normalizes_local_host_and_finishes_in_one_action():
     assert result["connection_ok"] is True
     assert result["roles"]["task"].endswith("/tasks/")
     assert result["roles"]["worklog"].endswith("/work/")
+    assert settings.refreshes == 1
 
 
 def test_web_subcommand_routes_before_cli_application_is_built(monkeypatch):
