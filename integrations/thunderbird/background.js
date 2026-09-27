@@ -11,7 +11,7 @@ async function ensureSpace() {
   return messenger.spaces.create(
     SPACE_NAME,
     "assistant.html",
-    { title: "CalDAV Assistant" },
+    { title: "CalDAV Assistant Experimental" },
   );
 }
 
