@@ -23,17 +23,34 @@ python3 integrations/thunderbird/build-xpi.py
 
 The generated XPI is under `integrations/thunderbird/dist/`.
 
-## Install the native host on Linux
+## Install the experimental build side-by-side on Linux
 
-Run from the repository checkout that contains the installed CalDAV Assistant:
+Run this from the experimental repository checkout:
 
 ```bash
 bash integrations/thunderbird/install-native-host.sh
 ```
 
-The installer uses the same Python interpreter as the installed `caldav-assistant`
-entry point and registers the native host under
-`~/.mozilla/native-messaging-hosts/`.
+The installer creates its own isolated environment under
+`~/.local/share/caldav-assistant-thunderbird-experimental/`, registers only the
+experimental Thunderbird native host, builds the XPI, and copies the XPI to the
+Desktop. It does **not** replace the existing `caldav-assistant` executable or
+its Python environment.
+
+The native host calls the experimental Core directly in-process. This keeps the
+production Assistant daemon untouched while reusing the existing CalDAV,
+Settings, Activity Journal and WordPress data.
+
+The Space keeps one persistent Native Messaging connection while it is open.
+Attachments are streamed in 256 KiB chunks before being handed to WordPress,
+rather than placing an entire image/PDF/audio/video file in one Native Messaging
+message.
+
+To remove only the experimental native host:
+
+```bash
+bash integrations/thunderbird/uninstall-experimental.sh
+```
 
 ## Real acceptance required
 
