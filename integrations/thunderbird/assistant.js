@@ -5,6 +5,7 @@ const $ = (id) => document.getElementById(id);
 let nativePort = null;
 const nativeWaiters = [];
 let currentSnapshot = null;
+let taskRefreshTimer = null;
 
 function localInputNow() {
   const d = new Date();
@@ -70,6 +71,11 @@ function selectedTaskId() {
   return value;
 }
 
+function selectedTask() {
+  const id = selectedTaskId();
+  return currentSnapshot?.tasks?.find(task => task.id === id) || null;
+}
+
 function taskLabel(task, state) {
   const marks = [];
   if (state.current_task_id === task.id) marks.push("▶");
@@ -115,24 +121,33 @@ function renderActionState() {
   start.hidden = false;
 }
 
-async function refresh() {
-  const data = await host({command: "snapshot"});
+function renderSnapshot(data, bridgeText) {
   currentSnapshot = data;
   const select = $("task");
   const old = select.value;
   select.textContent = "";
-  for (const task of data.tasks) {
+
+  for (const task of data.tasks || []) {
     const option = document.createElement("option");
     option.value = task.id;
-    option.textContent = taskLabel(task, data.state);
+    option.textContent = taskLabel(task, data.state || {});
     select.appendChild(option);
   }
-  if (old && data.tasks.some(t => t.id === old)) select.value = old;
-  if (!select.value && data.state.current_task_id) select.value = data.state.current_task_id;
+
+  if (old && data.tasks.some(task => task.id === old)) {
+    select.value = old;
+  }
+  if (!select.value && data.state?.current_task_id) {
+    select.value = data.state.current_task_id;
+  }
   select.disabled = data.tasks.length === 0;
-  $("bridge-status").textContent = "Core connected";
-  $("task-status").textContent = data.state.current_task_id
-    ? "Working: " + (data.tasks.find(t => t.id === data.state.current_task_id)?.summary || data.state.current_task_id)
+
+  $("bridge-status").textContent = bridgeText;
+  $("task-status").textContent = data.state?.current_task_id
+    ? "Working: " + (
+        data.tasks.find(task => task.id === data.state.current_task_id)?.summary ||
+        data.state.current_task_id
+      )
     : "No active work";
 
   renderActionState();
@@ -142,19 +157,81 @@ async function refresh() {
   $("today").textContent = [`History: ${history}`, ...lines].join("\n");
 }
 
+async function localTasks() {
+  if (!messenger.assistantCalendar?.listTasks) {
+    throw new Error("Thunderbird local Calendar/Tasks bridge is unavailable.");
+  }
+  const started = performance.now();
+  const tasks = await messenger.assistantCalendar.listTasks();
+  const actionable = (tasks || []).filter(task => {
+    const status = String(task.status || "").toUpperCase();
+    return !task.completed && status !== "COMPLETED" && status !== "CANCELLED";
+  });
+  return {
+    tasks: actionable,
+    elapsedMs: performance.now() - started,
+  };
+}
+
+async function refresh() {
+  const stateStarted = performance.now();
+  const [tasksResult, stateResult] = await Promise.allSettled([
+    localTasks(),
+    host({command: "state"}),
+  ]);
+
+  if (tasksResult.status === "fulfilled" && stateResult.status === "fulfilled") {
+    const stateElapsed = performance.now() - stateStarted;
+    const nativeMs = Number(stateResult.value.timings?.total_ms || 0);
+    const data = {
+      ...stateResult.value,
+      tasks: tasksResult.value.tasks,
+    };
+    renderSnapshot(
+      data,
+      `Thunderbird local ${tasksResult.value.elapsedMs.toFixed(0)} ms · Core ${nativeMs.toFixed(0)} ms · UI ${stateElapsed.toFixed(0)} ms`
+    );
+    return;
+  }
+
+  // Compatibility fallback for an older XPI/Thunderbird where the local
+  // calendar experiment cannot load. This path may use the slower CalDAV read.
+  const fallback = await host({command: "snapshot"});
+  renderSnapshot(fallback, "Core connected · CalDAV fallback");
+  if (tasksResult.status === "rejected") {
+    show("Local task cache unavailable; using CalDAV fallback: " + tasksResult.reason.message);
+  }
+}
+
+function scheduleTaskRefresh() {
+  if (taskRefreshTimer) clearTimeout(taskRefreshTimer);
+  taskRefreshTimer = setTimeout(() => {
+    taskRefreshTimer = null;
+    refresh().catch(error => show(error.message));
+  }, 80);
+}
+
 async function doAction(action) {
-  const taskId = selectedTaskId();
+  const task = selectedTask();
+  const started = performance.now();
   const response = await host({
     command: "action",
     action,
-    task_id: taskId,
+    task_id: selectedTaskId(),
+    task,
     at: isoFromInput(),
     calendar_link: $("calendar-link").checked,
   });
+  const elapsed = performance.now() - started;
   const wp = response.wordpress;
-  show(response.message + (wp?.message ? " · " + wp.message : ""));
+  show(
+    response.message +
+    (wp?.message ? " · " + wp.message : "") +
+    ` · ${elapsed.toFixed(0)} ms`
+  );
   $("when").value = localInputNow();
   await refresh();
+  refreshLogs().catch(() => {});
 }
 
 async function addNote() {
@@ -169,6 +246,37 @@ async function addNote() {
   });
   $("note").value = "";
   show(response.message || "Added to WordPress.");
+  refreshLogs().catch(() => {});
+}
+
+async function copyText(text, label) {
+  const value = String(text || "");
+  if (!value) throw new Error("Nothing to copy.");
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+  } else {
+    const area = document.createElement("textarea");
+    area.value = value;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    area.remove();
+    if (!ok) throw new Error("Copy failed.");
+  }
+  show(label + " copied.");
+}
+
+async function refreshLogs() {
+  const response = await host({command: "logs", limit: 300});
+  $("logs").textContent = (response.lines || []).join("\n") || "No log entries yet.";
+}
+
+async function clearLogs() {
+  await host({command: "logs_clear"});
+  $("logs").textContent = "No log entries yet.";
+  show("Logs cleared.");
 }
 
 function bytesToBase64(bytes) {
@@ -235,6 +343,7 @@ async function uploadFiles(files) {
       row.textContent = "✗ " + file.name + ": " + error.message;
     }
   }
+  refreshLogs().catch(() => {});
 }
 
 async function loadSettings() {
@@ -252,16 +361,29 @@ $("calendar-link").addEventListener("change", () =>
 $("attachment-link").addEventListener("change", () =>
   messenger.storage.local.set({attachmentLink: $("attachment-link").checked})
 );
-$("refresh").addEventListener("click", () => refresh().catch(e => show(e.message)));
+$("refresh").addEventListener("click", () => refresh().catch(error => show(error.message)));
+$("refresh-logs").addEventListener("click", () => refreshLogs().catch(error => show(error.message)));
+$("copy-today").addEventListener("click", () =>
+  copyText($("today").textContent, "Today").catch(error => show(error.message))
+);
+$("copy-logs").addEventListener("click", () =>
+  copyText($("logs").textContent, "Logs").catch(error => show(error.message))
+);
+$("clear-logs").addEventListener("click", () => clearLogs().catch(error => show(error.message)));
 $("task").addEventListener("change", renderActionState);
 for (const button of document.querySelectorAll("[data-action]")) {
-  button.addEventListener("click", () => doAction(button.dataset.action).catch(e => show(e.message)));
+  button.addEventListener("click", () => doAction(button.dataset.action).catch(error => show(error.message)));
 }
-$("add-note").addEventListener("click", () => addNote().catch(e => show(e.message)));
-$("attachment").addEventListener("change", (event) => {
-  uploadFiles([...event.target.files]).catch(e => show(e.message));
+$("add-note").addEventListener("click", () => addNote().catch(error => show(error.message)));
+$("attachment").addEventListener("change", event => {
+  uploadFiles([...event.target.files]).catch(error => show(error.message));
   event.target.value = "";
 });
+
+if (messenger.assistantCalendar?.onTasksChanged) {
+  messenger.assistantCalendar.onTasksChanged.addListener(scheduleTaskRefresh);
+}
+
 window.addEventListener("pagehide", () => {
   if (nativePort) {
     nativePort.disconnect();
@@ -271,7 +393,7 @@ window.addEventListener("pagehide", () => {
 
 $("when").value = localInputNow();
 loadSettings()
-  .then(refresh)
+  .then(() => Promise.all([refresh(), refreshLogs()]))
   .catch(error => {
     $("bridge-status").textContent = "Core unavailable";
     show(error.message);
