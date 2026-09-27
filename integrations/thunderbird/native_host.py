@@ -169,15 +169,8 @@ def parse_at(value: Any) -> datetime:
     return parsed
 
 
-def latest_work_event_id(task_id: str) -> str | None:
-    try:
-        opened = core_call("worklog.open_for", task=task_id)
-        event_id = str(getattr(opened, "id", "") or "").strip()
-        if event_id:
-            return event_id
-    except Exception:
-        pass
-
+def latest_activity_work_event_id(task_id: str) -> str | None:
+    """Return the last Work VEVENT id already carried by local Activity metadata."""
     try:
         items = app().ctx.activity.for_task(task_id)
     except Exception:
@@ -190,6 +183,20 @@ def latest_work_event_id(task_id: str) -> str | None:
             if event_id:
                 return event_id
     return None
+
+
+def latest_work_event_id(task_id: str) -> str | None:
+    # Notes may be added while a Work interval is still open, so prefer the current
+    # authoritative VEVENT there. Closed lifecycle actions pass the exact event id
+    # from Activity metadata into their asynchronous WordPress follow-up instead.
+    try:
+        opened = core_call("worklog.open_for", task=task_id)
+        event_id = str(getattr(opened, "id", "") or "").strip()
+        if event_id:
+            return event_id
+    except Exception:
+        pass
+    return latest_activity_work_event_id(task_id)
 
 
 def link_event(event_id: str | None, *, at: datetime, attachment_urls=()) -> dict[str, Any] | None:
@@ -363,6 +370,7 @@ def action(message: dict[str, Any]) -> dict[str, Any]:
         follow_up = {
             "command": "wordpress_sync",
             "task_id": task_id,
+            "event_id": latest_activity_work_event_id(task_id),
             "at": at.isoformat(),
             "calendar_link": bool(message.get("calendar_link", True)),
         }
@@ -416,7 +424,7 @@ def wordpress_sync(message: dict[str, Any]) -> dict[str, Any]:
             task_id=task_id,
         )
         link_started = time.perf_counter()
-        event_id = latest_work_event_id(task_id)
+        event_id = str(message.get("event_id") or "").strip() or latest_work_event_id(task_id)
         reference = link_event(event_id, at=at)
         timings["calendar_link_ms"] = _elapsed_ms(link_started)
         if reference and reference.get("pending"):
@@ -458,14 +466,36 @@ def note(message: dict[str, Any]) -> dict[str, Any]:
     at = parse_at(message.get("at"))
     if not text:
         raise ValueError("note text is required")
-    result = app().ctx.wordpress.log(text, _logged_at=at.isoformat())
-    reference = None
-    if bool(message.get("calendar_link", True)):
-        reference = link_event(latest_work_event_id(task_id), at=at)
+
+    emit_progress(
+        "wordpress.queue",
+        "Saving the note to the durable WordPress Outbox...",
+        state="started",
+        task_id=task_id,
+    )
+    result = app().ctx.wordpress.queue_log(text, _logged_at=at.isoformat())
+    pending = _wordpress_pending_count()
+    emit_progress(
+        "wordpress.queue",
+        "Note saved to the WordPress Outbox.",
+        state="done",
+        task_id=task_id,
+        pending=pending,
+    )
     return {
         "ok": True,
-        "message": getattr(result, "message", "Added to WordPress."),
-        "wordpress": reference,
+        "message": getattr(
+            result,
+            "message",
+            "Saved to WordPress Outbox; background upload pending.",
+        ),
+        "wordpress": {"queued": True, "pending": pending},
+        "follow_up": {
+            "command": "wordpress_sync",
+            "task_id": task_id,
+            "at": at.isoformat(),
+            "calendar_link": bool(message.get("calendar_link", True)),
+        },
     }
 
 
