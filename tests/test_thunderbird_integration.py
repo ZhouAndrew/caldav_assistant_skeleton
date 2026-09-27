@@ -88,8 +88,11 @@ def test_space_uses_persistent_native_port_and_chunked_attachments():
     assert 'command: "attachment_finish"' in source
 
 
-def test_native_host_has_chunk_lifecycle_and_retries_outbox_on_open():
+def test_native_host_has_chunk_lifecycle_and_leaves_outbox_delivery_to_background():
     source = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
+    service = (
+        ROOT / "caldav_assistant" / "internal" / "runtime" / "service.py"
+    ).read_text(encoding="utf-8")
     for name in (
         "attachment_begin",
         "attachment_chunk",
@@ -97,7 +100,9 @@ def test_native_host_has_chunk_lifecycle_and_retries_outbox_on_open():
         "attachment_abort",
     ):
         assert f"def {name}(" in source
-    assert 'core_call("wordpress.flush")' in source
+    assert 'core_call("wordpress.flush")' not in source
+    assert '"delivery_owner": "background-service"' in source
+    assert 'getattr(self.wordpress, "flush", None)' in service
 
 
 def test_thunderbird_picker_reuses_core_actionable_semantics_and_state_actions():
@@ -324,7 +329,8 @@ def test_wordpress_follow_up_uses_a_separate_native_host_lane():
     assert "function integrationHost(" in source
     assert "runWordpressFollowUp(response.follow_up, operationId)" in source
     assert "wordpress_sync" in host
-    assert 'core_call("wordpress.flush")' in host
+    assert '"delivery_owner": "background-service"' in host
+    assert 'core_call("wordpress.flush")' not in host
 
 
 def test_native_host_request_latency_excludes_idle_time_between_messages():
@@ -356,7 +362,7 @@ def test_thunderbird_streams_real_core_progress_and_exposes_wait_reason():
     assert 'result?.kind === "progress"' in source
     assert "renderCoreProgress(progress, operationId)" in source
     assert "等待 Radicale 返回 VTODO 更新确认" in source
-    assert "等待 WordPress 接收并确认日志" in source
+    assert "后台 Assistant Service 负责发送与重试" in source
     assert "bind_progress_sink(progress_sink)" in host
     assert "with operation_scope(operation_id):" in host
     assert '"kind": "progress"' in host
