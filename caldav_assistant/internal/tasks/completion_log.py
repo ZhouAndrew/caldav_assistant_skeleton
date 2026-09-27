@@ -75,7 +75,12 @@ class TaskCompletionLogService:
         )
         if not text:
             return None
-        return self.wordpress.queue_log(text, _show_clock=False)
+        return self.wordpress.queue_log(
+            text,
+            _show_clock=False,
+            _calendar_link=True,
+            _work_event_id=str(getattr(segment, "id", "") or "") or None,
+        )
 
     def queue_for(self, task: Task) -> Any:
         # Production CalDAVWorkTaskService already resolved whether completion
@@ -89,7 +94,17 @@ class TaskCompletionLogService:
             text = self.render(task, self.worklog.segments_for(task))
         if not text:
             return None
-        return self.wordpress.queue_log(text, _show_clock=False)
+        event_id = (
+            str(getattr(segment, "id", "") or "")
+            if "segment" in locals() and isinstance(segment, Event)
+            else ""
+        )
+        return self.wordpress.queue_log(
+            text,
+            _show_clock=False,
+            _calendar_link=True,
+            _work_event_id=event_id or None,
+        )
 
 
 class CompletionLoggingTaskService(CalDAVWorkTaskService):
