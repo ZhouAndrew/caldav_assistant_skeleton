@@ -89,3 +89,26 @@ pre { white-space: pre-wrap; }
   border-radius: 6px;
   background: color-mix(in srgb, Canvas 98%, CanvasText 2%);
 }
+
+.log-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0 4px;
+  font-size: 0.9em;
+}
+.log-meta[data-state="ok"] #log-status {
+  font-weight: 600;
+}
+.log-meta[data-state="error"] #log-status {
+  font-weight: 600;
+}
+.log-path {
+  display: block;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -moz-user-select: text;
+  margin-bottom: 8px;
+  opacity: 0.85;
+}
