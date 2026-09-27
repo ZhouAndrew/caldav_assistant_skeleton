@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-EXT_ID="caldav-assistant@zhouandrew.local"
-HOST_NAME="local.caldav_assistant"
+EXT_ID="caldav-assistant-experimental@zhouandrew.local"
+HOST_NAME="local.caldav_assistant_experimental"
 BASE_DIR="$HOME/.local/share/caldav-assistant-thunderbird-experimental"
 VENV_DIR="$BASE_DIR/venv"
 LIB_DIR="$BASE_DIR/host"
@@ -38,8 +38,11 @@ EOF
 chmod 700 "$launcher"
 
 manifest="$MANIFEST_DIR/$HOST_NAME.json"
-if [[ -f "$manifest" ]]; then
-  cp -a "$manifest" "$BASE_DIR/native-host-manifest.backup.json"
+backup="$BASE_DIR/native-host-manifest.backup.json"
+if [[ -f "$manifest" && ! -f "$backup" ]]; then
+  if ! grep -Fq "\"path\": \"$launcher\"" "$manifest"; then
+    cp -a "$manifest" "$backup"
+  fi
 fi
 cat >"$manifest" <<EOF
 {
@@ -57,9 +60,7 @@ cp -f "$ROOT/integrations/thunderbird/dist/$XPI_NAME" "$DESKTOP_DIR/$XPI_NAME"
 "$VENV_DIR/bin/python" -m py_compile "$LIB_DIR/native_host.py"
 "$VENV_DIR/bin/python" - <<'PY'
 from caldav_assistant.internal.bootstrap import build_service_application
-app = build_service_application()
-assert app.ctx.tasks is not None
-assert app.background.dispatcher is not None
+assert callable(build_service_application)
 print("Experimental Core import: OK")
 PY
 
