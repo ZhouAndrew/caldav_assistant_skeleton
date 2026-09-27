@@ -290,3 +290,18 @@ def test_posix_panel_clears_before_each_redraw_to_prevent_stale_tail_text(monkey
     assert rendered.count("\x1b[H\x1b[2J") >= 3
     assert "\x1b[?25l" in rendered
     assert "\x1b[?25h" in rendered
+
+
+def test_tiny_terminal_falls_back_from_fullscreen_picker(monkeypatch):
+    if os.name == "nt":
+        return
+    monkeypatch.setenv("TERM", "xterm")
+    io = StdConsoleIO(
+        stdin=_TTYStringIO(),
+        stdout=_TTYStringIO(),
+        terminal_width_fn=lambda: 32,
+        terminal_height_fn=lambda: 12,
+    )
+
+    assert io.supports_ansi_panel() is True
+    assert io.supports_interactive_picker() is False
