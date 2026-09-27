@@ -14,6 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 from ..bootstrap import build_cli_application
+from ..runtime.proxies import _ensure_runtime_generation
 
 
 HOST_NAME = "org.caldav_assistant.thunderbird"
@@ -87,6 +88,15 @@ class ThunderbirdBridge:
         self.ctx = application.ctx
         self.runtime = application.runtime
 
+    def _runtime_call(self, method: str, **payload: Any) -> Any:
+        _ensure_runtime_generation(self.runtime)
+        result = self.runtime.call(method, **payload)
+        if not bool(
+            getattr(self.runtime, "_caldav_assistant_generation_verified", False)
+        ):
+            _ensure_runtime_generation(self.runtime)
+        return result
+
     def _snapshot(self) -> dict[str, Any]:
         tasks = [
             task
@@ -129,7 +139,7 @@ class ThunderbirdBridge:
 
     def _related_work_event_id(self, task_id: str) -> str | None:
         try:
-            current = self.runtime.call("worklog.open_for", task=task_id)
+            current = self._runtime_call("worklog.open_for", task=task_id)
         except Exception:
             current = None
         event_id = str(getattr(current, "id", "") or "").strip()
@@ -138,7 +148,7 @@ class ThunderbirdBridge:
 
         try:
             segments = list(
-                self.runtime.call("worklog.segments_for", task=task_id) or ()
+                self._runtime_call("worklog.segments_for", task=task_id) or ()
             )
         except Exception:
             return None
@@ -203,7 +213,7 @@ class ThunderbirdBridge:
         kind = str(message.get("type") or "").strip().casefold()
         with redirect_stdout(sys.stderr):
             if kind == "ping":
-                worklog = self.runtime.call("worklog.ensure_calendar")
+                worklog = self._runtime_call("worklog.ensure_calendar")
                 result: Any = {
                     "host": HOST_NAME,
                     "extension_id": EXTENSION_ID,
@@ -218,7 +228,7 @@ class ThunderbirdBridge:
             elif kind == "attachment":
                 result = self._attachment(message)
             elif kind == "sync_wordpress":
-                result = self.runtime.call("wordpress.flush")
+                result = self._runtime_call("wordpress.flush")
             else:
                 raise ValueError(
                     "type must be ping, snapshot, action, log, attachment, or sync_wordpress"
