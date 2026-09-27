@@ -4,43 +4,74 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 EXT_ID="caldav-assistant@zhouandrew.local"
 HOST_NAME="local.caldav_assistant"
-LIB_DIR="$HOME/.local/lib/caldav-assistant-thunderbird"
+BASE_DIR="$HOME/.local/share/caldav-assistant-thunderbird-experimental"
+VENV_DIR="$BASE_DIR/venv"
+LIB_DIR="$BASE_DIR/host"
 BIN_DIR="$HOME/.local/bin"
 MANIFEST_DIR="$HOME/.mozilla/native-messaging-hosts"
+DESKTOP_DIR="${XDG_DESKTOP_DIR:-$HOME/Desktop}"
+XPI_NAME="caldav-assistant-thunderbird-0.1.0.xpi"
 
-assistant_bin="$(command -v caldav-assistant || true)"
-if [[ -z "$assistant_bin" ]]; then
-  echo "caldav-assistant is not installed on PATH." >&2
+python3_bin="$(command -v python3 || true)"
+if [[ -z "$python3_bin" ]]; then
+  echo "python3 is required." >&2
   exit 1
 fi
 
-python_bin="$(head -n 1 "$assistant_bin" | sed 's/^#!//')"
-if [[ ! -x "$python_bin" ]]; then
-  python_bin="$(command -v python3)"
+mkdir -p "$BASE_DIR" "$LIB_DIR" "$BIN_DIR" "$MANIFEST_DIR" "$DESKTOP_DIR"
+
+if [[ ! -x "$VENV_DIR/bin/python" ]]; then
+  "$python3_bin" -m venv "$VENV_DIR"
 fi
 
-mkdir -p "$LIB_DIR" "$BIN_DIR" "$MANIFEST_DIR"
+"$VENV_DIR/bin/python" -m pip install --upgrade pip
+"$VENV_DIR/bin/python" -m pip install --upgrade "$ROOT"
+
 cp "$ROOT/integrations/thunderbird/native_host.py" "$LIB_DIR/native_host.py"
 chmod 700 "$LIB_DIR/native_host.py"
 
-launcher="$BIN_DIR/caldav-assistant-thunderbird-host"
+launcher="$BIN_DIR/caldav-assistant-thunderbird-host-experimental"
 cat >"$launcher" <<EOF
 #!/usr/bin/env bash
-exec "$python_bin" "$LIB_DIR/native_host.py"
+exec "$VENV_DIR/bin/python" "$LIB_DIR/native_host.py"
 EOF
 chmod 700 "$launcher"
 
 manifest="$MANIFEST_DIR/$HOST_NAME.json"
+if [[ -f "$manifest" ]]; then
+  cp -a "$manifest" "$BASE_DIR/native-host-manifest.backup.json"
+fi
 cat >"$manifest" <<EOF
 {
   "name": "$HOST_NAME",
-  "description": "CalDAV Assistant native host for Thunderbird",
+  "description": "CalDAV Assistant experimental native host for Thunderbird",
   "path": "$launcher",
   "type": "stdio",
   "allowed_extensions": ["$EXT_ID"]
 }
 EOF
 
-echo "Native host installed:"
+"$VENV_DIR/bin/python" "$ROOT/integrations/thunderbird/build-xpi.py"
+cp -f "$ROOT/integrations/thunderbird/dist/$XPI_NAME" "$DESKTOP_DIR/$XPI_NAME"
+
+"$VENV_DIR/bin/python" -m py_compile "$LIB_DIR/native_host.py"
+"$VENV_DIR/bin/python" - <<'PY'
+from caldav_assistant.internal.bootstrap import build_service_application
+app = build_service_application()
+assert app.ctx.tasks is not None
+assert app.background.dispatcher is not None
+print("Experimental Core import: OK")
+PY
+
+echo
+echo "Experimental Thunderbird integration installed."
+echo "Production caldav-assistant was not replaced."
+echo
+echo "Native host:"
 echo "  $manifest"
 echo "  $launcher"
+echo
+echo "XPI ready on Desktop:"
+echo "  $DESKTOP_DIR/$XPI_NAME"
+echo
+echo "Next: Thunderbird -> Add-ons and Themes -> gear -> Install Add-on From File..."
