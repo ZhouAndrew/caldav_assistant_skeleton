@@ -55,7 +55,7 @@ class TextRenderer:
     def _render_choice_lines(self, view: MenuView) -> list[str]:
         cells = [f"{item.key}. {item.label}" for item in view.items]
         width = self.max_width
-        if len(cells) < 4 or width is None or width < 50:
+        if len(cells) < 4 or width is None:
             return cells
 
         # Pick the widest *aligned* grid that fits. This deliberately differs from
