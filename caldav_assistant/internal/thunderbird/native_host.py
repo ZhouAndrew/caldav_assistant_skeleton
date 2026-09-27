@@ -203,9 +203,11 @@ class ThunderbirdBridge:
         kind = str(message.get("type") or "").strip().casefold()
         with redirect_stdout(sys.stderr):
             if kind == "ping":
+                worklog = self.runtime.call("worklog.ensure_calendar")
                 result: Any = {
                     "host": HOST_NAME,
                     "extension_id": EXTENSION_ID,
+                    "worklog": worklog,
                 }
             elif kind == "snapshot":
                 result = self._snapshot()
