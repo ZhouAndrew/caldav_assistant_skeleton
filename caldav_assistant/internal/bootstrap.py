@@ -68,6 +68,7 @@ from .settings.keys import (
     CALDAV_WORKLOG_COLLECTION_URL,
     EXPERIMENTAL_FAST_QUERY_CACHE,
     EXTENSIONS_ENABLED,
+    NOTIFICATIONS_ENABLED,
     NOTIFICATION_SOUND_ENABLED,
     TERMINAL_BELL_ENABLED,
     TERMINAL_BELL_INTERVAL_MS,
@@ -319,7 +320,10 @@ def build_service_application() -> ServiceApplication:
             sound_enabled=lambda: bool(
                 settings_service.get(NOTIFICATION_SOUND_ENABLED, True)
             )
-        )
+        ),
+        enabled=lambda: bool(
+            settings_service.get(NOTIFICATIONS_ENABLED, False)
+        ),
     )
     reminders = ReminderService(
         ReminderEngine(),
