@@ -300,3 +300,40 @@ def test_attach_file_imports_media_and_appends_gutenberg_block(tmp_path):
     assert "caldav-assistant-attachment:file-1" in content_arg
     assert "wp:image" in content_arg
     assert "https://example.test/uploads/result.png" in content_arg
+
+
+def test_attachment_retry_recovers_existing_media_and_post_urls(tmp_path):
+    picture = tmp_path / "result.png"
+    picture.write_bytes(b"fake-png")
+    existing = (
+        "<!-- caldav-assistant-attachment:file-retry -->\n"
+        '<!-- wp:image {"id":501,"sizeSlug":"large"} -->\n'
+        '<figure class="wp-block-image size-large">'
+        '<img src="https://example.test/uploads/result.png" alt="result.png" '
+        'class="wp-image-501"/></figure>\n'
+        "<!-- /wp:image -->"
+    )
+    runner = Runner(
+        [
+            response('[{"ID":88,"post_title":"August 29 Saturday 2026"}]'),
+            response(existing),
+            response('[{"ID":88,"url":"https://example.test/2026/08/29/log/"}]'),
+        ]
+    )
+    adapter = WPCLIAdapter(executable="wp", runner=runner)
+
+    result = adapter.attach_file(
+        picture,
+        _logged_at="2026-08-29T11:10:00+08:00",
+        _request_id="file-retry",
+        filename="result.png",
+        mime_type="image/png",
+        _calendar_link=True,
+        _calendar_attachment_link=True,
+        _work_event_id="w2",
+    )
+
+    assert result["duplicate"] is True
+    assert result["url"] == "https://example.test/uploads/result.png"
+    assert result["post_url"] == "https://example.test/2026/08/29/log/"
+    assert all(call[0][1:3] != ["media", "import"] for call in runner.calls)
