@@ -247,6 +247,18 @@ def build_service_application() -> ServiceApplication:
             pass
 
     settings_service = SettingsService(settings_repo)
+
+    # P0-2026-09-27 notification-flood safety migration.
+    # Previous builds exposed notifications.enabled in Settings but did not enforce
+    # it at the production NotificationService boundary. A user could therefore have
+    # a stored True value without it representing an informed choice under the fixed
+    # semantics. Force one safe-off transition after upgrading, then persist a marker
+    # so any later explicit re-enable remains respected.
+    flood_hotfix_key = "migration.notification_flood_20260927.safe_off"
+    if not bool(assistant_state.get(flood_hotfix_key, False)):
+        settings_service.set(NOTIFICATIONS_ENABLED, False)
+        assistant_state.set(flood_hotfix_key, True)
+
     _ensure_default_extension_settings(settings_service)
     public_settings = PublicSettingsAPI(settings_service)
     activity = ActivityService(activity_repo)
