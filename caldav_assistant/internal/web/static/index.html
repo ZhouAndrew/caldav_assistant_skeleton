@@ -9,16 +9,99 @@
 </head>
 <body>
   <main class="layout">
-    <header class="masthead"><div><span class="eyebrow">CALDAV ASSISTANT</span><h1>今天，从这里开始。</h1><p>任务和日程仍保存在你的 CalDAV；关掉页面也不会停止后台提醒。</p></div><button id="refresh" class="secondary">刷新</button></header>
+    <header class="masthead">
+      <div>
+        <span class="eyebrow">CALDAV ASSISTANT</span>
+        <h1>今天，从这里开始。</h1>
+        <p>任务和日程仍保存在你的 CalDAV；关掉页面也不会停止后台提醒。</p>
+      </div>
+      <div class="masthead-actions">
+        <button id="setup-toggle" class="secondary" type="button" hidden>连接设置</button>
+        <button id="refresh" class="secondary" type="button" hidden>刷新</button>
+      </div>
+    </header>
+
     <p id="notice" role="status" aria-live="polite" hidden></p>
-    <section class="hero" aria-labelledby="now-label"><span class="eyebrow" id="now-label">正在进行</span><h2 id="current-title">正在读取…</h2><p id="work-info"></p><div id="current-actions" class="actions"></div></section>
-    <section class="grid">
-      <div class="panel"><div class="section-head"><h2>接下来</h2><span>未来 7 天</span></div><div id="upcoming" class="rows" aria-live="polite"></div></div>
-      <div class="panel"><div class="section-head"><h2>建议下一项</h2></div><div id="recommendation" class="recommendation"></div></div>
+
+    <section id="setup-panel" class="panel setup-panel" hidden aria-labelledby="setup-title">
+      <div class="setup-copy">
+        <span class="eyebrow">首次使用</span>
+        <h2 id="setup-title">连接 CalDAV，然后直接开始</h2>
+        <p>不用先进入终端设置。能自动发现和判断的内容都会自动完成。</p>
+      </div>
+      <form id="setup-form" class="setup-form">
+        <label for="caldav-url">CalDAV 服务器</label>
+        <input id="caldav-url" type="url" placeholder="http://server.local:5232/" autocomplete="url" required>
+
+        <div class="setup-grid">
+          <div>
+            <label for="caldav-user">用户名（没有可留空）</label>
+            <input id="caldav-user" autocomplete="username">
+          </div>
+          <div>
+            <label for="caldav-password">密码（没有可留空）</label>
+            <input id="caldav-password" type="password" autocomplete="current-password">
+          </div>
+        </div>
+
+        <label class="check-row">
+          <input id="clear-credentials" type="checkbox">
+          <span>这次不用已保存的账号密码</span>
+        </label>
+
+        <div id="setup-hint" class="setup-hint" aria-live="polite"></div>
+        <button id="setup-submit">连接并开始使用</button>
+      </form>
     </section>
-    <section class="panel tasks"><div class="section-head"><h2>任务</h2><span id="task-count"></span></div><form id="create-form" class="create-form"><label class="sr-only" for="new-summary">新任务标题</label><input id="new-summary" maxlength="500" placeholder="添加一个任务" required><label class="sr-only" for="new-due">截止日期</label><input id="new-due" type="date" title="截止日期"><button>添加</button></form><div id="task-list" class="rows"></div></section>
+
+    <div id="app-shell" hidden>
+      <section class="hero" aria-labelledby="now-label">
+        <span class="eyebrow" id="now-label">正在进行</span>
+        <h2 id="current-title">正在读取…</h2>
+        <p id="work-info"></p>
+        <div id="current-actions" class="actions"></div>
+      </section>
+
+      <section class="grid">
+        <div class="panel">
+          <div class="section-head"><h2>接下来</h2><span>未来 7 天</span></div>
+          <div id="upcoming" class="rows" aria-live="polite"></div>
+        </div>
+        <div class="panel">
+          <div class="section-head"><h2>建议下一项</h2></div>
+          <div id="recommendation" class="recommendation"></div>
+        </div>
+      </section>
+
+      <section class="panel tasks">
+        <div class="section-head"><h2>任务</h2><span id="task-count"></span></div>
+        <form id="create-form" class="create-form">
+          <label class="sr-only" for="new-summary">新任务标题</label>
+          <input id="new-summary" maxlength="500" placeholder="添加一个任务" required>
+          <label class="sr-only" for="new-due">截止日期</label>
+          <input id="new-due" type="date" title="截止日期">
+          <button>添加</button>
+        </form>
+        <div id="task-list" class="rows"></div>
+      </section>
+    </div>
+
     <footer>本机页面 · 同一后台服务 · CalDAV 是任务与日程的事实源</footer>
   </main>
-  <dialog id="edit-dialog"><form id="edit-form"><h2>编辑任务</h2><input type="hidden" id="edit-id"><label for="edit-summary">标题</label><input id="edit-summary" maxlength="500" required><label for="edit-due">截止日期（留空可清除）</label><input id="edit-due" type="date"><div class="actions"><button type="button" class="secondary" id="edit-cancel">取消</button><button>保存</button></div></form></dialog>
+
+  <dialog id="edit-dialog">
+    <form id="edit-form">
+      <h2>编辑任务</h2>
+      <input type="hidden" id="edit-id">
+      <label for="edit-summary">标题</label>
+      <input id="edit-summary" maxlength="500" required>
+      <label for="edit-due">截止日期（留空可清除）</label>
+      <input id="edit-due" type="date">
+      <div class="actions">
+        <button type="button" class="secondary" id="edit-cancel">取消</button>
+        <button>保存</button>
+      </div>
+    </form>
+  </dialog>
 </body>
 </html>
