@@ -41,6 +41,28 @@ class WorkLogService:
             value = value.astimezone()
         return value.astimezone(timezone.utc)
 
+    def resolve_time(self, value: Any = None) -> datetime:
+        """Normalize an optional user-supplied work timestamp to UTC.
+
+        Thunderbird and other interactive frontends may let the user correct the
+        factual start/stop time instead of forcing the button-click time.  ISO text
+        is accepted across IPC; naive values are interpreted in the local timezone.
+        """
+        if value is None:
+            return self.now()
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, str) and value.strip():
+            try:
+                parsed = datetime.fromisoformat(value.strip())
+            except ValueError as exc:
+                raise ValidationError("Work time must be an ISO datetime") from exc
+        else:
+            raise ValidationError("Work time must be a datetime or ISO datetime text")
+        if parsed.tzinfo is None:
+            parsed = parsed.astimezone()
+        return parsed.astimezone(timezone.utc)
+
     def configured(self) -> bool:
         value = self.collection_url_provider()
         return isinstance(value, str) and bool(value.strip())
@@ -206,6 +228,7 @@ class WorkLogService:
         task: Task,
         *,
         snapshot: Iterable[Event] | None = None,
+        at: Any = None,
     ) -> Event:
         task_id = str(task.id or "").strip()
         if not task_id:
@@ -221,7 +244,7 @@ class WorkLogService:
 
         event = Event(
             summary=f"Work — {task.summary}",
-            start=self.now(),
+            start=self.resolve_time(at),
             end=None,
             description=self._description(task_id),
             categories=[self.CATEGORY, self.OPEN_CATEGORY],
@@ -253,6 +276,7 @@ class WorkLogService:
         *,
         required: bool = True,
         snapshot: Iterable[Event] | None = None,
+        at: Any = None,
     ) -> Event | None:
         event = self.open_for(task, snapshot=snapshot)
         if event is None:
@@ -260,7 +284,13 @@ class WorkLogService:
                 raise ValidationError("This Task has no open CalDAV work interval")
             return None
         task_id = str(getattr(task, "id", task) or "").strip()
-        closed_at = self.now()
+        closed_at = self.resolve_time(at)
+        if isinstance(event.start, datetime):
+            start = event.start
+            if start.tzinfo is None:
+                start = start.astimezone()
+            if closed_at < start.astimezone(timezone.utc):
+                raise ValidationError("Work end time cannot be earlier than its start time")
         emit_progress(
             "worklog.close",
             "Closing current CalDAV Work interval...",
