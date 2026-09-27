@@ -29,6 +29,7 @@ jobs:
           python integrations/thunderbird/selftest_native_host_protocol.py
           python scripts/acceptance_thunderbird_history_calendar_real.py
           python integrations/thunderbird/build-experimental-bundle.py
+          bash integrations/thunderbird/selftest_bundle_install.sh
 
       - name: Inspect install artifacts
         run: |
