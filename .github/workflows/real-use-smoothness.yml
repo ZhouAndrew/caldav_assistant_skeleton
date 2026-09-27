@@ -18,3 +18,5 @@ jobs:
           python -m pip install -e . "radicale==3.5.4" pexpect
       - name: Drive the installed CLI through the numbered human path
         run: python scripts/acceptance_real_use_smoothness.py
+      - name: Prove production notification master gate and safe-off migration
+        run: python scripts/acceptance_notification_master_gate_real.py
