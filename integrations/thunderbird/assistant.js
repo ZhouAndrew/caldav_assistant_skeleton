@@ -402,6 +402,7 @@ function scheduleTaskRefresh() {
 function actionProgressLabel(action) {
   return {
     start: "正在开始…",
+    resume: "正在继续…",
     pause: "正在暂停…",
     cancel: "正在取消…",
     complete: "正在完成…",
