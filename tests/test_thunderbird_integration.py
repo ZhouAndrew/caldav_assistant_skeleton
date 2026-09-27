@@ -55,3 +55,25 @@ def test_experimental_installer_uses_its_own_venv_and_does_not_replace_cli():
     assert 'pip install --upgrade "$ROOT"' in source
     assert "command -v caldav-assistant" not in source
     assert "Production caldav-assistant was not replaced." in source
+
+
+def test_space_uses_persistent_native_port_and_chunked_attachments():
+    source = (THUNDERBIRD / "assistant.js").read_text(encoding="utf-8")
+    assert "connectNative(HOST)" in source
+    assert "sendNativeMessage" not in source
+    assert "ATTACHMENT_CHUNK_BYTES = 256 * 1024" in source
+    assert 'command: "attachment_begin"' in source
+    assert 'command: "attachment_chunk"' in source
+    assert 'command: "attachment_finish"' in source
+
+
+def test_native_host_has_chunk_lifecycle_and_retries_outbox_on_open():
+    source = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
+    for name in (
+        "attachment_begin",
+        "attachment_chunk",
+        "attachment_finish",
+        "attachment_abort",
+    ):
+        assert f"def {name}(" in source
+    assert 'core_call("wordpress.flush")' in source
