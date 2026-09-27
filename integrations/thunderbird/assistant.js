@@ -6,9 +6,12 @@ let nativePort = null;
 const nativeWaiters = [];
 let diagnosticPort = null;
 const diagnosticWaiters = [];
-let currentSnapshot = null;
+let currentSnapshot = {tasks: [], state: {current_task_id: null, paused_task_ids: []}, today: []};
+let selectedTaskIdValue = "";
 let taskRefreshTimer = null;
 let logAutoRefreshTimer = null;
+let actionBusy = false;
+let activeTab = "work";
 const EXPECTED_LOG_PATH = "~/.local/state/caldav-assistant/thunderbird/native-host.log";
 
 function localInputNow() {
@@ -29,30 +32,28 @@ function show(message) {
   const box = $("message");
   box.textContent = message;
   box.classList.add("show");
-  setTimeout(() => box.classList.remove("show"), 4000);
+  clearTimeout(show._timer);
+  show._timer = setTimeout(() => box.classList.remove("show"), 4500);
 }
 
 function ensureNativePort() {
   if (nativePort) return nativePort;
-
   const port = messenger.runtime.connectNative(HOST);
-  port.onMessage.addListener((result) => {
+
+  port.onMessage.addListener(result => {
     const waiter = nativeWaiters.shift();
     if (!waiter) return;
-
     if (waiter.timer) clearTimeout(waiter.timer);
-    // A timed-out request remains in the FIFO until its delayed response
-    // arrives. Discard that one response instead of giving it to a newer call.
     if (waiter.expired) return;
-
     if (!result || result.ok === false) {
-      waiter.reject(new Error(result?.error || "Native host returned an invalid response."));
+      waiter.reject(new Error(result?.error || "Native Host returned an invalid response."));
       return;
     }
     waiter.resolve(result);
   });
+
   port.onDisconnect.addListener(() => {
-    const detail = messenger.runtime.lastError?.message || "Native host disconnected.";
+    const detail = messenger.runtime.lastError?.message || "Native Host disconnected.";
     nativePort = null;
     while (nativeWaiters.length) {
       const waiter = nativeWaiters.shift();
@@ -60,6 +61,7 @@ function ensureNativePort() {
       if (!waiter.expired) waiter.reject(new Error(detail));
     }
   });
+
   nativePort = port;
   return port;
 }
@@ -88,8 +90,8 @@ function host(message, timeoutMs = 30000) {
 
 function ensureDiagnosticPort() {
   if (diagnosticPort) return diagnosticPort;
-
   const port = messenger.runtime.connectNative(HOST);
+
   port.onMessage.addListener(result => {
     const waiter = diagnosticWaiters.shift();
     if (!waiter) return;
@@ -101,6 +103,7 @@ function ensureDiagnosticPort() {
     }
     waiter.resolve(result);
   });
+
   port.onDisconnect.addListener(() => {
     const detail = messenger.runtime.lastError?.message || "Diagnostic Native Host disconnected.";
     diagnosticPort = null;
@@ -110,6 +113,7 @@ function ensureDiagnosticPort() {
       if (!waiter.expired) waiter.reject(new Error(detail));
     }
   });
+
   diagnosticPort = port;
   return port;
 }
@@ -137,30 +141,76 @@ function diagnosticHost(message, timeoutMs = 5000) {
 }
 
 function selectedTaskId() {
-  const value = $("task").value;
+  const value = selectedTaskIdValue || $("task").value;
   if (!value) throw new Error("Choose a task first.");
   return value;
 }
 
 function selectedTask() {
-  const id = selectedTaskId();
-  return currentSnapshot?.tasks?.find(task => task.id === id) || null;
+  const id = selectedTaskIdValue || $("task").value;
+  return currentSnapshot.tasks.find(task => task.id === id) || null;
 }
 
-function taskLabel(task, state) {
-  const marks = [];
-  if (state.current_task_id === task.id) marks.push("▶");
-  if ((state.paused_task_ids || []).includes(task.id)) marks.push("⏸");
-  return (marks.length ? marks.join("") + " " : "") + task.summary;
+function stateForTask(task) {
+  if (!task) return "none";
+  if (currentSnapshot.state.current_task_id === task.id) return "current";
+  if ((currentSnapshot.state.paused_task_ids || []).includes(task.id)) return "paused";
+  return "ready";
+}
+
+function taskMeta(task) {
+  const state = stateForTask(task);
+  if (state === "current") return "▶ 正在工作";
+  if (state === "paused") return "⏸ 已暂停";
+  if (task.due) return `${task.status || "NEEDS-ACTION"} · due ${task.due}`;
+  return task.status || "NEEDS-ACTION";
+}
+
+function selectTask(taskId) {
+  if (!taskId || !currentSnapshot.tasks.some(task => task.id === taskId)) return;
+  selectedTaskIdValue = taskId;
+  $("task").value = taskId;
+  renderTaskList();
+  renderSelection();
+}
+
+function renderTaskList() {
+  const container = $("task-list");
+  const empty = $("task-empty");
+  const query = $("task-search").value.trim().toLocaleLowerCase();
+  container.textContent = "";
+
+  const visible = currentSnapshot.tasks.filter(task =>
+    !query || String(task.summary || "").toLocaleLowerCase().includes(query)
+  );
+
+  for (const task of visible) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "task-item" + (task.id === selectedTaskIdValue ? " selected" : "");
+    button.setAttribute("role", "option");
+    button.setAttribute("aria-selected", task.id === selectedTaskIdValue ? "true" : "false");
+
+    const title = document.createElement("span");
+    title.className = "task-title";
+    title.textContent = task.summary || "(untitled)";
+
+    const meta = document.createElement("span");
+    meta.className = "task-meta";
+    meta.textContent = taskMeta(task);
+
+    button.append(title, meta);
+    button.addEventListener("click", () => selectTask(task.id));
+    container.appendChild(button);
+  }
+
+  $("task-count").textContent = String(currentSnapshot.tasks.length);
+  empty.hidden = visible.length !== 0;
 }
 
 function renderActionState() {
-  const data = currentSnapshot;
-  const taskId = $("task").value;
-  const task = data?.tasks?.find(item => item.id === taskId) || null;
-  const current = Boolean(task && data?.state?.current_task_id === taskId);
-  const paused = Boolean(task && (data?.state?.paused_task_ids || []).includes(taskId));
-
+  const task = selectedTask();
+  const state = stateForTask(task);
   const start = $("action-start");
   const pause = $("action-pause");
   const cancel = $("action-cancel");
@@ -169,18 +219,18 @@ function renderActionState() {
 
   for (const button of buttons) {
     button.hidden = true;
-    button.disabled = !task;
+    button.disabled = actionBusy || !task;
   }
   if (!task) return;
 
-  if (current) {
+  if (state === "current") {
     pause.hidden = false;
     cancel.hidden = false;
     complete.hidden = false;
     return;
   }
 
-  if (paused) {
+  if (state === "paused") {
     start.textContent = "继续";
     start.hidden = false;
     cancel.hidden = false;
@@ -192,40 +242,55 @@ function renderActionState() {
   start.hidden = false;
 }
 
-function renderSnapshot(data, bridgeText) {
-  currentSnapshot = data;
-  const select = $("task");
-  const old = select.value;
-  select.textContent = "";
+function renderSelection() {
+  const task = selectedTask();
+  $("selected-task-title").textContent = task?.summary || "请选择任务";
+  $("record-task-label").textContent = task
+    ? `记录到：${task.summary}`
+    : "先在“工作”中选择任务。";
 
-  for (const task of data.tasks || []) {
-    const option = document.createElement("option");
-    option.value = task.id;
-    option.textContent = taskLabel(task, data.state || {});
-    select.appendChild(option);
-  }
-
-  if (old && data.tasks.some(task => task.id === old)) {
-    select.value = old;
-  }
-  if (!select.value && data.state?.current_task_id) {
-    select.value = data.state.current_task_id;
-  }
-  select.disabled = data.tasks.length === 0;
-
-  $("bridge-status").textContent = bridgeText;
-  $("task-status").textContent = data.state?.current_task_id
-    ? "Working: " + (
-        data.tasks.find(task => task.id === data.state.current_task_id)?.summary ||
-        data.state.current_task_id
-      )
+  const currentId = currentSnapshot.state.current_task_id;
+  const currentTask = currentSnapshot.tasks.find(item => item.id === currentId);
+  $("task-status").textContent = currentId
+    ? `Working: ${currentTask?.summary || currentId}`
     : "No active work";
 
   renderActionState();
+}
 
-  const history = data.history_calendar?.name || "CalDAV Assistant History";
-  const lines = data.today || [];
-  $("today").textContent = [`History: ${history}`, ...lines].join("\n");
+function renderSnapshot(data) {
+  const old = selectedTaskIdValue;
+  currentSnapshot = data;
+
+  const hiddenSelect = $("task");
+  hiddenSelect.textContent = "";
+  for (const task of data.tasks) {
+    const option = document.createElement("option");
+    option.value = task.id;
+    option.textContent = task.summary;
+    hiddenSelect.appendChild(option);
+  }
+
+  if (old && data.tasks.some(task => task.id === old)) {
+    selectedTaskIdValue = old;
+  } else if (data.state.current_task_id && data.tasks.some(task => task.id === data.state.current_task_id)) {
+    selectedTaskIdValue = data.state.current_task_id;
+  } else {
+    selectedTaskIdValue = data.tasks[0]?.id || "";
+  }
+  hiddenSelect.value = selectedTaskIdValue;
+
+  renderTaskList();
+  renderSelection();
+
+  const warning = $("work-warning");
+  if (data.state.ambiguous) {
+    warning.hidden = false;
+    warning.textContent = "检测到多个打开的 Work VEVENT；在继续工作前需要先整理这些记录。";
+  } else {
+    warning.hidden = true;
+    warning.textContent = "";
+  }
 }
 
 async function localTasks() {
@@ -238,86 +303,194 @@ async function localTasks() {
     const status = String(task.status || "").toUpperCase();
     return !task.completed && status !== "COMPLETED" && status !== "CANCELLED";
   });
+  return {tasks: actionable, elapsedMs: performance.now() - started};
+}
+
+async function localWorkState() {
+  if (!messenger.assistantCalendar?.workState) {
+    throw new Error("Thunderbird local work-session bridge is unavailable.");
+  }
+  const started = performance.now();
+  const work = await messenger.assistantCalendar.workState();
+  return {work, elapsedMs: performance.now() - started};
+}
+
+function deriveState(tasks, work) {
+  const currentId = work.currentTaskId || null;
+  const worked = new Set(work.workedTaskIds || []);
+  const paused = tasks
+    .filter(task => {
+      const status = String(task.status || "").toUpperCase();
+      return status === "IN-PROCESS" && task.id !== currentId && worked.has(task.id);
+    })
+    .map(task => task.id);
+
   return {
-    tasks: actionable,
-    elapsedMs: performance.now() - started,
+    current_task_id: currentId,
+    paused_task_ids: paused,
+    ambiguous: Boolean(work.ambiguous),
+    open_task_ids: work.openTaskIds || [],
+    source: work.source || "thunderbird-calendar-cache",
   };
 }
 
-async function refresh() {
-  const stateStarted = performance.now();
-  const [tasksResult, stateResult] = await Promise.allSettled([
+async function refreshFast() {
+  const started = performance.now();
+  const [tasksResult, workResult] = await Promise.allSettled([
     localTasks(),
-    host({command: "state"}),
+    localWorkState(),
   ]);
 
-  if (tasksResult.status === "fulfilled" && stateResult.status === "fulfilled") {
-    const stateElapsed = performance.now() - stateStarted;
-    const nativeMs = Number(stateResult.value.timings?.total_ms || 0);
-    const data = {
-      ...stateResult.value,
+  if (tasksResult.status === "fulfilled" && workResult.status === "fulfilled") {
+    const elapsed = performance.now() - started;
+    const localMs = Math.max(tasksResult.value.elapsedMs, workResult.value.elapsedMs);
+    $("bridge-status").textContent = `Thunderbird 本地 · ${elapsed.toFixed(0)} ms`;
+    $("bridge-status").className = "status-chip ok";
+    $("metric-local").textContent = `${localMs.toFixed(0)} ms`;
+
+    renderSnapshot({
       tasks: tasksResult.value.tasks,
-    };
-    renderSnapshot(
-      data,
-      `Thunderbird local ${tasksResult.value.elapsedMs.toFixed(0)} ms · Core ${nativeMs.toFixed(0)} ms · UI ${stateElapsed.toFixed(0)} ms`
-    );
+      state: deriveState(tasksResult.value.tasks, workResult.value.work),
+      today: currentSnapshot.today || [],
+    });
+    refreshToday().catch(error => {
+      $("today").textContent = "Today unavailable: " + error.message;
+    });
     return;
   }
 
-  // Compatibility fallback for an older XPI/Thunderbird where the local
-  // calendar experiment cannot load. This path may use the slower CalDAV read.
-  const fallback = await host({command: "snapshot"});
-  renderSnapshot(fallback, "Core connected · CalDAV fallback");
-  if (tasksResult.status === "rejected") {
-    show("Local task cache unavailable; using CalDAV fallback: " + tasksResult.reason.message);
-  }
+  const reason = tasksResult.status === "rejected"
+    ? tasksResult.reason
+    : workResult.reason;
+  $("bridge-status").textContent = "本地桥接失败 · CalDAV fallback";
+  $("bridge-status").className = "status-chip warn";
+  $("work-warning").hidden = false;
+  $("work-warning").textContent =
+    "Thunderbird 本地 Calendar/Tasks 读取不可用，正在使用较慢的兼容路径：" +
+    (reason?.message || reason);
+
+  const fallback = await host({command: "snapshot"}, 30000);
+  renderSnapshot({
+    tasks: fallback.tasks || [],
+    state: fallback.state || {current_task_id: null, paused_task_ids: []},
+    today: fallback.today || [],
+  });
+  renderToday(fallback.today || [], fallback.history_calendar?.name);
+}
+
+async function refreshToday() {
+  const response = await host({command: "activity_today"}, 5000);
+  currentSnapshot.today = response.today || [];
+  renderToday(currentSnapshot.today, response.history_calendar?.name);
+}
+
+function renderToday(lines, historyName = "CalDAV Assistant History") {
+  $("today").textContent = [
+    `History: ${historyName || "CalDAV Assistant History"}`,
+    ...(lines || []),
+  ].join("\n");
 }
 
 function scheduleTaskRefresh() {
   if (taskRefreshTimer) clearTimeout(taskRefreshTimer);
   taskRefreshTimer = setTimeout(() => {
     taskRefreshTimer = null;
-    refresh().catch(error => show(error.message));
-  }, 80);
+    refreshFast().catch(error => show(error.message));
+  }, 100);
+}
+
+function actionProgressLabel(action) {
+  return {
+    start: "正在开始…",
+    pause: "正在暂停…",
+    cancel: "正在取消…",
+    complete: "正在完成…",
+  }[action] || "正在处理…";
+}
+
+function applySuccessfulAction(action, taskId) {
+  const state = currentSnapshot.state;
+  const paused = new Set(state.paused_task_ids || []);
+
+  if (action === "start" || action === "resume") {
+    state.current_task_id = taskId;
+    paused.delete(taskId);
+  } else if (action === "pause") {
+    state.current_task_id = null;
+    paused.add(taskId);
+  } else if (action === "complete" || action === "cancel") {
+    if (state.current_task_id === taskId) state.current_task_id = null;
+    paused.delete(taskId);
+    currentSnapshot.tasks = currentSnapshot.tasks.filter(task => task.id !== taskId);
+    if (selectedTaskIdValue === taskId) {
+      selectedTaskIdValue = currentSnapshot.tasks[0]?.id || "";
+    }
+  }
+
+  state.paused_task_ids = [...paused];
+  renderSnapshot(currentSnapshot);
 }
 
 async function doAction(action) {
   const task = selectedTask();
+  if (!task) throw new Error("Choose a task first.");
+
+  actionBusy = true;
+  $("operation-status").textContent = actionProgressLabel(action);
+  renderActionState();
+
   const started = performance.now();
-  const response = await host({
-    command: "action",
-    action,
-    task_id: selectedTaskId(),
-    task,
-    at: isoFromInput(),
-    calendar_link: $("calendar-link").checked,
-  });
-  const elapsed = performance.now() - started;
-  const wp = response.wordpress;
-  show(
-    response.message +
-    (wp?.message ? " · " + wp.message : "") +
-    ` · ${elapsed.toFixed(0)} ms`
-  );
-  $("when").value = localInputNow();
-  await refresh();
-  refreshLogs().catch(() => {});
+  try {
+    const response = await host({
+      command: "action",
+      action,
+      task_id: task.id,
+      task,
+      at: isoFromInput(),
+      calendar_link: $("calendar-link").checked,
+    });
+    const elapsed = performance.now() - started;
+    $("metric-core").textContent = `${elapsed.toFixed(0)} ms`;
+    $("operation-status").textContent = `已同步 · ${elapsed.toFixed(0)} ms`;
+    applySuccessfulAction(action, task.id);
+
+    const wp = response.wordpress;
+    show(response.message + (wp?.message ? " · " + wp.message : ""));
+    $("when").value = localInputNow();
+
+    setTimeout(() => refreshFast().catch(() => {}), 250);
+    refreshLogs().catch(() => {});
+  } catch (error) {
+    $("operation-status").textContent = "操作失败";
+    show(error.message);
+    throw error;
+  } finally {
+    actionBusy = false;
+    renderActionState();
+  }
 }
 
 async function addNote() {
+  const task = selectedTask();
+  if (!task) throw new Error("Choose a task first.");
   const text = $("note").value.trim();
   if (!text) throw new Error("Write a note first.");
-  const response = await host({
-    command: "note",
-    task_id: selectedTaskId(),
-    text,
-    at: isoFromInput(),
-    calendar_link: $("calendar-link").checked,
-  });
-  $("note").value = "";
-  show(response.message || "Added to WordPress.");
-  refreshLogs().catch(() => {});
+
+  $("add-note").disabled = true;
+  try {
+    const response = await host({
+      command: "note",
+      task_id: task.id,
+      text,
+      at: isoFromInput(),
+      calendar_link: $("calendar-link").checked,
+    });
+    $("note").value = "";
+    show(response.message || "Added to WordPress.");
+    refreshLogs().catch(() => {});
+  } finally {
+    $("add-note").disabled = false;
+  }
 }
 
 async function copyText(text, label) {
@@ -341,33 +514,98 @@ async function copyText(text, label) {
 
 function renderLogError(error) {
   const detail = error?.message || String(error || "Unknown Native Host error");
-  const meta = $("log-status").parentElement;
-  meta.dataset.state = "error";
-  $("log-status").textContent = "Log unavailable — Retry after repairing Native Host";
+  $("log-status").textContent = "日志不可达";
   $("log-path").textContent = EXPECTED_LOG_PATH;
   $("copy-log-path").hidden = false;
   $("logs").textContent =
     "The log bridge did not answer.\n\n" +
     detail +
     "\n\nExpected log file:\n" +
-    EXPECTED_LOG_PATH +
-    "\n\nUse Retry after reinstalling/updating the Native Host.";
+    EXPECTED_LOG_PATH;
+  $("log-rows").innerHTML = "";
+  const row = document.createElement("tr");
+  const cell = document.createElement("td");
+  cell.colSpan = 4;
+  cell.textContent = detail;
+  row.appendChild(cell);
+  $("log-rows").appendChild(row);
+}
+
+function parseLogLines(lines) {
+  return (lines || []).map(line => {
+    try {
+      return {raw: line, data: JSON.parse(line)};
+    } catch (_error) {
+      return {raw: line, data: null};
+    }
+  });
+}
+
+function biggestTiming(timings) {
+  if (!timings || typeof timings !== "object") return null;
+  const skip = new Set(["total_ms", "host_total_ms"]);
+  const values = Object.entries(timings)
+    .filter(([key, value]) => !skip.has(key) && typeof value === "number")
+    .sort((a, b) => b[1] - a[1]);
+  return values[0] || null;
+}
+
+function renderStructuredLogs(lines) {
+  const parsed = parseLogLines(lines);
+  const requests = parsed
+    .map(item => item.data)
+    .filter(item => item && item.event === "request");
+
+  const rows = $("log-rows");
+  rows.textContent = "";
+
+  const recent = requests.slice(-100).reverse();
+  if (!recent.length) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 4;
+    cell.textContent = "还没有请求日志。";
+    row.appendChild(cell);
+    rows.appendChild(row);
+  }
+
+  for (const item of recent) {
+    const row = document.createElement("tr");
+    const at = String(item.at || "").split("T")[1]?.slice(0, 12) || "—";
+    const total = typeof item.total_ms === "number" ? `${item.total_ms.toFixed(1)} ms` : "—";
+    const biggest = biggestTiming(item.timings);
+    const phase = biggest ? `${biggest[0]} · ${biggest[1].toFixed(1)} ms` : "—";
+    for (const value of [at, item.command || item.event || "—", total, phase]) {
+      const cell = document.createElement("td");
+      cell.textContent = String(value);
+      row.appendChild(cell);
+    }
+    rows.appendChild(row);
+  }
+
+  const latest = requests[requests.length - 1];
+  if (latest && typeof latest.total_ms === "number") {
+    $("metric-core").textContent = `${latest.total_ms.toFixed(0)} ms`;
+    const biggest = biggestTiming(latest.timings);
+    $("latency-summary").textContent = biggest
+      ? `${latest.command} · ${latest.total_ms.toFixed(0)} ms · ${biggest[0]} ${biggest[1].toFixed(0)} ms`
+      : `${latest.command} · ${latest.total_ms.toFixed(0)} ms`;
+  } else {
+    $("latency-summary").textContent = "暂无可分析请求";
+  }
 }
 
 async function refreshLogs() {
-  const meta = $("log-status").parentElement;
-  meta.dataset.state = "loading";
-  $("log-status").textContent = "Connecting to Native Host…";
-  $("logs").textContent = "Connecting…";
-
+  $("log-status").textContent = "正在读取…";
   try {
     const response = await diagnosticHost({command: "logs", limit: 300}, 5000);
     const path = response.path || EXPECTED_LOG_PATH;
-    meta.dataset.state = "ok";
-    $("log-status").textContent = "Connected · log readable";
+    const lines = response.lines || [];
+    $("log-status").textContent = "已连接 · 日志可读";
     $("log-path").textContent = path;
     $("copy-log-path").hidden = false;
-    $("logs").textContent = (response.lines || []).join("\n") || "No log entries yet.";
+    $("logs").textContent = lines.join("\n") || "No log entries yet.";
+    renderStructuredLogs(lines);
     return response;
   } catch (error) {
     renderLogError(error);
@@ -378,7 +616,8 @@ async function refreshLogs() {
 async function clearLogs() {
   await diagnosticHost({command: "logs_clear"}, 5000);
   $("logs").textContent = "No log entries yet.";
-  $("log-status").textContent = "Connected · log readable";
+  $("log-status").textContent = "已连接 · 日志可读";
+  renderStructuredLogs([]);
   show("Logs cleared.");
 }
 
@@ -388,13 +627,15 @@ async function openLogFolder() {
     $("log-path").textContent = response.path;
     $("copy-log-path").hidden = false;
   }
-  show(response.opened ? "Log folder opened." : "Log folder is ready; copy the path to open it manually.");
+  show(response.opened ? "Log folder opened." : "Copy the path to open it manually.");
 }
 
 function startLogAutoRefresh() {
   if (logAutoRefreshTimer) return;
   logAutoRefreshTimer = setInterval(() => {
-    if (!document.hidden) refreshLogs().catch(() => {});
+    if (!document.hidden && activeTab === "diagnostics") {
+      refreshLogs().catch(() => {});
+    }
   }, 3000);
 }
 
@@ -408,8 +649,11 @@ function bytesToBase64(bytes) {
 }
 
 async function uploadOneFile(file, row) {
+  const task = selectedTask();
+  if (!task) throw new Error("Choose a task first.");
+
   const common = {
-    task_id: selectedTaskId(),
+    task_id: task.id,
     filename: file.name,
     mime_type: file.type || "application/octet-stream",
     at: isoFromInput(),
@@ -438,11 +682,7 @@ async function uploadOneFile(file, row) {
       const pct = file.size ? Math.min(100, Math.round((sent / file.size) * 100)) : 100;
       row.textContent = `Uploading ${file.name}… ${pct}%`;
     }
-
-    return await host({
-      command: "attachment_finish",
-      upload_id: uploadId,
-    });
+    return await host({command: "attachment_finish", upload_id: uploadId});
   } catch (error) {
     host({command: "attachment_abort", upload_id: uploadId}).catch(() => {});
     throw error;
@@ -474,13 +714,32 @@ async function loadSettings() {
   $("attachment-link").checked = stored.attachmentLink;
 }
 
-$("calendar-link").addEventListener("change", () =>
-  messenger.storage.local.set({calendarLink: $("calendar-link").checked})
-);
-$("attachment-link").addEventListener("change", () =>
-  messenger.storage.local.set({attachmentLink: $("attachment-link").checked})
-);
-$("refresh").addEventListener("click", () => refresh().catch(error => show(error.message)));
+function activateTab(name) {
+  activeTab = name;
+  for (const button of document.querySelectorAll(".tab")) {
+    const active = button.dataset.tab === name;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  }
+  for (const panel of document.querySelectorAll("[data-panel]")) {
+    const active = panel.dataset.panel === name;
+    panel.hidden = !active;
+    panel.classList.toggle("active", active);
+  }
+  if (name === "diagnostics") refreshLogs().catch(() => {});
+  if (name === "today") refreshToday().catch(error => show(error.message));
+}
+
+for (const button of document.querySelectorAll(".tab")) {
+  button.addEventListener("click", () => activateTab(button.dataset.tab));
+}
+
+$("task-search").addEventListener("input", renderTaskList);
+$("use-now").addEventListener("click", () => {
+  $("when").value = localInputNow();
+  $("operation-status").textContent = "时间已更新为现在";
+});
+$("refresh").addEventListener("click", () => refreshFast().catch(error => show(error.message)));
 $("refresh-logs").addEventListener("click", () => refreshLogs().catch(error => show(error.message)));
 $("copy-today").addEventListener("click", () =>
   copyText($("today").textContent, "Today").catch(error => show(error.message))
@@ -498,51 +757,47 @@ $("open-log-folder").addEventListener("click", () =>
   })
 );
 $("clear-logs").addEventListener("click", () => clearLogs().catch(error => show(error.message)));
-$("task").addEventListener("change", renderActionState);
+
 for (const button of document.querySelectorAll("[data-action]")) {
-  button.addEventListener("click", () => doAction(button.dataset.action).catch(error => show(error.message)));
+  button.addEventListener("click", () =>
+    doAction(button.dataset.action).catch(() => {})
+  );
 }
+
 $("add-note").addEventListener("click", () => addNote().catch(error => show(error.message)));
 $("attachment").addEventListener("change", event => {
   uploadFiles([...event.target.files]).catch(error => show(error.message));
   event.target.value = "";
 });
+$("calendar-link").addEventListener("change", () =>
+  messenger.storage.local.set({calendarLink: $("calendar-link").checked})
+);
+$("attachment-link").addEventListener("change", () =>
+  messenger.storage.local.set({attachmentLink: $("attachment-link").checked})
+);
 
 if (messenger.assistantCalendar?.onTasksChanged) {
   messenger.assistantCalendar.onTasksChanged.addListener(scheduleTaskRefresh);
 }
 
 window.addEventListener("pagehide", () => {
-  if (logAutoRefreshTimer) {
-    clearInterval(logAutoRefreshTimer);
-    logAutoRefreshTimer = null;
-  }
-  if (nativePort) {
-    nativePort.disconnect();
-    nativePort = null;
-  }
-  if (diagnosticPort) {
-    diagnosticPort.disconnect();
-    diagnosticPort = null;
-  }
+  if (taskRefreshTimer) clearTimeout(taskRefreshTimer);
+  if (logAutoRefreshTimer) clearInterval(logAutoRefreshTimer);
+  if (nativePort) nativePort.disconnect();
+  if (diagnosticPort) diagnosticPort.disconnect();
+  nativePort = null;
+  diagnosticPort = null;
 });
 
+$("version-badge").textContent = "v" + messenger.runtime.getManifest().version;
 $("when").value = localInputNow();
+
 loadSettings()
   .then(async () => {
-    // Task/status and logs are independent surfaces. A failure in one must not
-    // leave the other permanently stuck at “Loading…”.
     await Promise.allSettled([
-      refresh().catch(error => {
-        $("bridge-status").textContent = "Core unavailable";
-        show(error.message);
-      }),
+      refreshFast().catch(error => show(error.message)),
       refreshLogs().catch(() => {}),
     ]);
     startLogAutoRefresh();
   })
-  .catch(error => {
-    $("bridge-status").textContent = "Core unavailable";
-    renderLogError(error);
-    show(error.message);
-  });
+  .catch(error => show(error.message));
