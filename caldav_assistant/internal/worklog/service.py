@@ -33,6 +33,14 @@ class WorkLogService:
         self.collection_url_provider = collection_url_provider
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
+    @staticmethod
+    def normalize_time(value: datetime) -> datetime:
+        if not isinstance(value, datetime):
+            raise ValidationError("Work time must be a datetime")
+        if value.tzinfo is None:
+            value = value.astimezone()
+        return self.normalize_time(value)
+
     def now(self) -> datetime:
         value = self._clock()
         if not isinstance(value, datetime):
@@ -205,6 +213,7 @@ class WorkLogService:
         self,
         task: Task,
         *,
+        at: datetime | None = None,
         snapshot: Iterable[Event] | None = None,
     ) -> Event:
         task_id = str(task.id or "").strip()
@@ -221,7 +230,7 @@ class WorkLogService:
 
         event = Event(
             summary=f"Work — {task.summary}",
-            start=self.now(),
+            start=self.now() if at is None else self.normalize_time(at),
             end=None,
             description=self._description(task_id),
             categories=[self.CATEGORY, self.OPEN_CATEGORY],
@@ -251,6 +260,7 @@ class WorkLogService:
         self,
         task: Task | str,
         *,
+        at: datetime | None = None,
         required: bool = True,
         snapshot: Iterable[Event] | None = None,
     ) -> Event | None:
@@ -260,7 +270,9 @@ class WorkLogService:
                 raise ValidationError("This Task has no open CalDAV work interval")
             return None
         task_id = str(getattr(task, "id", task) or "").strip()
-        closed_at = self.now()
+        closed_at = self.now() if at is None else self.normalize_time(at)
+        if isinstance(event.start, datetime) and closed_at < self.normalize_time(event.start):
+            raise ValidationError("Work segment end cannot be earlier than its start")
         emit_progress(
             "worklog.close",
             "Closing current CalDAV Work interval...",
