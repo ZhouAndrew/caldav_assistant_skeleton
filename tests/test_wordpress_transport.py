@@ -226,3 +226,77 @@ def test_connection_returns_false_when_wp_cli_fails():
 
     assert adapter.test_connection() is False
     assert runner.calls[0][0] == ["wp", "core", "is-installed"]
+
+
+def test_calendar_linked_log_returns_public_post_url():
+    existing = "<!-- wp:paragraph -->\n<p>Existing</p>\n<!-- /wp:paragraph -->"
+    runner = Runner(
+        [
+            response('[{"ID":13554,"post_title":"August 29 Saturday 2026"}]'),
+            response(existing),
+            response("Success"),
+            response('[{"ID":13554,"url":"https://example.test/2026/08/29/log/"}]'),
+        ]
+    )
+    adapter = WPCLIAdapter(executable="wp", runner=runner)
+
+    result = adapter.create_log(
+        "10:30-11:10 Prepare Python course",
+        _logged_at="2026-08-29T11:10:00+08:00",
+        _request_id="req-calendar",
+        _calendar_link=True,
+        _work_event_id="w2",
+    )
+
+    assert result == {
+        "id": 13554,
+        "post_url": "https://example.test/2026/08/29/log/",
+    }
+    assert "--post__in=13554" in runner.calls[-1][0]
+    assert "--fields=ID,url" in runner.calls[-1][0]
+
+
+def test_attach_file_imports_media_and_appends_gutenberg_block(tmp_path):
+    picture = tmp_path / "result.png"
+    picture.write_bytes(b"fake-png")
+    existing = "<!-- wp:paragraph -->\n<p>Existing</p>\n<!-- /wp:paragraph -->"
+    runner = Runner(
+        [
+            response('[{"ID":88,"post_title":"August 29 Saturday 2026"}]'),
+            response(existing),
+            response("501\n"),
+            response("https://example.test/uploads/result.png\n"),
+            response("Success"),
+            response('[{"ID":88,"url":"https://example.test/2026/08/29/log/"}]'),
+        ]
+    )
+    adapter = WPCLIAdapter(executable="wp", runner=runner)
+
+    result = adapter.attach_file(
+        picture,
+        _logged_at="2026-08-29T11:10:00+08:00",
+        _request_id="file-1",
+        filename="result.png",
+        mime_type="image/png",
+        _calendar_link=True,
+        _calendar_attachment_link=True,
+        _work_event_id="w2",
+    )
+
+    assert result == {
+        "id": 501,
+        "post_id": 88,
+        "url": "https://example.test/uploads/result.png",
+        "post_url": "https://example.test/2026/08/29/log/",
+        "mime_type": "image/png",
+        "filename": "result.png",
+    }
+    media = runner.calls[2][0]
+    assert media[:3] == ["wp", "media", "import"]
+    assert str(picture) in media
+    assert "--post_id=88" in media
+    update = runner.calls[4][0]
+    content_arg = next(item for item in update if item.startswith("--post_content="))
+    assert "caldav-assistant-attachment:file-1" in content_arg
+    assert "wp:image" in content_arg
+    assert "https://example.test/uploads/result.png" in content_arg
