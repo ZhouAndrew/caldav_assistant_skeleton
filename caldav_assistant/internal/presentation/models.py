@@ -99,6 +99,20 @@ class DatePickerView:
     def kind(self) -> str:
         return "date_picker"
 
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "type": self.kind,
+            "title": self.title,
+            "selected": self.selected.isoformat(),
+            "today": self.today.isoformat(),
+            "month_label": self.month_label,
+            "weeks": [
+                [day.isoformat() for day in week]
+                for week in self.weeks
+            ],
+            "marked_dates": [day.isoformat() for day in self.marked_dates],
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class ScrollableListView:
@@ -119,6 +133,22 @@ class ScrollableListView:
     def visible_selected_index(self) -> int:
         return self.selected_index - self.offset
 
+    @property
+    def kind(self) -> str:
+        return "scrollable_list"
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "type": self.kind,
+            "title": self.title,
+            "labels": list(self.labels),
+            "selected_index": self.selected_index,
+            "offset": self.offset,
+            "page_size": self.page_size,
+            "visible_labels": list(self.visible_labels),
+            "visible_selected_index": self.visible_selected_index,
+        }
+
 
 @dataclass(frozen=True, slots=True)
 class TaskPickerView:
@@ -132,3 +162,12 @@ class TaskPickerView:
     @property
     def kind(self) -> str:
         return "task_picker"
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "type": self.kind,
+            "title": self.title,
+            "calendar": self.calendar.to_payload(),
+            "tasks": self.tasks.to_payload(),
+            "footer": self.footer,
+        }

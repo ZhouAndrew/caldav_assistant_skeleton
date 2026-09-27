@@ -151,6 +151,7 @@ class StdConsoleIO:
         stdout: TextIO | None = None,
         stderr: TextIO | None = None,
         terminal_width_fn: Callable[[], int] | None = None,
+        terminal_height_fn: Callable[[], int] | None = None,
         ui_key_fn: Callable[[], str] | None = None,
         terminal_bell_profile: TerminalBellProfile | None = None,
         sleep_fn: Callable[[float], None] = sleep,
@@ -159,6 +160,7 @@ class StdConsoleIO:
         self._secret_fn = secret_fn
         self.stdin = stdin or sys.stdin
         self._terminal_width_fn = terminal_width_fn
+        self._terminal_height_fn = terminal_height_fn
         self._ui_key_fn = ui_key_fn
         self._panel_active = False
         self._windows_vt_enabled: bool | None = None
@@ -196,6 +198,23 @@ class StdConsoleIO:
         isatty = getattr(self.stdout, "isatty", None)
         return bool(callable(isatty) and isatty())
 
+    def _detected_terminal_size(self):
+        """Read the real attached TTY size, preferring the active streams."""
+        if not self.is_interactive():
+            return None
+        for stream in (self.stdout, self.stdin):
+            fileno = getattr(stream, "fileno", None)
+            if not callable(fileno):
+                continue
+            try:
+                return os.get_terminal_size(fileno())
+            except (OSError, ValueError):
+                continue
+        try:
+            return shutil.get_terminal_size(fallback=(80, 24))
+        except OSError:
+            return None
+
     def display_width(self) -> int | None:
         """Return usable terminal columns only for an interactive terminal."""
         if self._terminal_width_fn is not None:
@@ -203,12 +222,79 @@ class StdConsoleIO:
                 return max(20, int(self._terminal_width_fn()))
             except Exception:
                 return None
+        size = self._detected_terminal_size()
+        return max(20, int(size.columns)) if size is not None else None
+
+    def display_height(self) -> int | None:
+        """Return usable terminal rows only for an interactive terminal."""
+        if self._terminal_height_fn is not None:
+            try:
+                return max(8, int(self._terminal_height_fn()))
+            except Exception:
+                return None
+        size = self._detected_terminal_size()
+        return max(8, int(size.lines)) if size is not None else None
+
+    def preferred_list_page_size(
+        self,
+        *,
+        reserved_rows: int = 6,
+        fallback: int = 8,
+        minimum: int = 4,
+        maximum: int = 200,
+    ) -> int:
+        """How many list rows can use the current viewport without scrolling."""
+        height = self.display_height()
+        if height is None:
+            return max(1, int(fallback))
+        usable = int(height) - max(0, int(reserved_rows))
+        return min(maximum, max(minimum, usable))
+
+    def preferred_menu_page_size(
+        self,
+        labels: Any,
+        *,
+        fallback: int = 10,
+    ) -> int:
+        """Fit as many menu choices as possible using rows and horizontal columns."""
+        values = [str(value) for value in list(labels or ())]
+        if not values:
+            return max(1, int(fallback))
+        width = self.display_width()
+        height = self.display_height()
+        if width is None or height is None:
+            return max(1, int(fallback))
+
+        from ..presentation.renderers import _display_width
+
+        available_rows = max(3, int(height) - 6)
+        max_columns = min(8, len(values))
+        for columns in range(max_columns, 0, -1):
+            count = min(len(values), available_rows * columns)
+            rows = max(1, (count + columns - 1) // columns)
+            actual_columns = max(1, (count + rows - 1) // rows)
+            widths = [0] * actual_columns
+            for index, label in enumerate(values[:count], 1):
+                column = (index - 1) // rows
+                cell = f"{index}. {label}"
+                widths[column] = max(widths[column], _display_width(cell))
+            total = sum(widths) + 3 * max(0, actual_columns - 1)
+            if total <= int(width):
+                return max(1, count)
+
+        return max(1, min(len(values), available_rows))
+
+    def supports_ansi_panel(self) -> bool:
+        """Whether alternate-screen redraw is safe on this terminal."""
         if not self.is_interactive():
-            return None
-        try:
-            return max(20, int(shutil.get_terminal_size(fallback=(80, 24)).columns))
-        except OSError:
-            return 80
+            return False
+        if os.name == "nt":
+            return self._enable_windows_vt()
+        # TERM=dumb is common on old/minimal terminals and redirected pseudo-TTYs.
+        # Keep those on the historical line-oriented fallback instead of emitting
+        # control sequences they cannot reliably interpret.
+        term = str(os.environ.get("TERM", "") or "").strip().casefold()
+        return term != "dumb"
 
     def supports_interactive_picker(self) -> bool:
         """Whether this client can drive key-oriented picker widgets."""
@@ -218,12 +304,21 @@ class StdConsoleIO:
             return False
         input_tty = getattr(self.stdin, "isatty", None)
         output_tty = getattr(self.stdout, "isatty", None)
-        return bool(
+        attached = bool(
             callable(input_tty)
             and input_tty()
             and callable(output_tty)
             and output_tty()
         )
+        if not attached or not self.supports_ansi_panel():
+            return False
+        width = self.display_width()
+        height = self.display_height()
+        if width is not None and width < 40:
+            return False
+        if height is not None and height < 18:
+            return False
+        return True
 
     def _enable_windows_vt(self) -> bool:
         if os.name != "nt":
@@ -246,26 +341,28 @@ class StdConsoleIO:
         return bool(self._windows_vt_enabled)
 
     def begin_interactive_panel(self) -> None:
-        """Enter a redraw-friendly terminal panel without leaking ANSI upward."""
+        """Enter a redraw-friendly full-terminal panel without leaking ANSI upward."""
         if self._panel_active:
             return
         self._panel_active = True
-        if self.is_interactive() and self._enable_windows_vt():
-            self.stdout.write("\x1b[?1049h\x1b[H")
+        if self.supports_ansi_panel():
+            self.stdout.write("\x1b[?1049h\x1b[?25l\x1b[H\x1b[2J")
             self.stdout.flush()
 
     def end_interactive_panel(self) -> None:
         if not self._panel_active:
             return
-        if self.is_interactive() and self._enable_windows_vt():
-            self.stdout.write("\x1b[?1049l")
+        if self.supports_ansi_panel():
+            self.stdout.write("\x1b[?25h\x1b[?1049l")
             self.stdout.flush()
         self._panel_active = False
 
     def _render_panel_lines(self, lines: list[str]) -> None:
         text = "\n".join(str(line) for line in lines)
-        if self.is_interactive() and self._enable_windows_vt():
-            self.stdout.write("\x1b[H" + text + "\x1b[J")
+        if self.supports_ansi_panel():
+            # Clear before drawing. Clearing only after the final line leaves stale
+            # tail text on earlier rows when a newly-rendered label is shorter.
+            self.stdout.write("\x1b[H\x1b[2J" + text)
             self.stdout.flush()
             return
         self.write(text)

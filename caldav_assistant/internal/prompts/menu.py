@@ -304,7 +304,25 @@ class Menu:
             self._write(empty_message)
             return [] if multiple else None
 
-        size = max(1, int(page_size or self.page_size))
+        if page_size is None:
+            preferred_size = getattr(self.io, "preferred_menu_page_size", None)
+            if callable(preferred_size):
+                try:
+                    size = max(
+                        1,
+                        int(
+                            preferred_size(
+                                [choice.label for choice in all_choices],
+                                fallback=self.page_size,
+                            )
+                        ),
+                    )
+                except Exception:
+                    size = self.page_size
+            else:
+                size = self.page_size
+        else:
+            size = max(1, int(page_size))
         filtered = list(all_choices)
         page = 0
         query = ""

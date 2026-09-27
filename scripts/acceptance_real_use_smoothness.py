@@ -240,10 +240,15 @@ def main() -> int:
             child.sendline("")
             child.expect(r"What do you want to do\?")
             child.expect(r"> ")
-            _assert_column_major_menu(child.before)
+            menu_frame = child.before
+            _assert_column_major_menu(menu_frame)
+            if "Page 1/2" in menu_frame:
+                raise AssertionError(
+                    "120x40 terminal paged a home menu that fits in a column-major grid"
+                )
             print(
-                "PASS: real terminal menu orders top-to-bottom before "
-                "left-to-right at 120 columns"
+                "PASS: real terminal menu uses viewport width and orders "
+                "top-to-bottom before left-to-right"
             )
             print(f"REAL-USE: first_menu_open={_elapsed(started):.3f}s")
             child.sendline("0")
@@ -300,8 +305,21 @@ def main() -> int:
                     raise AssertionError(
                         "today Task Picker did not report its overdue count"
                     )
+                if "\x1b[H\x1b[2J" not in frame:
+                    raise AssertionError(
+                        "Task Picker redraw did not clear the alternate screen first"
+                    )
+                numbered_rows = re.findall(
+                    r"(?:^|\r?\n)\s*>?\s*\d+\.\s",
+                    frame,
+                )
+                if len(numbered_rows) <= 8:
+                    raise AssertionError(
+                        "40-row terminal still rendered the historical fixed 8-row Task list"
+                    )
                 print(
-                    "PASS: Task Picker defaults to today and surfaces overdue backlog"
+                    "PASS: Task Picker defaults to today, surfaces overdue backlog, "
+                    "and expands beyond 8 rows to use the terminal viewport"
                 )
 
                 child.send("\x1b[C")
