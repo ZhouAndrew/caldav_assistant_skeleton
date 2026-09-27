@@ -68,7 +68,11 @@ class TaskCompletionLogService:
             text = self.render(task, self.worklog.segments_for(task))
         if not text:
             return None
-        return self.wordpress.queue_log(text, _show_clock=False)
+        completed_at = getattr(task, "completed_at", None)
+        metadata = {"_show_clock": False}
+        if isinstance(completed_at, datetime):
+            metadata["_logged_at"] = completed_at.isoformat()
+        return self.wordpress.queue_log(text, **metadata)
 
 
 class CompletionLoggingTaskService(CalDAVWorkTaskService):
