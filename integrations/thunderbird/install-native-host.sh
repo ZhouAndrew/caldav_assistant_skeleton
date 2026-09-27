@@ -10,13 +10,14 @@ LIB_DIR="$BASE_DIR/host"
 BIN_DIR="$HOME/.local/bin"
 MANIFEST_DIR="$HOME/.mozilla/native-messaging-hosts"
 DESKTOP_DIR="${XDG_DESKTOP_DIR:-$HOME/Desktop}"
-XPI_NAME="caldav-assistant-thunderbird-0.1.0.xpi"
-
 python3_bin="$(command -v python3 || true)"
 if [[ -z "$python3_bin" ]]; then
   echo "python3 is required." >&2
   exit 1
 fi
+
+VERSION="$("$python3_bin" -c 'import json, pathlib; print(json.loads(pathlib.Path("'"$ROOT"'/integrations/thunderbird/manifest.json").read_text())["version"])')"
+XPI_NAME="caldav-assistant-thunderbird-$VERSION.xpi"
 
 mkdir -p "$BASE_DIR" "$LIB_DIR" "$BIN_DIR" "$MANIFEST_DIR" "$DESKTOP_DIR"
 
