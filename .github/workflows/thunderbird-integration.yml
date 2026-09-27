@@ -28,15 +28,19 @@ jobs:
           python -m py_compile integrations/thunderbird/native_host.py
           python integrations/thunderbird/selftest_native_host_protocol.py
           python scripts/acceptance_thunderbird_history_calendar_real.py
-          python integrations/thunderbird/build-xpi.py
+          python integrations/thunderbird/build-experimental-bundle.py
 
-      - name: Inspect XPI
+      - name: Inspect install artifacts
         run: |
           unzip -t integrations/thunderbird/dist/caldav-assistant-thunderbird-0.1.0.xpi
           unzip -l integrations/thunderbird/dist/caldav-assistant-thunderbird-0.1.0.xpi
+          unzip -t integrations/thunderbird/dist/caldav-assistant-thunderbird-experimental-0.1.0.zip
+          unzip -l integrations/thunderbird/dist/caldav-assistant-thunderbird-experimental-0.1.0.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: caldav-assistant-thunderbird-xpi
-          path: integrations/thunderbird/dist/caldav-assistant-thunderbird-0.1.0.xpi
+          name: caldav-assistant-thunderbird-experimental
+          path: |
+            integrations/thunderbird/dist/caldav-assistant-thunderbird-0.1.0.xpi
+            integrations/thunderbird/dist/caldav-assistant-thunderbird-experimental-0.1.0.zip
           if-no-files-found: error
