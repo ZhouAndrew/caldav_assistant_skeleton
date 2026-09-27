@@ -416,6 +416,12 @@ def action(message: dict[str, Any]) -> dict[str, Any]:
 
 
 def wordpress_sync(message: dict[str, Any]) -> dict[str, Any]:
+    """Finish non-blocking integration work without competing for Outbox delivery.
+
+    The long-running Assistant Service is the single normal owner of WordPress Outbox
+    delivery.  This side-by-side Native Host only reports the durable queue state and,
+    when requested, establishes the Calendar↔WordPress reference.
+    """
     started = time.perf_counter()
     timings: dict[str, Any] = {}
     task_id = str(message.get("task_id") or "").strip()
@@ -423,25 +429,13 @@ def wordpress_sync(message: dict[str, Any]) -> dict[str, Any]:
     if not task_id:
         raise ValueError("task_id is required")
 
-    pending_before = _wordpress_pending_count()
+    pending = _wordpress_pending_count()
     emit_progress(
-        "wordpress.flush",
-        "Uploading queued work log entries to WordPress...",
-        state="started",
-        task_id=task_id,
-        pending=pending_before,
-    )
-    wordpress_started = time.perf_counter()
-    flush_result = core_call("wordpress.flush")
-    timings["wordpress_flush_ms"] = _elapsed_ms(wordpress_started)
-    pending_after = _wordpress_pending_count()
-    emit_progress(
-        "wordpress.flush",
-        "WordPress Outbox flush finished.",
+        "wordpress.background",
+        "WordPress log is safely queued; background Assistant Service owns delivery.",
         state="done",
         task_id=task_id,
-        result=flush_result,
-        pending=pending_after,
+        pending=pending,
     )
 
     reference = None
@@ -478,11 +472,10 @@ def wordpress_sync(message: dict[str, Any]) -> dict[str, Any]:
     timings["total_ms"] = _elapsed_ms(started)
     return {
         "ok": True,
-        "message": "WordPress follow-up finished.",
+        "message": "WordPress integration follow-up finished.",
         "wordpress": {
-            "flush": flush_result,
-            "pending_before": pending_before,
-            "pending_after": pending_after,
+            "delivery_owner": "background-service",
+            "pending": pending,
             "reference": reference,
         },
         "timings": timings,
