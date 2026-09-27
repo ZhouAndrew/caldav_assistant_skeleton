@@ -52,6 +52,51 @@ To remove only the experimental native host:
 bash integrations/thunderbird/uninstall-experimental.sh
 ```
 
+
+## Self-hosted automatic XPI updates
+
+The experimental add-on uses Thunderbird/Gecko's native self-update mechanism.
+Its fixed add-on ID remains:
+
+```text
+caldav-assistant-experimental@zhouandrew.local
+```
+
+and its update manifest is:
+
+```text
+https://andrew.local/caldav-assistant/thunderbird/experimental/updates.json
+```
+
+Build the XPI plus the JSON update feed with:
+
+```bash
+python3 integrations/thunderbird/build-update-feed.py
+```
+
+The generated files are under
+`integrations/thunderbird/dist/update-site/experimental/`. The update feed includes
+the current XPI version and a SHA-256 `update_hash`.
+
+On the `andrew.local` server, publish the current feed with:
+
+```bash
+bash integrations/thunderbird/publish-self-hosted-update.sh
+```
+
+By default this publishes to
+`/var/www/html/caldav-assistant/thunderbird/experimental/` and verifies that the
+HTTPS `updates.json` endpoint is reachable. The publish root can be overridden
+with `CALDAV_ASSISTANT_TB_UPDATE_ROOT`.
+
+**Bootstrap note:** version 0.1.0 did not contain an `update_url`, so an existing
+0.1.0 installation must install 0.1.1 manually once. From 0.1.1 onward, Thunderbird
+can discover higher XPI versions from the self-hosted update manifest.
+
+The native host and its Python environment are outside the XPI and are therefore
+not replaced by Thunderbird's XPI updater. XPI releases must remain compatible with
+the installed native-host protocol unless the native host is updated separately.
+
 ## Real acceptance required
 
 Do not call this feature complete until it has been installed in a real Thunderbird
