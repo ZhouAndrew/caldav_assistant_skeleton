@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -19,7 +20,7 @@ class WordPressService:
     """Canonical WordPress business layer above an adapter + durable Outbox."""
 
     _SCHEMA_VERSION = 1
-    _OPERATIONS = frozenset({"create_log", "create_post", "update_post"})
+    _OPERATIONS = frozenset({"create_log", "create_post", "update_post", "attach_file"})
 
     def __init__(self, adapter: Any, outbox: Any, activity: Any = None) -> None:
         self.adapter = adapter
@@ -99,6 +100,12 @@ class WordPressService:
                 **fields,
             )
 
+        if operation == "attach_file":
+            metadata = args.get("metadata") or {}
+            if not isinstance(metadata, dict):
+                raise ValueError("Malformed attach_file metadata")
+            return self.adapter.attach_file(args["path"], **metadata)
+
         changes = args.get("changes") or {}
         if not isinstance(changes, dict):
             raise ValueError("Malformed update_post changes")
@@ -127,6 +134,7 @@ class WordPressService:
             "create_log": "wordpress_log_created",
             "create_post": "wordpress_post_created",
             "update_post": "wordpress_post_updated",
+            "attach_file": "wordpress_attachment_created",
         }[operation]
         self._record(action, object_id, request_id=payload.get("request_id"))
 
@@ -215,6 +223,23 @@ class WordPressService:
         payload = self._payload(
             "update_post",
             {"post_id": clean_id, "changes": deepcopy(changes)},
+        )
+        return self._queue_and_try(payload)
+
+    def attach_file(self, path: str | Path, **metadata: Any) -> ActionResult:
+        """Queue a local file for attachment to the factual daily WordPress log."""
+        value = Path(path).expanduser()
+        if not value.is_file():
+            raise ValidationError(f"WordPress attachment file does not exist: {value}")
+        payload = self._payload(
+            "attach_file",
+            {"path": str(value), "metadata": {}},
+        )
+        metadata = dict(metadata)
+        metadata.setdefault("post_status", "publish")
+        payload["args"]["metadata"] = self._log_transport_metadata(
+            metadata,
+            request_id=payload["request_id"],
         )
         return self._queue_and_try(payload)
 
