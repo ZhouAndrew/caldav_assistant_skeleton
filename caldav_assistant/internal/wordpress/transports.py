@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
-from html import escape
+from html import escape, unescape
 import mimetypes
 import json
 from pathlib import Path
@@ -419,6 +419,22 @@ class WPCLIAdapter:
         marker = f"<!-- caldav-assistant-attachment:{clean} -->" if clean else ""
         return f"{marker}\n{block}" if marker else block
 
+    @staticmethod
+    def _existing_attachment_url(existing: str, marker: str) -> str:
+        """Recover the media URL from an idempotent attachment block retry."""
+        start = str(existing or "").find(marker)
+        if start < 0:
+            return ""
+        fragment = str(existing or "")[start:]
+        next_marker = fragment.find(
+            "<!-- caldav-assistant-attachment:",
+            len(marker),
+        )
+        if next_marker >= 0:
+            fragment = fragment[:next_marker]
+        match = re.search(r'(?:src|href)="([^"]+)"', fragment)
+        return unescape(match.group(1)).strip() if match else ""
+
     def attach_file(self, path: str | Path, **metadata: Any) -> dict[str, Any]:
         """Import a local file and append its Gutenberg block to the daily log."""
         value = Path(path).expanduser()
@@ -466,7 +482,20 @@ class WPCLIAdapter:
             else ""
         )
         if marker and marker in existing:
-            return {"id": None, "post_id": post_id, "duplicate": True}
+            file_url = self._existing_attachment_url(existing, marker)
+            try:
+                post_url = self._post_url(post_id)
+            except Exception:
+                post_url = ""
+            return {
+                "id": None,
+                "post_id": post_id,
+                "url": file_url,
+                "post_url": post_url,
+                "mime_type": mime_type,
+                "filename": display_name,
+                "duplicate": True,
+            }
 
         attachment_id = self._created_id(
             self._run(
