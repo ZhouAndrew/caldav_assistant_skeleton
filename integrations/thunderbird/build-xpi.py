@@ -19,6 +19,8 @@ FILES = [
     "assistant.html",
     "assistant.css",
     "assistant.js",
+    "experiments/assistantCalendar/schema.json",
+    "experiments/assistantCalendar/parent.js",
 ]
 
 

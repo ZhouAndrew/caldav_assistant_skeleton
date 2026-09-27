@@ -56,8 +56,24 @@
     </section>
 
     <section class="card">
-      <h2>Today</h2>
-      <pre id="today">Loading…</pre>
+      <div class="section-heading">
+        <h2>Today</h2>
+        <button id="copy-today">Copy</button>
+      </div>
+      <pre id="today" class="copyable" tabindex="0">Loading…</pre>
+    </section>
+
+    <section class="card">
+      <div class="section-heading">
+        <h2>Logs</h2>
+        <div class="inline-actions">
+          <button id="refresh-logs">Refresh</button>
+          <button id="copy-logs">Copy</button>
+          <button id="clear-logs">Clear</button>
+        </div>
+      </div>
+      <p class="hint">Shows native-host request timings so slow CalDAV/WordPress steps are visible.</p>
+      <pre id="logs" class="copyable log-view" tabindex="0">Loading…</pre>
     </section>
 
     <div id="message" role="status"></div>
