@@ -12,6 +12,7 @@ from typing import Any
 
 from ...api import ActionResult, Task
 from ...api.v1.errors import UnavailableError, ValidationError
+from ..progress import emit_progress
 from .service import TaskService
 
 
@@ -58,6 +59,40 @@ class CalDAVWorkTaskService(TaskService):
     @staticmethod
     def _call_with_optional_time(method: Any, task: Any, at: Any = None):
         return method(task) if at is None else method(task, at=at)
+
+    def _task_and_open_snapshot(
+        self,
+        task: Task | str,
+        *,
+        action: str,
+    ) -> tuple[Task, Any]:
+        """Read independent authoritative Task + open-Work facts concurrently."""
+        task_id = str(getattr(task, "id", task) or "").strip()
+        emit_progress(
+            "caldav.preflight",
+            f"Reading authoritative Task and open Work state for {action}...",
+            state="started",
+            task_id=task_id,
+            action=action,
+        )
+        with ThreadPoolExecutor(
+            max_workers=2,
+            thread_name_prefix=f"caldav-assistant-{action}-preflight",
+        ) as pool:
+            task_future = pool.submit(self.get, task)
+            work_future = pool.submit(self._open_work_snapshot)
+            obj = task_future.result()
+            open_snapshot = work_future.result()
+        emit_progress(
+            "caldav.preflight",
+            "Authoritative Task and open Work state received.",
+            state="done",
+            task_id=self._require_id(obj),
+            action=action,
+            status=getattr(obj, "status", None),
+            open_work_count=len(open_snapshot) if hasattr(open_snapshot, "__len__") else None,
+        )
+        return obj, open_snapshot
 
     def _segments_for_command(self, task: Task, *, fallback_snapshot: Any):
         """Use per-Task server narrowing when production WorkLog supports it."""
@@ -147,14 +182,8 @@ class CalDAVWorkTaskService(TaskService):
         # the command-local read so ``self.get`` cannot treat that object itself as
         # current truth. The Task refresh and open-Work query are independent
         # authoritative reads and therefore remain parallel.
-        with ThreadPoolExecutor(
-            max_workers=2,
-            thread_name_prefix="caldav-assistant-start-preflight",
-        ) as pool:
-            task_future = pool.submit(self.get, lookup)
-            work_future = pool.submit(self._open_work_snapshot)
-            obj = self._require_live_start_task(task_future.result())
-            open_snapshot = work_future.result()
+        obj, open_snapshot = self._task_and_open_snapshot(lookup, action="start")
+        obj = self._require_live_start_task(obj)
 
         task_id = self._require_id(obj)
         if obj.completed or obj.status in {"COMPLETED", "CANCELLED"}:
@@ -209,12 +238,11 @@ class CalDAVWorkTaskService(TaskService):
         if not self._worklog_configured():
             return self._call_with_optional_time(super()._pause, task, at)
 
-        obj = self.get(task)
+        obj, open_snapshot = self._task_and_open_snapshot(task, action="pause")
         task_id = self._require_id(obj)
         if obj.status != "IN-PROCESS":
             raise ValidationError("A planned Task is not running and cannot be paused")
 
-        open_snapshot = self._open_work_snapshot()
         current_id = self._work_call(
             "current_task_id",
             snapshot=open_snapshot,
@@ -245,14 +273,13 @@ class CalDAVWorkTaskService(TaskService):
         if not self._worklog_configured():
             return self._call_with_optional_time(super()._resume, task, at)
 
-        obj = self.get(task)
+        obj, open_snapshot = self._task_and_open_snapshot(task, action="resume")
         task_id = self._require_id(obj)
         if obj.completed or obj.status in {"COMPLETED", "CANCELLED"}:
             raise ValidationError("A completed or cancelled Task cannot be resumed")
         if obj.status != "IN-PROCESS":
             raise ValidationError("Only an in-progress Task can be resumed")
 
-        open_snapshot = self._open_work_snapshot()
         current_id = self._work_call(
             "current_task_id",
             snapshot=open_snapshot,
@@ -295,9 +322,8 @@ class CalDAVWorkTaskService(TaskService):
         if not self._worklog_configured():
             return self._call_with_optional_time(super()._complete, task, at)
 
-        obj = self.get(task)
+        obj, open_snapshot = self._task_and_open_snapshot(task, action="complete")
         task_id = self._require_id(obj)
-        open_snapshot = self._open_work_snapshot()
         current_id = self._work_call(
             "current_task_id",
             snapshot=open_snapshot,
@@ -371,9 +397,8 @@ class CalDAVWorkTaskService(TaskService):
         if not self._worklog_configured():
             return self._call_with_optional_time(super()._cancel, task, at)
 
-        obj = self.get(task)
+        obj, open_snapshot = self._task_and_open_snapshot(task, action="cancel")
         task_id = self._require_id(obj)
-        open_snapshot = self._open_work_snapshot()
         current_id = self._work_call("current_task_id", snapshot=open_snapshot)
 
         closed = None
