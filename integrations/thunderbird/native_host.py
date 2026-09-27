@@ -46,6 +46,13 @@ def write_message(value: dict[str, Any]) -> None:
     sys.stdout.buffer.flush()
 
 
+def ensure_history_calendar() -> dict[str, Any]:
+    return app().runtime.call(
+        "caldav.ensure_worklog_collection",
+        name="CalDAV Assistant History",
+    )
+
+
 def task_json(task: Any) -> dict[str, Any]:
     return {
         "id": str(getattr(task, "id", "") or ""),
@@ -109,6 +116,7 @@ def link_event(event_id: str | None, *, at: datetime, attachment_urls=()) -> dic
 
 
 def snapshot() -> dict[str, Any]:
+    history = ensure_history_calendar()
     tasks = app().ctx.tasks.list()
     current_id = app().ctx.session.current_task_id()
     paused_ids = list(app().ctx.session.paused_task_ids())
@@ -128,6 +136,7 @@ def snapshot() -> dict[str, Any]:
             "paused_task_ids": paused_ids,
         },
         "today": today,
+        "history_calendar": history,
     }
 
 
@@ -138,6 +147,7 @@ def action(message: dict[str, Any]) -> dict[str, Any]:
     if not task_id:
         raise ValueError("task_id is required")
 
+    ensure_history_calendar()
     tasks = app().ctx.tasks
     if action_name == "start":
         if task_id in app().ctx.session.paused_task_ids():
