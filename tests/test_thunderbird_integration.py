@@ -126,22 +126,36 @@ def test_self_hosted_update_feed_matches_manifest_and_xpi():
     assert entry["applications"]["gecko"]["strict_min_version"] == "115.0"
 
 
-def test_standalone_update_server_isolated_from_existing_web_stack():
+def test_standalone_update_server_uses_python_stdlib_runtime():
     publisher = (THUNDERBIRD / "publish-self-hosted-update.sh").read_text(encoding="utf-8")
     deploy = (THUNDERBIRD / "update-server" / "deploy.sh").read_text(encoding="utf-8")
-    caddy = (THUNDERBIRD / "update-server" / "Caddyfile").read_text(encoding="utf-8")
+    server = (THUNDERBIRD / "update-server" / "server.py").read_text(encoding="utf-8")
+    verifier = (THUNDERBIRD / "update-server" / "verify.py").read_text(encoding="utf-8")
 
-    assert "/var/www" not in publisher
-    assert "wordpress" not in publisher.casefold()
-    assert "apache" not in publisher.casefold()
-    assert "caldav-assistant-thunderbird-update-server" in deploy
-    assert "--restart unless-stopped" in deploy
-    assert 'caddy:2-alpine' in deploy
+    combined = "\n".join((publisher, deploy, server, verifier)).casefold()
+    assert "/var/www" not in combined
+    assert "wordpress" not in combined
+    assert "apache" not in combined
+    assert "docker" not in combined
+    assert "caddy" not in combined
+
+    assert "import http.server" in server
+    assert "import ssl" in server
+    assert "ThreadingHTTPServer" in server
+    assert "application/x-xpinstall" in server
     assert 'PORT="17443"' in deploy
     assert 'HOSTNAME="andrew.local"' in deploy
-    assert "update-ca-certificates" in deploy
+    assert "systemctl --user enable --now" in deploy
+    assert "Restart=on-failure" in deploy
+    assert "openssl req -x509" in deploy
     assert "certutil -A" in deploy
-    assert "https://andrew.local:17443" in caddy
-    assert "tls internal" in caddy
-    assert 'manifest_json="$(curl --fail --silent --show-error "$UPDATE_URL")"' in publisher
-    assert 'curl --fail --silent --show-error --head "$xpi_url"' in publisher
+    assert 'python3 "$VERIFY_PY"' in publisher
+
+
+def test_python_update_server_sources_compile():
+    for path in (
+        THUNDERBIRD / "update-server" / "server.py",
+        THUNDERBIRD / "update-server" / "verify.py",
+        THUNDERBIRD / "update-server" / "selftest.py",
+    ):
+        py_compile.compile(str(path), doraise=True)
