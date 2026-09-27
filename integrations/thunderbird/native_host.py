@@ -439,6 +439,7 @@ def wordpress_sync(message: dict[str, Any]) -> dict[str, Any]:
     )
 
     reference = None
+    calendar_link_state = "disabled"
     if bool(message.get("calendar_link", True)):
         emit_progress(
             "wordpress.calendar_link",
@@ -448,26 +449,46 @@ def wordpress_sync(message: dict[str, Any]) -> dict[str, Any]:
         )
         link_started = time.perf_counter()
         event_id = str(message.get("event_id") or "").strip() or latest_work_event_id(task_id)
-        reference = link_event(event_id, at=at)
-        timings["calendar_link_ms"] = _elapsed_ms(link_started)
-        if reference and reference.get("pending"):
+        if not event_id:
+            calendar_link_state = "no-work-event"
             emit_progress(
                 "wordpress.calendar_link",
-                "Calendar↔WordPress link is pending and needs a later retry.",
-                state="failed",
-                task_id=task_id,
-                event_id=event_id,
-                error=reference.get("error"),
-            )
-        else:
-            emit_progress(
-                "wordpress.calendar_link",
-                "Calendar↔WordPress link finished.",
+                "No Work VEVENT is available for a Calendar↔WordPress backlink.",
                 state="done",
                 task_id=task_id,
-                event_id=event_id,
-                wordpress_url=(reference or {}).get("url"),
             )
+        else:
+            reference = link_event(event_id, at=at)
+            if reference and reference.get("pending"):
+                calendar_link_state = "pending"
+                emit_progress(
+                    "wordpress.calendar_link",
+                    "Calendar↔WordPress link is pending and needs a later retry.",
+                    state="failed",
+                    task_id=task_id,
+                    event_id=event_id,
+                    error=reference.get("error"),
+                )
+            elif reference and reference.get("url"):
+                calendar_link_state = "linked"
+                emit_progress(
+                    "wordpress.calendar_link",
+                    "Calendar↔WordPress link finished.",
+                    state="done",
+                    task_id=task_id,
+                    event_id=event_id,
+                    wordpress_url=reference.get("url"),
+                )
+            else:
+                calendar_link_state = "no-wordpress-url"
+                emit_progress(
+                    "wordpress.calendar_link",
+                    "WordPress did not provide a daily-log URL to link.",
+                    state="done",
+                    task_id=task_id,
+                    event_id=event_id,
+                )
+        timings["calendar_link_ms"] = _elapsed_ms(link_started)
 
     timings["total_ms"] = _elapsed_ms(started)
     return {
@@ -476,6 +497,7 @@ def wordpress_sync(message: dict[str, Any]) -> dict[str, Any]:
         "wordpress": {
             "delivery_owner": "background-service",
             "pending": pending,
+            "calendar_link_state": calendar_link_state,
             "reference": reference,
         },
         "timings": timings,
