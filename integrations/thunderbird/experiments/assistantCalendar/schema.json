@@ -8,6 +8,13 @@
         "async": true,
         "description": "Read enabled Thunderbird task collections through the local calendar cache.",
         "parameters": []
+      },
+      {
+        "name": "workState",
+        "type": "function",
+        "async": true,
+        "description": "Read CalDAV Assistant work-session facts from Thunderbird's local calendar cache without a CalDAV network round trip.",
+        "parameters": []
       }
     ],
     "events": [

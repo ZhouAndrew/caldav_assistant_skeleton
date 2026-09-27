@@ -6,80 +6,172 @@
   <link rel="stylesheet" href="assistant.css">
 </head>
 <body>
-  <main>
-    <header>
+  <main class="app-shell">
+    <header class="app-header">
       <div>
-        <h1>CalDAV Assistant</h1>
-        <p>CalDAV tasks · work sessions · WordPress log</p>
+        <div class="title-row">
+          <h1>CalDAV Assistant</h1>
+          <span id="version-badge" class="badge">…</span>
+        </div>
+        <p>Thunderbird Tasks · Work sessions · WordPress log</p>
       </div>
-      <button id="refresh">Refresh</button>
+      <div class="header-status">
+        <span id="bridge-status" class="status-chip">Connecting…</span>
+        <button id="refresh" class="icon-button" title="Refresh">↻</button>
+      </div>
     </header>
 
-    <section class="card">
-      <h2>Task</h2>
-      <select id="task"></select>
-      <div class="status-row">
-        <span id="task-status">No task selected</span>
-        <span id="bridge-status">Connecting…</span>
-      </div>
+    <nav class="tabs" role="tablist" aria-label="CalDAV Assistant">
+      <button class="tab active" data-tab="work" role="tab" aria-selected="true">工作</button>
+      <button class="tab" data-tab="record" role="tab" aria-selected="false">记录</button>
+      <button class="tab" data-tab="today" role="tab" aria-selected="false">今天</button>
+      <button class="tab" data-tab="diagnostics" role="tab" aria-selected="false">诊断</button>
+    </nav>
 
-      <label for="when">Record time</label>
-      <input id="when" type="datetime-local" step="60">
+    <section id="panel-work" class="panel active" data-panel="work">
+      <div class="work-layout">
+        <aside class="task-browser">
+          <div class="pane-heading">
+            <div>
+              <h2>任务</h2>
+              <span id="task-count" class="muted">0</span>
+            </div>
+            <input id="task-search" type="search" placeholder="筛选任务…" autocomplete="off">
+          </div>
+          <select id="task" hidden aria-hidden="true"></select>
+          <div id="task-list" class="task-list" role="listbox" aria-label="Actionable tasks"></div>
+          <div id="task-empty" class="empty-state" hidden>没有可开始的任务。</div>
+        </aside>
 
-      <div class="actions">
-        <button id="action-start" data-action="start" class="primary">开始</button>
-        <button id="action-pause" data-action="pause">暂停</button>
-        <button id="action-cancel" data-action="cancel" class="danger">取消</button>
-        <button id="action-complete" data-action="complete" class="success">完成</button>
+        <section class="work-console">
+          <div class="current-block">
+            <div class="eyebrow">当前选择</div>
+            <h2 id="selected-task-title">请选择任务</h2>
+            <div class="status-row">
+              <span id="task-status" class="status-chip neutral">No active work</span>
+              <span id="operation-status" class="muted">Ready</span>
+            </div>
+          </div>
+
+          <div class="time-row">
+            <label for="when">记录时间</label>
+            <div class="time-controls">
+              <input id="when" type="datetime-local" step="60">
+              <button id="use-now">现在</button>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="action-start" data-action="start" class="primary">开始</button>
+            <button id="action-pause" data-action="pause">暂停</button>
+            <button id="action-cancel" data-action="cancel" class="danger">取消</button>
+            <button id="action-complete" data-action="complete" class="success">完成</button>
+          </div>
+
+          <div id="work-warning" class="callout warning" hidden></div>
+          <p class="hint">界面立即响应；写入仍由 CalDAV Assistant Core 完成。Thunderbird 本地 Calendar/Tasks 缓存用于快速读取。</p>
+        </section>
       </div>
-      <p class="hint">The entered time is the recorded fact. A new Start after Pause creates a new VEVENT.</p>
     </section>
 
-    <section class="card">
-      <h2>Record</h2>
-      <textarea id="note" rows="5" placeholder="Write a note about this work…"></textarea>
-      <div class="record-actions">
-        <button id="add-note">Add to WordPress</button>
-        <label class="file-label">
-          Add file
-          <input id="attachment" type="file" multiple>
-        </label>
+    <section id="panel-record" class="panel" data-panel="record" hidden>
+      <div class="card compact">
+        <div class="section-heading">
+          <div>
+            <h2>工作记录</h2>
+            <p id="record-task-label" class="muted">先在“工作”中选择任务。</p>
+          </div>
+        </div>
+        <textarea id="note" rows="7" placeholder="写一条关于当前工作的记录…"></textarea>
+        <div class="record-actions">
+          <button id="add-note" class="primary">加入 WordPress</button>
+          <label class="file-label">
+            添加文件
+            <input id="attachment" type="file" multiple>
+          </label>
+        </div>
+        <div id="uploads" class="upload-list"></div>
       </div>
-      <div id="uploads"></div>
+
+      <details class="card settings-card">
+        <summary>集成设置</summary>
+        <label class="check"><input id="calendar-link" type="checkbox"> Calendar 事件加入 WordPress 日志链接</label>
+        <label class="check"><input id="attachment-link" type="checkbox"> Calendar 事件加入 WordPress 附件直链</label>
+      </details>
     </section>
 
-    <section class="card">
-      <h2>Integration</h2>
-      <label class="check"><input id="calendar-link" type="checkbox"> Add WordPress log link to Calendar event</label>
-      <label class="check"><input id="attachment-link" type="checkbox"> Add direct WordPress attachment links to Calendar event</label>
-      <p class="hint">Calendar → WordPress log is enabled by default.</p>
-    </section>
-
-    <section class="card">
-      <div class="section-heading">
-        <h2>Today</h2>
-        <button id="copy-today">Copy</button>
+    <section id="panel-today" class="panel" data-panel="today" hidden>
+      <div class="card compact">
+        <div class="section-heading">
+          <div>
+            <h2>今天</h2>
+            <p class="muted">Activity Journal</p>
+          </div>
+          <button id="copy-today">复制</button>
+        </div>
+        <pre id="today" class="copyable today-view" tabindex="0">Loading…</pre>
       </div>
-      <pre id="today" class="copyable" tabindex="0">Loading…</pre>
     </section>
 
-    <section class="card">
-      <div class="section-heading">
-        <h2>Logs</h2>
-        <div class="inline-actions">
-          <button id="refresh-logs">Retry</button>
-          <button id="copy-logs">Copy</button>
-          <button id="open-log-folder">Open folder</button>
-          <button id="clear-logs">Clear</button>
+    <section id="panel-diagnostics" class="panel" data-panel="diagnostics" hidden>
+      <div class="diagnostic-grid">
+        <div class="metric-card">
+          <span class="eyebrow">本地读取</span>
+          <strong id="metric-local">—</strong>
+          <span class="muted">Thunderbird cache</span>
+        </div>
+        <div class="metric-card">
+          <span class="eyebrow">最近 Core 请求</span>
+          <strong id="metric-core">—</strong>
+          <span class="muted">Native Host</span>
+        </div>
+        <div class="metric-card wide">
+          <span class="eyebrow">最近慢点</span>
+          <strong id="latency-summary">等待日志…</strong>
         </div>
       </div>
-      <p class="hint">Native-host timings. This panel never stays on “Loading…”: it shows either the log, an empty state, or a concrete connection error.</p>
-      <div class="log-meta">
-        <span id="log-status">Connecting to Native Host…</span>
-        <button id="copy-log-path" hidden>Copy path</button>
+
+      <div class="card compact">
+        <div class="section-heading">
+          <div>
+            <h2>实时日志</h2>
+            <p class="muted">独立诊断通道；主操作卡住时仍应可读。</p>
+          </div>
+          <div class="inline-actions">
+            <button id="refresh-logs">重试</button>
+            <button id="copy-logs">复制</button>
+            <button id="open-log-folder">打开目录</button>
+            <button id="clear-logs">清空</button>
+          </div>
+        </div>
+
+        <div class="log-meta">
+          <span id="log-status">Connecting to Native Host…</span>
+          <button id="copy-log-path" hidden>复制路径</button>
+        </div>
+        <code id="log-path" class="copyable log-path" tabindex="0"></code>
+
+        <div class="log-table-wrap">
+          <table class="log-table">
+            <thead>
+              <tr>
+                <th>时间</th>
+                <th>请求</th>
+                <th>耗时</th>
+                <th>主要阶段</th>
+              </tr>
+            </thead>
+            <tbody id="log-rows">
+              <tr><td colspan="4">Connecting…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <details class="raw-log">
+          <summary>原始日志</summary>
+          <pre id="logs" class="copyable log-view" tabindex="0">Connecting…</pre>
+        </details>
       </div>
-      <code id="log-path" class="copyable log-path" tabindex="0"></code>
-      <pre id="logs" class="copyable log-view" tabindex="0">Connecting…</pre>
     </section>
 
     <div id="message" role="status"></div>
