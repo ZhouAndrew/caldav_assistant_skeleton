@@ -2,7 +2,8 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUNDLE="$HERE/dist/caldav-assistant-thunderbird-experimental-0.1.0.zip"
+VERSION="$(python3 -c 'import json, pathlib; print(json.loads(pathlib.Path("'"$HERE"'/manifest.json").read_text())["version"])')"
+BUNDLE="$HERE/dist/caldav-assistant-thunderbird-experimental-$VERSION.zip"
 
 if [[ ! -f "$BUNDLE" ]]; then
   echo "Bundle not found: $BUNDLE" >&2
@@ -42,7 +43,7 @@ HOME="$home" XDG_DESKTOP_DIR="$home/Desktop" bash "$bundle_dir/install.sh"
 cmp "$tmp/original-manifest.json"   "$home/.local/share/caldav-assistant-thunderbird-experimental/native-host-manifest.backup.json"
 
 launcher="$home/.local/bin/caldav-assistant-thunderbird-host-experimental"
-xpi="$home/Desktop/caldav-assistant-thunderbird-0.1.0.xpi"
+xpi="$home/Desktop/caldav-assistant-thunderbird-$VERSION.xpi"
 [[ -x "$launcher" ]]
 [[ -f "$xpi" ]]
 grep -Fq '"path": "'"$launcher"'"' "$manifest"

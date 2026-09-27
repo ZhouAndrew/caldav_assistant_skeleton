@@ -1,19 +1,22 @@
 {
   "manifest_version": 2,
   "name": "CalDAV Assistant Experimental",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Thunderbird workspace for CalDAV Assistant work sessions and WordPress logs.",
-  "applications": {
-    "gecko": {
-      "id": "caldav-assistant-experimental@zhouandrew.local",
-      "strict_min_version": "115.0"
-    }
-  },
   "background": {
-    "scripts": ["background.js"]
+    "scripts": [
+      "background.js"
+    ]
   },
   "permissions": [
     "nativeMessaging",
     "storage"
-  ]
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "caldav-assistant-experimental@zhouandrew.local",
+      "strict_min_version": "115.0",
+      "update_url": "https://andrew.local/caldav-assistant/thunderbird/experimental/updates.json"
+    }
+  }
 }

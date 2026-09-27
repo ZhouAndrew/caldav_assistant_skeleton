@@ -9,8 +9,6 @@ VENV_DIR="$BASE_DIR/venv"
 LIB_DIR="$BASE_DIR/host"
 BIN_DIR="$HOME/.local/bin"
 MANIFEST_DIR="$HOME/.mozilla/native-messaging-hosts"
-XPI_NAME="caldav-assistant-thunderbird-0.1.0.xpi"
-
 desktop_dir="$(xdg-user-dir DESKTOP 2>/dev/null || true)"
 if [[ -z "$desktop_dir" ]]; then
   desktop_dir="${XDG_DESKTOP_DIR:-$HOME/Desktop}"
@@ -24,15 +22,17 @@ fi
 
 shopt -s nullglob
 wheels=("$ROOT"/caldav_assistant-*.whl)
+xpis=("$ROOT"/caldav-assistant-thunderbird-*.xpi)
 shopt -u nullglob
 if [[ ${#wheels[@]} -ne 1 ]]; then
   echo "Expected exactly one caldav_assistant wheel beside this installer." >&2
   exit 1
 fi
-if [[ ! -f "$ROOT/$XPI_NAME" || ! -f "$ROOT/native_host.py" ]]; then
+if [[ ${#xpis[@]} -ne 1 || ! -f "$ROOT/native_host.py" ]]; then
   echo "Experimental bundle is incomplete." >&2
   exit 1
 fi
+XPI_NAME="$(basename "${xpis[0]}")"
 
 mkdir -p "$BASE_DIR" "$LIB_DIR" "$BIN_DIR" "$MANIFEST_DIR" "$desktop_dir"
 
