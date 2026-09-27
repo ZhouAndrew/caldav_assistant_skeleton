@@ -22,6 +22,7 @@ from typing import Any
 from ...api import ActionResult, Task
 from ...api.v1.errors import AmbiguousError, NotFoundError, ValidationError
 from ..caldav.adapter import CalDAVAdapter
+from ..progress import emit_progress
 from .semantics import task_is_actionable
 
 
@@ -304,12 +305,29 @@ class TaskService:
             if key in self._MUTABLE_FIELDS
         }
 
+        emit_progress(
+            "task.write",
+            "Writing Task changes to authoritative CalDAV storage...",
+            state="started",
+            task_id=task_id,
+            fields=sorted(normalized),
+            status=normalized.get("status"),
+            completed=normalized.get("completed"),
+        )
         fast_writer = getattr(self.adapter, "update_task_from_snapshot", None)
         fast_updated = fast_writer(obj, normalized) if callable(fast_writer) else None
         updated = self._bind(
             fast_updated
             if fast_updated is not None
             else self.adapter.update_task(task_id, normalized)
+        )
+        emit_progress(
+            "task.write",
+            "CalDAV Task update confirmed.",
+            state="done",
+            task_id=task_id,
+            status=getattr(updated, "status", None),
+            completed=bool(getattr(updated, "completed", False)),
         )
 
         undo_available = False
