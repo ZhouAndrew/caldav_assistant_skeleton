@@ -10,8 +10,8 @@ CADDY_CONFIG="$STATE_DIR/caddy-config"
 CADDYFILE="$STATE_DIR/Caddyfile"
 CONTAINER="caldav-assistant-thunderbird-update-server"
 IMAGE="${CALDAV_ASSISTANT_TB_UPDATE_IMAGE:-caddy:2-alpine}"
-PORT="${CALDAV_ASSISTANT_TB_UPDATE_PORT:-17443}"
-HOSTNAME="${CALDAV_ASSISTANT_TB_UPDATE_HOST:-andrew.local}"
+PORT="17443"
+HOSTNAME="andrew.local"
 UPDATE_URL="https://$HOSTNAME:$PORT/experimental/updates.json"
 
 need() {
