@@ -210,26 +210,36 @@ def link_event(event_id: str | None, *, at: datetime, attachment_urls=()) -> dic
         return {"pending": True, "error": f"{type(exc).__name__}: {exc}"}
 
 
-def _fast_current_task_id() -> str | None:
-    """Read Assistant-owned session state without triggering CalDAV recovery."""
+def _cached_session_state() -> dict[str, Any]:
+    """Return only generation-local cached Session facts; never touch CalDAV."""
     session = app().ctx.session
-    getter = getattr(session, "_get", None)
-    key = getattr(session, "CURRENT_TASK_KEY", "current_task_uid")
-    if callable(getter):
-        value = getter(key, None)
-        return str(value) if value else None
-    return session.current_task_id()
+    reader = getattr(session, "cached_startup_snapshot", None)
+    if callable(reader):
+        try:
+            snapshot = reader(())
+        except TypeError:
+            snapshot = reader([])
+        if isinstance(snapshot, dict):
+            return {
+                "current_task_id": snapshot.get("current_task_id"),
+                # Exact paused history belongs to the Thunderbird-local work-event
+                # projection in the current XPI.  Returning [] here keeps the
+                # compatibility endpoint strictly cache/local only.
+                "paused_task_ids": [],
+                "current_work_verified": bool(
+                    snapshot.get("current_work_verified", True)
+                ),
+                "producer_generation": snapshot.get("producer_generation"),
+            }
+    return {
+        "current_task_id": None,
+        "paused_task_ids": [],
+        "current_work_verified": False,
+    }
 
 
-def state_snapshot() -> dict[str, Any]:
+def activity_today() -> dict[str, Any]:
     started = time.perf_counter()
-
-    session_started = time.perf_counter()
-    current_id = _fast_current_task_id()
-    paused_ids = list(app().ctx.session.paused_task_ids())
-    session_ms = _elapsed_ms(session_started)
-
-    activity_started = time.perf_counter()
     today = []
     for item in app().ctx.activity.today():
         at = getattr(item, "timestamp", None)
@@ -238,21 +248,31 @@ def state_snapshot() -> dict[str, Any]:
         action = str(getattr(item, "action", "") or "")
         object_id = str(getattr(item, "object_id", "") or "")
         today.append(f"{stamp} {action} {object_id}".strip())
-    activity_ms = _elapsed_ms(activity_started)
-
     return {
         "ok": True,
-        "state": {
-            "current_task_id": current_id,
-            "paused_task_ids": paused_ids,
-        },
         "today": today,
         "history_calendar": {"name": "CalDAV Assistant History"},
         "timings": {
+            "activity_ms": _elapsed_ms(started),
+            "source": "sqlite-activity",
+        },
+    }
+
+
+def state_snapshot() -> dict[str, Any]:
+    started = time.perf_counter()
+    session_started = time.perf_counter()
+    state = _cached_session_state()
+    session_ms = _elapsed_ms(session_started)
+    return {
+        "ok": True,
+        "state": state,
+        "today": [],
+        "history_calendar": {"name": "CalDAV Assistant History"},
+        "timings": {
             "session_ms": session_ms,
-            "activity_ms": activity_ms,
             "total_ms": _elapsed_ms(started),
-            "source": "local-session+sqlite",
+            "source": "cache-only-session",
         },
     }
 
@@ -293,12 +313,11 @@ def action(message: dict[str, Any]) -> dict[str, Any]:
     tasks = app().ctx.tasks
     task_action_started = time.perf_counter()
     if action_name == "start":
-        if task_id in app().ctx.session.paused_task_ids():
-            result = tasks._resume(task_id, at=at)
-            verb = "Started a new work segment"
-        else:
-            result = tasks._start(task_id, at=at)
-            verb = "Started"
+        result = tasks._start(task_id, at=at)
+        verb = "Started"
+    elif action_name == "resume":
+        result = tasks._resume(task_id, at=at)
+        verb = "Started a new work segment"
     elif action_name == "pause":
         result = tasks._pause(task_id, at=at)
         verb = "Paused"
@@ -514,6 +533,8 @@ def dispatch(message: dict[str, Any]) -> dict[str, Any]:
     command = str(message.get("command") or "")
     if command == "state":
         return state_snapshot()
+    if command == "activity_today":
+        return activity_today()
     if command == "snapshot":
         return snapshot()
     if command == "action":
