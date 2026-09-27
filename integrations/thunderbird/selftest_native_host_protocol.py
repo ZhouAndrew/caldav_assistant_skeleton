@@ -54,6 +54,12 @@ def main() -> int:
             assert second["ok"] is True
             assert proc.poll() is None, "host exited between messages"
 
+            logs = send(proc, {"command": "logs", "limit": 20})
+            assert logs["ok"] is True
+            log_path = Path(str(logs["path"]))
+            assert log_path.is_file(), f"log file is not reachable: {log_path}"
+            assert log_path.read_text(encoding="utf-8").strip(), "log file stayed empty"
+
             content = b"0123456789" * 1000
             begin = send(
                 proc,
