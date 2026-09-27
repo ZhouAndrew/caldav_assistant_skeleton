@@ -4,6 +4,8 @@ const $ = (id) => document.getElementById(id);
 
 let nativePort = null;
 const nativeWaiters = [];
+let diagnosticPort = null;
+const diagnosticWaiters = [];
 let currentSnapshot = null;
 let taskRefreshTimer = null;
 let logAutoRefreshTimer = null;
@@ -78,6 +80,56 @@ function host(message, timeoutMs = 30000) {
     } catch (error) {
       const index = nativeWaiters.indexOf(waiter);
       if (index >= 0) nativeWaiters.splice(index, 1);
+      clearTimeout(waiter.timer);
+      reject(error);
+    }
+  });
+}
+
+function ensureDiagnosticPort() {
+  if (diagnosticPort) return diagnosticPort;
+
+  const port = messenger.runtime.connectNative(HOST);
+  port.onMessage.addListener(result => {
+    const waiter = diagnosticWaiters.shift();
+    if (!waiter) return;
+    if (waiter.timer) clearTimeout(waiter.timer);
+    if (waiter.expired) return;
+    if (!result || result.ok === false) {
+      waiter.reject(new Error(result?.error || "Diagnostic Native Host returned an invalid response."));
+      return;
+    }
+    waiter.resolve(result);
+  });
+  port.onDisconnect.addListener(() => {
+    const detail = messenger.runtime.lastError?.message || "Diagnostic Native Host disconnected.";
+    diagnosticPort = null;
+    while (diagnosticWaiters.length) {
+      const waiter = diagnosticWaiters.shift();
+      if (waiter.timer) clearTimeout(waiter.timer);
+      if (!waiter.expired) waiter.reject(new Error(detail));
+    }
+  });
+  diagnosticPort = port;
+  return port;
+}
+
+function diagnosticHost(message, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    const port = ensureDiagnosticPort();
+    const waiter = {resolve, reject, expired: false, timer: null};
+    waiter.timer = setTimeout(() => {
+      waiter.expired = true;
+      reject(new Error(
+        `Diagnostic log bridge did not answer “${message.command || "request"}” within ${timeoutMs} ms.`
+      ));
+    }, timeoutMs);
+    diagnosticWaiters.push(waiter);
+    try {
+      port.postMessage(message);
+    } catch (error) {
+      const index = diagnosticWaiters.indexOf(waiter);
+      if (index >= 0) diagnosticWaiters.splice(index, 1);
       clearTimeout(waiter.timer);
       reject(error);
     }
@@ -309,7 +361,7 @@ async function refreshLogs() {
   $("logs").textContent = "Connecting…";
 
   try {
-    const response = await host({command: "logs", limit: 300}, 5000);
+    const response = await diagnosticHost({command: "logs", limit: 300}, 5000);
     const path = response.path || EXPECTED_LOG_PATH;
     meta.dataset.state = "ok";
     $("log-status").textContent = "Connected · log readable";
@@ -324,14 +376,14 @@ async function refreshLogs() {
 }
 
 async function clearLogs() {
-  await host({command: "logs_clear"}, 5000);
+  await diagnosticHost({command: "logs_clear"}, 5000);
   $("logs").textContent = "No log entries yet.";
   $("log-status").textContent = "Connected · log readable";
   show("Logs cleared.");
 }
 
 async function openLogFolder() {
-  const response = await host({command: "logs_open"}, 5000);
+  const response = await diagnosticHost({command: "logs_open"}, 5000);
   if (response.path) {
     $("log-path").textContent = response.path;
     $("copy-log-path").hidden = false;
@@ -468,6 +520,10 @@ window.addEventListener("pagehide", () => {
   if (nativePort) {
     nativePort.disconnect();
     nativePort = null;
+  }
+  if (diagnosticPort) {
+    diagnosticPort.disconnect();
+    diagnosticPort = null;
   }
 });
 
