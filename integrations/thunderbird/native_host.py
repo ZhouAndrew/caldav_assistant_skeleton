@@ -7,6 +7,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 import struct
+import subprocess
 import sys
 import time
 from typing import Any
@@ -74,6 +75,33 @@ def clear_logs() -> None:
         LOG_PATH.unlink(missing_ok=True)
     except OSError:
         pass
+
+
+def open_log_folder() -> dict[str, Any]:
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        LOG_PATH.touch(exist_ok=True)
+    except OSError:
+        pass
+
+    opened = False
+    try:
+        subprocess.Popen(
+            ["xdg-open", str(LOG_PATH.parent)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        opened = True
+    except (OSError, ValueError):
+        opened = False
+
+    return {
+        "ok": True,
+        "opened": opened,
+        "path": str(LOG_PATH),
+        "directory": str(LOG_PATH.parent),
+    }
 
 
 def app():
@@ -511,6 +539,8 @@ def dispatch(message: dict[str, Any]) -> dict[str, Any]:
     if command == "logs_clear":
         clear_logs()
         return {"ok": True, "cleared": True, "path": str(LOG_PATH)}
+    if command == "logs_open":
+        return open_log_folder()
     if command == "ping":
         return {"ok": True, "name": "CalDAV Assistant Thunderbird host"}
     raise ValueError(f"unsupported command: {command}")
