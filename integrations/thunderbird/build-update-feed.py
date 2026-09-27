@@ -35,6 +35,11 @@ def main() -> int:
         raise RuntimeError(f"XPI was not built: {xpi}")
 
     SITE.mkdir(parents=True, exist_ok=True)
+    # The update site represents one current release. Remove stale generated
+    # XPIs so repeated local builds cannot make deployment ambiguous.
+    for stale in SITE.glob("caldav-assistant-thunderbird-*.xpi"):
+        if stale.name != xpi.name:
+            stale.unlink()
     published_xpi = SITE / xpi.name
     shutil.copy2(xpi, published_xpi)
 
