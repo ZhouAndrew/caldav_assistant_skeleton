@@ -229,7 +229,7 @@ class WordPressService:
         )
         return self._queue_and_try(payload)
 
-    def attach_file(self, path: str, **metadata: Any) -> ActionResult:
+    def _attach_file(self, path: str, **metadata: Any) -> ActionResult:
         clean_path = self._text(path, "WordPress attachment path")
         metadata = dict(metadata)
         metadata.setdefault("_logged_at", datetime.now().astimezone().isoformat())
@@ -239,7 +239,7 @@ class WordPressService:
         )
         return self._queue_and_try(payload)
 
-    def daily_log_reference(self, *, at: datetime | None = None) -> dict[str, Any]:
+    def _daily_log_reference(self, *, at: datetime | None = None) -> dict[str, Any]:
         reader = getattr(self.adapter, "ensure_daily_log_reference", None)
         if not callable(reader):
             raise UnavailableError("The configured WordPress adapter cannot expose daily-log links")
