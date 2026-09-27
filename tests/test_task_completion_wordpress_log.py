@@ -155,7 +155,10 @@ def test_completion_logs_only_the_final_segment_closed_by_done():
     logger.queue_for(task)
 
     assert wp.calls == [
-        (f"{local_clock(dt(11, 0))}-{local_clock(dt(12, 0))} Report", {"_show_clock": False}),
+        (
+            f"{local_clock(dt(11, 0))}-{local_clock(dt(12, 0))} Report",
+            {"_show_clock": False, "_logged_at": dt(12, 0).isoformat()},
+        ),
     ]
 
 
