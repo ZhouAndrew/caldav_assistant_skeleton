@@ -39,7 +39,7 @@ class WorkLogService:
             raise ValidationError("Work time must be a datetime")
         if value.tzinfo is None:
             value = value.astimezone()
-        return self.normalize_time(value)
+        return value.astimezone(timezone.utc)
 
     def now(self) -> datetime:
         value = self._clock()
