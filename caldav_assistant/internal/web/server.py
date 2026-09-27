@@ -226,6 +226,14 @@ class WebActions:
         for role, key in _ROLE_KEYS.items():
             self.settings.set(key, roles[role])
 
+        # First-run setup starts from an intentionally empty local cache.  Prime one
+        # verified Task/Event snapshot immediately so the normal startup fallback is
+        # usable even when a server rejects an optimized pending-only REPORT.  This
+        # is the same SyncEngine used by the background service, not a Web cache.
+        refresh = getattr(self.settings, "_experimental_cache_refresh", None)
+        if callable(refresh):
+            refresh()
+
         result = self.setup_status()
         result.update(
             {
