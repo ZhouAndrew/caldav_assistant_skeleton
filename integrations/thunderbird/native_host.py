@@ -122,6 +122,10 @@ def link_event(event_id: str | None, *, at: datetime, attachment_urls=()) -> dic
 
 def snapshot() -> dict[str, Any]:
     history = ensure_history_calendar()
+    try:
+        core_call("wordpress.flush")
+    except Exception:
+        pass
     tasks = app().ctx.tasks.list()
     current_id = app().ctx.session.current_task_id()
     paused_ids = list(app().ctx.session.paused_task_ids())
