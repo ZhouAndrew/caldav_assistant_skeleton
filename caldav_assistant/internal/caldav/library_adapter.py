@@ -517,7 +517,7 @@ class LibraryCalDAVAdapter:
         if len(matches) > 1:
             raise AmbiguousError(f"More than one CalDAV calendar is named {clean_name!r}")
         if matches:
-            return matches[0]
+            return {**matches[0], "created": False}
 
         try:
             principal = self._client_now().get_principal()
@@ -527,7 +527,7 @@ class LibraryCalDAVAdapter:
             )
         except Exception as exc:
             raise _app_error(exc) from exc
-        return self._collection_info(calendar)
+        return {**self._collection_info(calendar), "created": True}
 
     def _compatible(
         self,
