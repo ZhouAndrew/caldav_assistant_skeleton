@@ -28,6 +28,7 @@ from .events import EventService
 from .extensions import ExtensionManager, HookRegistry
 from .localization import LocaleService
 from .notifications import NotificationService
+from .integrations import WordPressCalendarLinker
 from .notifications.platform_adapters import (
     LinuxNotificationAdapter,
     MacOSNotificationAdapter,
@@ -288,6 +289,7 @@ def build_service_application() -> ServiceApplication:
         WPCLIAdapter(settings_service.get(WORDPRESS_PATH, None)),
         outbox_repo,
         activity,
+        WordPressCalendarLinker(worklog),
     )
     completion_log = TaskCompletionLogService(worklog, wordpress)
 
