@@ -301,3 +301,74 @@ def test_explicit_resume_avoids_paused_state_network_probe():
     action_source = host[action_start:note_start]
     assert 'action_name == "resume"' in action_source
     assert "session.paused_task_ids()" not in action_source
+
+
+def test_task_action_does_not_wait_for_wordpress_transport_or_calendar_backlink():
+    host = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
+    action_start = host.index("def action(")
+    sync_start = host.index("def wordpress_sync(", action_start)
+    action_source = host[action_start:sync_start]
+
+    assert 'core_call("wordpress.flush")' not in action_source
+    assert "link_event(" not in action_source
+    assert '"command": "wordpress_sync"' in action_source
+    assert "latest_activity_work_event_id(task_id)" in action_source
+    assert "Work log saved to the durable WordPress Outbox" in action_source
+
+
+def test_wordpress_follow_up_uses_a_separate_native_host_lane():
+    source = (THUNDERBIRD / "assistant.js").read_text(encoding="utf-8")
+    host = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
+
+    assert "let integrationPort = null;" in source
+    assert "function integrationHost(" in source
+    assert "runWordpressFollowUp(response.follow_up, operationId)" in source
+    assert "wordpress_sync" in host
+    assert 'core_call("wordpress.flush")' in host
+
+
+def test_native_host_request_latency_excludes_idle_time_between_messages():
+    host = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
+    main_start = host.index("def main()")
+    main_source = host[main_start:]
+    read_pos = main_source.index("message = read_message()")
+    timer_pos = main_source.index("started = time.perf_counter()", read_pos)
+    assert read_pos < timer_pos
+    assert "Idle time between requests is not request latency." in main_source
+
+
+def test_thunderbird_streams_real_core_progress_and_exposes_wait_reason():
+    html = (THUNDERBIRD / "assistant.html").read_text(encoding="utf-8")
+    source = (THUNDERBIRD / "assistant.js").read_text(encoding="utf-8")
+    host = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
+
+    for element_id in (
+        "operation-doing",
+        "operation-peer",
+        "operation-sent",
+        "operation-waiting",
+        "operation-received",
+        "operation-next",
+        "operation-trace",
+    ):
+        assert f'id="{element_id}"' in html
+
+    assert 'result?.kind === "progress"' in source
+    assert "renderCoreProgress(progress, operationId)" in source
+    assert "等待 Radicale 返回 VTODO 更新确认" in source
+    assert "等待 WordPress 接收并确认日志" in source
+    assert "bind_progress_sink(progress_sink)" in host
+    assert "with operation_scope(operation_id):" in host
+    assert '"kind": "progress"' in host
+
+
+def test_wordpress_notes_are_durable_before_network_upload():
+    host = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
+    note_start = host.index("def note(")
+    next_start = host.index("def _attachment_store(", note_start)
+    note_source = host[note_start:next_start]
+
+    assert ".queue_log(" in note_source
+    assert ".wordpress.log(" not in note_source
+    assert '"command": "wordpress_sync"' in note_source
+    assert "Saved to WordPress Outbox" in note_source
