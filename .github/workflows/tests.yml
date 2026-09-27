@@ -72,6 +72,12 @@ jobs:
         run: |
           set -o pipefail
           python scripts/acceptance_feature_demo_real.py 2>&1 | tee feature-demo-acceptance-${{ matrix.python-version }}.log
+      - name: Real one-command Web acceptance
+        if: matrix.python-version == '3.12'
+        shell: bash
+        run: |
+          set -o pipefail
+          python scripts/acceptance_web_real.py 2>&1 | tee web-acceptance.log
       - name: Real Extension lifecycle acceptance
         if: matrix.python-version == '3.12'
         shell: bash
@@ -128,6 +134,7 @@ jobs:
             latency-acceptance-${{ matrix.python-version }}.log
             latency-transcript-${{ matrix.python-version }}.log
             feature-demo-acceptance-${{ matrix.python-version }}.log
+            web-acceptance.log
             extension-lifecycle-acceptance.log
             waiting-mode-acceptance-${{ matrix.python-version }}.log
             waiting-mode-transcript-${{ matrix.python-version }}.log
