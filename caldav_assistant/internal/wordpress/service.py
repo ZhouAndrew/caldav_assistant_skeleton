@@ -19,7 +19,7 @@ class WordPressService:
     """Canonical WordPress business layer above an adapter + durable Outbox."""
 
     _SCHEMA_VERSION = 1
-    _OPERATIONS = frozenset({"create_log", "create_post", "update_post"})
+    _OPERATIONS = frozenset({"create_log", "create_post", "update_post", "attach_file"})
 
     def __init__(self, adapter: Any, outbox: Any, activity: Any = None) -> None:
         self.adapter = adapter
@@ -99,6 +99,12 @@ class WordPressService:
                 **fields,
             )
 
+        if operation == "attach_file":
+            metadata = args.get("metadata") or {}
+            if not isinstance(metadata, dict):
+                raise ValueError("Malformed attach_file metadata")
+            return self.adapter.attach_file(args["path"], **metadata)
+
         changes = args.get("changes") or {}
         if not isinstance(changes, dict):
             raise ValueError("Malformed update_post changes")
@@ -108,6 +114,10 @@ class WordPressService:
     def _remote_object_id(operation: str, result: Any, payload: dict[str, Any]) -> Any:
         if operation == "update_post":
             return payload["args"].get("post_id")
+        if operation == "attach_file":
+            if isinstance(result, dict):
+                return result.get("id")
+            return None
         if isinstance(result, dict):
             for key in ("id", "ID", "post_id"):
                 if result.get(key) is not None:
@@ -127,6 +137,7 @@ class WordPressService:
             "create_log": "wordpress_log_created",
             "create_post": "wordpress_post_created",
             "update_post": "wordpress_post_updated",
+            "attach_file": "wordpress_attachment_created",
         }[operation]
         self._record(action, object_id, request_id=payload.get("request_id"))
 
@@ -217,6 +228,22 @@ class WordPressService:
             {"post_id": clean_id, "changes": deepcopy(changes)},
         )
         return self._queue_and_try(payload)
+
+    def attach_file(self, path: str, **metadata: Any) -> ActionResult:
+        clean_path = self._text(path, "WordPress attachment path")
+        metadata = dict(metadata)
+        metadata.setdefault("_logged_at", datetime.now().astimezone().isoformat())
+        payload = self._payload(
+            "attach_file",
+            {"path": clean_path, "metadata": deepcopy(metadata)},
+        )
+        return self._queue_and_try(payload)
+
+    def daily_log_reference(self, *, at: datetime | None = None) -> dict[str, Any]:
+        reader = getattr(self.adapter, "ensure_daily_log_reference", None)
+        if not callable(reader):
+            raise UnavailableError("The configured WordPress adapter cannot expose daily-log links")
+        return reader(at=at)
 
     def pending(self, limit: int | None = None) -> list[dict[str, Any]]:
         return list(self.outbox.pending(limit=limit))
