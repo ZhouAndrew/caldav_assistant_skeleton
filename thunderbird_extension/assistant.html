@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CalDAV Assistant</title>
+  <link rel="stylesheet" href="assistant.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>CalDAV Assistant</h1>
+        <p class="sub">CalDAV task facts · Work Calendar · WordPress log</p>
+      </div>
+      <button id="refresh" class="secondary">Refresh</button>
+    </header>
+
+    <section class="card">
+      <h2>Current work</h2>
+      <label>
+        Task
+        <select id="task"></select>
+      </label>
+      <label>
+        Action time
+        <input id="actionTime" type="datetime-local" step="60">
+      </label>
+      <div id="taskState" class="status">Loading…</div>
+      <div class="actions">
+        <button data-action="start">Start</button>
+        <button data-action="pause">Pause</button>
+        <button data-action="cancel" class="danger">Cancel</button>
+        <button data-action="complete" class="primary">Complete</button>
+      </div>
+      <p class="hint">Each Start→Pause/Cancel/Complete interval is one factual VEVENT. Starting a paused task opens a new VEVENT.</p>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <h2>Quick record</h2>
+        <textarea id="note" rows="8" placeholder="Write a short note about what happened…"></textarea>
+        <button id="saveNote" class="primary">Add to WordPress</button>
+      </div>
+
+      <div class="card">
+        <h2>Files & images</h2>
+        <input id="files" type="file" multiple>
+        <div class="checks">
+          <label><input id="calendarLink" type="checkbox" checked> Calendar event links to WordPress</label>
+          <label><input id="attachmentLink" type="checkbox"> Calendar event also links directly to attachments</label>
+        </div>
+        <button id="upload" class="primary">Upload to WordPress</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>WordPress</h2>
+      <div id="wpState" class="status"></div>
+      <button id="syncWp" class="secondary">Sync pending records now</button>
+    </section>
+
+    <section id="message" class="message" aria-live="polite"></section>
+  </main>
+  <script src="assistant.js"></script>
+</body>
+</html>
