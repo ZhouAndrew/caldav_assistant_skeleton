@@ -299,6 +299,43 @@ class WorkLogService:
         )
         return updated
 
+    def add_references(
+        self,
+        event_id: str,
+        *,
+        wordpress_url: str | None = None,
+        attachment_urls: Iterable[str] = (),
+    ) -> Event:
+        target = self._collection_url(required=True)
+        scoped_get = getattr(self.adapter, "get_event_in_collection", None)
+        if callable(scoped_get):
+            event = scoped_get(str(target), str(event_id))
+        else:
+            event = self.adapter.get_event(str(event_id))
+        if not isinstance(event, Event) or not self._is_work_event(event):
+            raise ValidationError("Event is not a CalDAV Assistant work segment")
+
+        lines = str(event.description or "").splitlines()
+        additions: list[str] = []
+        clean_wordpress = str(wordpress_url or "").strip()
+        if clean_wordpress:
+            additions.append(f"WordPress: {clean_wordpress}")
+        for value in attachment_urls or ():
+            clean = str(value or "").strip()
+            if clean:
+                additions.append(f"Attachment: {clean}")
+
+        for line in additions:
+            if line not in lines:
+                lines.append(line)
+        updated = self._update_work_event(
+            str(event_id),
+            {"description": "\n".join(lines)},
+        )
+        if not isinstance(updated, Event):
+            raise TypeError("CalDAVAdapter must return Event for work-log update")
+        return updated
+
     def reopen_segment(self, event: Event) -> Event:
         updated = self._update_work_event(
             event.id,
