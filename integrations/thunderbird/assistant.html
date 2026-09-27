@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>CalDAV Assistant</title>
+  <link rel="stylesheet" href="assistant.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>CalDAV Assistant</h1>
+        <p>CalDAV tasks · work sessions · WordPress log</p>
+      </div>
+      <button id="refresh">Refresh</button>
+    </header>
+
+    <section class="card">
+      <h2>Task</h2>
+      <select id="task"></select>
+      <div class="status-row">
+        <span id="task-status">No task selected</span>
+        <span id="bridge-status">Connecting…</span>
+      </div>
+
+      <label for="when">Record time</label>
+      <input id="when" type="datetime-local" step="60">
+
+      <div class="actions">
+        <button data-action="start" class="primary">开始</button>
+        <button data-action="pause">暂停</button>
+        <button data-action="cancel" class="danger">取消</button>
+        <button data-action="complete" class="success">完成</button>
+      </div>
+      <p class="hint">The entered time is the recorded fact. A new Start after Pause creates a new VEVENT.</p>
+    </section>
+
+    <section class="card">
+      <h2>Record</h2>
+      <textarea id="note" rows="5" placeholder="Write a note about this work…"></textarea>
+      <div class="record-actions">
+        <button id="add-note">Add to WordPress</button>
+        <label class="file-label">
+          Add file
+          <input id="attachment" type="file" multiple>
+        </label>
+      </div>
+      <div id="uploads"></div>
+    </section>
+
+    <section class="card">
+      <h2>Integration</h2>
+      <label class="check"><input id="calendar-link" type="checkbox"> Add WordPress log link to Calendar event</label>
+      <label class="check"><input id="attachment-link" type="checkbox"> Add direct WordPress attachment links to Calendar event</label>
+      <p class="hint">Calendar → WordPress log is enabled by default.</p>
+    </section>
+
+    <section class="card">
+      <h2>Today</h2>
+      <pre id="today">Loading…</pre>
+    </section>
+
+    <div id="message" role="status"></div>
+  </main>
+  <script src="assistant.js"></script>
+</body>
+</html>
