@@ -191,9 +191,33 @@ class TaskService:
             "priority": deepcopy(task.priority),
         }
 
-    def _record(self, action: str, task: Task, **metadata: Any) -> None:
+    @staticmethod
+    def _action_time(value: Any = None) -> datetime:
+        if value is None:
+            return datetime.now(timezone.utc)
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, str) and value.strip():
+            try:
+                parsed = datetime.fromisoformat(value.strip())
+            except ValueError as exc:
+                raise ValidationError("Task action time must be an ISO datetime") from exc
+        else:
+            raise ValidationError("Task action time must be a datetime or ISO datetime text")
+        if parsed.tzinfo is None:
+            parsed = parsed.astimezone()
+        return parsed.astimezone(timezone.utc)
+
+    def _record(
+        self,
+        action: str,
+        task: Task,
+        *,
+        at: Any = None,
+        **metadata: Any,
+    ) -> None:
         if self.activity is not None:
-            self.activity.record(action, task.id, **metadata)
+            self.activity.record(action, task.id, _occurred_at=at, **metadata)
 
     def _remember(self, payload: dict[str, Any]) -> bool:
         if self.undo is None:
@@ -327,7 +351,7 @@ class TaskService:
             action = "task_updated"
         return self._update(task, changes, activity_action=action)
 
-    def complete(self, task: Task | str) -> ActionResult:
+    def complete(self, task: Task | str, *, at: Any = None) -> ActionResult:
         obj = self.get(task)
         task_id = self._require_id(obj)
         work_session_before = (
@@ -342,7 +366,7 @@ class TaskService:
             {
                 "status": "COMPLETED",
                 "completed": True,
-                "completed_at": datetime.now(timezone.utc),
+                "completed_at": self._action_time(at),
             },
             activity_action=None,
         )
@@ -353,13 +377,14 @@ class TaskService:
         self._record(
             "task_completed",
             result.affected,
+            at=at,
             work_session_before=work_session_before,
             work_session_after="none",
             **self._plan_context(obj),
         )
         return result
 
-    def start(self, task: Task | str) -> ActionResult:
+    def start(self, task: Task | str, *, at: Any = None) -> ActionResult:
         obj = self.get(task)
         task_id = self._require_id(obj)
         if obj.completed or obj.status in {"COMPLETED", "CANCELLED"}:
@@ -389,13 +414,14 @@ class TaskService:
         self._record(
             "task_started",
             result.affected,
+            at=at,
             work_session_before="none",
             work_session_after="current",
             **self._plan_context(obj),
         )
         return result
 
-    def pause(self, task: Task | str) -> ActionResult:
+    def pause(self, task: Task | str, *, at: Any = None) -> ActionResult:
         obj = self.get(task)
         task_id = self._require_id(obj)
         if obj.status != "IN-PROCESS":
@@ -411,13 +437,14 @@ class TaskService:
         self._record(
             "task_paused",
             obj,
+            at=at,
             work_session_before="current",
             work_session_after="paused",
             **self._plan_context(obj),
         )
         return ActionResult(True, affected=obj, undo_available=False)
 
-    def resume(self, task: Task | str) -> ActionResult:
+    def resume(self, task: Task | str, *, at: Any = None) -> ActionResult:
         obj = self.get(task)
         task_id = self._require_id(obj)
         if obj.completed or obj.status in {"COMPLETED", "CANCELLED"}:
@@ -450,8 +477,48 @@ class TaskService:
         self._record(
             "task_resumed",
             result.affected,
+            at=at,
             work_session_before="paused",
             work_session_after="current",
+            **self._plan_context(obj),
+        )
+        return result
+
+    def cancel(self, task: Task | str, *, at: Any = None) -> ActionResult:
+        """Cancel a Task without deleting its historical work facts."""
+        obj = self.get(task)
+        task_id = self._require_id(obj)
+        if obj.status == "COMPLETED" or obj.completed:
+            raise ValidationError("A completed Task cannot be cancelled")
+        if obj.status == "CANCELLED":
+            raise ValidationError("This Task is already cancelled")
+
+        work_session_before = (
+            "current"
+            if self._session_current_id() == task_id
+            else "paused"
+            if task_id in self._session_paused_ids()
+            else "none"
+        )
+        result = self._update(
+            obj,
+            {
+                "status": "CANCELLED",
+                "completed": False,
+                "completed_at": None,
+            },
+            activity_action=None,
+        )
+        if self.session is not None:
+            forget = getattr(self.session, "forget", None)
+            if callable(forget):
+                forget(result.affected)
+        self._record(
+            "task_cancelled",
+            result.affected,
+            at=at,
+            work_session_before=work_session_before,
+            work_session_after="none",
             **self._plan_context(obj),
         )
         return result

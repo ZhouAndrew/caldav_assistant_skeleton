@@ -58,6 +58,13 @@ class RuntimeDispatcher:
             "settings.list": ctx.settings.list,
         }
 
+        cancel_task = getattr(ctx.tasks, "cancel", None)
+        if callable(cancel_task):
+            self._routes["tasks.cancel"] = cancel_task
+        attach_file = getattr(ctx.wordpress, "attach_file", None)
+        if callable(attach_file):
+            self._routes["wordpress.attach_file"] = attach_file
+
         # Startup needs Upcoming + Recommended from the same source read. Keep this
         # as an internal runtime route rather than widening the frozen Public API.
         startup_snapshot = getattr(ctx.agenda, "startup_snapshot", None)

@@ -139,7 +139,7 @@ def _closed_segment(
     return _hook_segment(activity) or _caldav_segment(task, end) or _activity_segment(task, end)
 
 
-def _queue(text: str) -> Any:
+def _queue(text: str, **metadata: Any) -> Any:
     ctx = get_current_context()
     wordpress = ctx.wordpress
     writer = getattr(wordpress, "queue_log", None)
@@ -149,7 +149,13 @@ def _queue(text: str) -> Any:
         return None
     # The line already contains its start/end range; suppress the transport's
     # ordinary "logged at" prefix so WordPress contains exactly the human entry.
-    return writer(text, _show_clock=False)
+    metadata = dict(metadata)
+    if metadata.get("_work_event_id"):
+        metadata.setdefault("_calendar_link", True)
+    else:
+        metadata.pop("_work_event_id", None)
+        metadata.pop("_calendar_link", None)
+    return writer(text, _show_clock=False, **metadata)
 
 
 @on("task.paused")
@@ -167,6 +173,13 @@ def log_closed_work_segment(event: HookEvent) -> Any:
     if interval is None:
         return None
     start, end = interval
+    metadata = getattr(activity, "metadata", None)
+    work_segment = metadata.get("work_segment") if isinstance(metadata, dict) else None
+    event_id = (
+        str(work_segment.get("event_id") or "").strip()
+        if isinstance(work_segment, dict)
+        else ""
+    )
 
     ctx = get_current_context()
     text = WorkLogFormatter(ctx.settings).render_segment(
@@ -175,4 +188,7 @@ def log_closed_work_segment(event: HookEvent) -> Any:
         end,
         status="paused",
     )
-    return None if not text else _queue(text)
+    return None if not text else _queue(
+        text,
+        _work_event_id=event_id or None,
+    )

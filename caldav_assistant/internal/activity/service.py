@@ -52,6 +52,22 @@ class ActivityService:
             value = value.astimezone()
         return value.astimezone(timezone.utc)
 
+    def _resolve_time(self, value: Any = None) -> datetime:
+        if value is None:
+            return self._now()
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, str) and value.strip():
+            try:
+                parsed = datetime.fromisoformat(value.strip())
+            except ValueError as exc:
+                raise ValidationError("Activity time must be an ISO datetime") from exc
+        else:
+            raise ValidationError("Activity time must be a datetime or ISO datetime text")
+        if parsed.tzinfo is None:
+            parsed = parsed.astimezone()
+        return parsed.astimezone(timezone.utc)
+
     @staticmethod
     def _normalize_action(action: Any) -> str:
         if not isinstance(action, str) or not action.strip():
@@ -124,8 +140,9 @@ class ActivityService:
         """
         normalized_action = self._normalize_action(action)
         normalized_object_id = self._object_id(object_id)
-        timestamp = self._now()
         safe_metadata = deepcopy(metadata)
+        occurred_at = safe_metadata.pop("_occurred_at", None)
+        timestamp = self._resolve_time(occurred_at)
 
         item = Activity(
             timestamp=timestamp,

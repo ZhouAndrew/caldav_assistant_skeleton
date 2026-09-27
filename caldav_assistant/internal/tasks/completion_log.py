@@ -56,6 +56,36 @@ class TaskCompletionLogService:
             status="completed",
         )
 
+    def queue_segment_for(
+        self,
+        task: Task,
+        segment: Event | None,
+        *,
+        status: str,
+    ) -> Any:
+        if not isinstance(segment, Event):
+            return None
+        if not isinstance(segment.start, datetime) or not isinstance(segment.end, datetime):
+            return None
+        text = self.formatter.render_segment(
+            task,
+            segment.start,
+            segment.end,
+            status=status,
+        )
+        if not text:
+            return None
+        event_id = str(getattr(segment, "id", "") or "").strip()
+        metadata = {"_show_clock": False}
+        if event_id:
+            metadata.update(
+                {
+                    "_calendar_link": True,
+                    "_work_event_id": event_id,
+                }
+            )
+        return self.wordpress.queue_log(text, **metadata)
+
     def queue_for(self, task: Task) -> Any:
         # Production CalDAVWorkTaskService already resolved whether completion
         # closed a Work VEVENT.  Reuse that command-local fact instead of issuing a
@@ -68,7 +98,20 @@ class TaskCompletionLogService:
             text = self.render(task, self.worklog.segments_for(task))
         if not text:
             return None
-        return self.wordpress.queue_log(text, _show_clock=False)
+        event_id = (
+            str(getattr(segment, "id", "") or "")
+            if "segment" in locals() and isinstance(segment, Event)
+            else ""
+        )
+        metadata = {"_show_clock": False}
+        if event_id:
+            metadata.update(
+                {
+                    "_calendar_link": True,
+                    "_work_event_id": event_id,
+                }
+            )
+        return self.wordpress.queue_log(text, **metadata)
 
 
 class CompletionLoggingTaskService(CalDAVWorkTaskService):
@@ -82,13 +125,28 @@ class CompletionLoggingTaskService(CalDAVWorkTaskService):
         super().__init__(*args, **kwargs)
         self.completion_log = completion_log
 
-    def complete(self, task: Task | str):
-        result = super().complete(task)
+    def complete(self, task: Task | str, *, at: Any = None):
+        result = super().complete(task, at=at)
         try:
             self.completion_log.queue_for(result.affected)
         except Exception:
             # The Task and its Work VEVENTs are already authoritative CalDAV facts.
             # An auxiliary WordPress log must never reverse completion.
+            pass
+        return result
+
+    def cancel(self, task: Task | str, *, at: Any = None):
+        result = super().cancel(task, at=at)
+        try:
+            segment = getattr(result.affected, "_caldav_cancel_segment", None)
+            self.completion_log.queue_segment_for(
+                result.affected,
+                segment,
+                status="cancelled",
+            )
+        except Exception:
+            # Cancelling the VTODO and closing its Work VEVENT are authoritative;
+            # WordPress remains a non-blocking secondary record.
             pass
         return result
 

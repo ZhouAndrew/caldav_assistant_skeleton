@@ -62,6 +62,16 @@ class FakeAdapter:
         self.calls.append(("update", post_id, changes))
         return {"id": post_id}
 
+    def attach_file(self, path, **metadata):
+        self._check()
+        self.calls.append(("attach", str(path), metadata))
+        return {
+            "id": 303,
+            "post_id": 101,
+            "url": "https://example.test/uploads/file.bin",
+            "post_url": "https://example.test/log/101",
+        }
+
     def test_connection(self):
         return self.available
 
@@ -165,4 +175,62 @@ def test_validation_happens_before_outbox_write():
     with pytest.raises(ValidationError):
         service.update_post(1)
 
+    assert outbox.pending() == []
+
+
+def test_attachment_uses_same_outbox_first_delivery_path(tmp_path):
+    service, adapter, outbox, activity = make_service(True)
+    file_path = tmp_path / "record.bin"
+    file_path.write_bytes(b"record")
+
+    result = service.attach_file(
+        file_path,
+        filename="record.bin",
+        mime_type="application/octet-stream",
+    )
+
+    assert result.success is True
+    assert outbox.pending() == []
+    operation, delivered_path, metadata = adapter.calls[-1]
+    assert operation == "attach"
+    assert delivered_path == str(file_path)
+    assert metadata["filename"] == "record.bin"
+    assert metadata["mime_type"] == "application/octet-stream"
+    assert metadata["_logged_at"]
+    assert metadata["_request_id"]
+    assert activity.calls[-1][0][0] == "wordpress_attachment_created"
+
+
+class FailingCalendarObserver:
+    def __init__(self):
+        self.calls = 0
+
+    def after_delivery(self, operation, result, payload):
+        self.calls += 1
+        if self.calls == 1:
+            raise OSError("CalDAV temporarily unavailable")
+
+
+def test_calendar_projection_failure_leaves_wordpress_item_pending_for_retry():
+    adapter = FakeAdapter(True)
+    outbox = FakeOutbox()
+    activity = FakeActivity()
+    observer = FailingCalendarObserver()
+    service = WordPressService(adapter, outbox, activity, observer)
+
+    result = service.log(
+        "10:30-11:10 Report",
+        _calendar_link=True,
+        _work_event_id="w1",
+    )
+
+    assert result.success is True
+    assert "Calendar link pending" in result.message
+    assert len(outbox.pending()) == 1
+    assert observer.calls == 1
+
+    summary = service.flush()
+
+    assert summary == {"attempted": 1, "sent": 1, "failed": 0, "pending": 0}
+    assert observer.calls == 2
     assert outbox.pending() == []

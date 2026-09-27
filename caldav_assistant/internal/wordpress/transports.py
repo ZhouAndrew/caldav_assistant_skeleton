@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
-from html import escape
+from html import escape, unescape
+import mimetypes
 import json
 from pathlib import Path
 import re
@@ -237,6 +238,22 @@ class WPCLIAdapter:
     def _post_content(self, post_id: Any) -> str:
         return self._run(["post", "get", str(post_id), "--field=post_content"])
 
+    def _post_url(self, post_id: Any) -> str:
+        """Resolve the current public permalink instead of treating WordPress GUID as one."""
+        output = self._run(
+            [
+                "post",
+                "list",
+                self._argument("post__in", post_id),
+                "--fields=ID,url",
+                "--format=json",
+            ]
+        )
+        for item in self._decode_post_list(output):
+            if str(item.get("ID")) == str(post_id):
+                return str(item.get("url") or "").strip()
+        return ""
+
     @staticmethod
     def _append_content(existing: str, entry: str) -> str:
         left = str(existing or "").rstrip()
@@ -264,6 +281,11 @@ class WPCLIAdapter:
         entry_title = metadata.pop("title", None)
         request_id = metadata.pop("_request_id", None)
         show_clock = bool(metadata.pop("_show_clock", True))
+        # Integration metadata is consumed by WordPressService's delivery observer,
+        # not forwarded as arbitrary wp_insert_post fields.
+        calendar_link_requested = bool(metadata.pop("_calendar_link", False))
+        metadata.pop("_work_event_id", None)
+        metadata.pop("_calendar_attachment_link", None)
         post_status = metadata.pop("post_status", metadata.pop("status", "draft"))
         post_type = str(metadata.pop("post_type", "post") or "post")
 
@@ -278,25 +300,36 @@ class WPCLIAdapter:
         post_id = self._find_daily_post(now, post_type=post_type)
 
         if post_id is None:
-            return self.create_post(
+            created = self.create_post(
                 daily_title,
                 entry,
                 post_status=post_status,
                 post_type=post_type,
                 **metadata,
             )
+            post_id = created["id"]
+            result = {"id": post_id}
+            if calendar_link_requested:
+                result["post_url"] = self._post_url(post_id)
+            return result
 
         existing = self._post_content(post_id)
         if marker and marker in existing:
             # At-least-once Outbox retry after a remote success must not duplicate
             # the same visible diary line.
-            return {"id": post_id}
+            result = {"id": post_id}
+            if calendar_link_requested:
+                result["post_url"] = self._post_url(post_id)
+            return result
 
         self.update_post(
             post_id,
             post_content=self._append_content(existing, entry),
         )
-        return {"id": post_id}
+        result = {"id": post_id}
+        if calendar_link_requested:
+            result["post_url"] = self._post_url(post_id)
+        return result
 
     def read_daily_log(
         self,
@@ -343,6 +376,164 @@ class WPCLIAdapter:
             args.append(self._argument(str(key), value))
         self._run(args)
         return {"id": post_id}
+
+    @classmethod
+    def _render_attachment_block(
+        cls,
+        *,
+        attachment_id: Any,
+        file_url: str,
+        filename: str,
+        mime_type: str,
+        request_id: Any = None,
+    ) -> str:
+        safe_url = escape(str(file_url), quote=True)
+        safe_name = escape(str(filename), quote=False)
+        mime = str(mime_type or "application/octet-stream")
+        if mime.startswith("image/"):
+            block = (
+                f'<!-- wp:image {{"id":{attachment_id},"sizeSlug":"large"}} -->\n'
+                f'<figure class="wp-block-image size-large"><img src="{safe_url}" '
+                f'alt="{safe_name}" class="wp-image-{attachment_id}"/></figure>\n'
+                '<!-- /wp:image -->'
+            )
+        elif mime.startswith("video/"):
+            block = (
+                f'<!-- wp:video {{"id":{attachment_id}}} -->\n'
+                f'<figure class="wp-block-video"><video controls src="{safe_url}"></video></figure>\n'
+                '<!-- /wp:video -->'
+            )
+        elif mime.startswith("audio/"):
+            block = (
+                f'<!-- wp:audio {{"id":{attachment_id}}} -->\n'
+                f'<figure class="wp-block-audio"><audio controls src="{safe_url}"></audio></figure>\n'
+                '<!-- /wp:audio -->'
+            )
+        else:
+            block = (
+                f'<!-- wp:file {{"id":{attachment_id},"href":"{safe_url}"}} -->\n'
+                f'<div class="wp-block-file"><a href="{safe_url}">{safe_name}</a></div>\n'
+                '<!-- /wp:file -->'
+            )
+        clean = str(request_id or "").strip()
+        marker = f"<!-- caldav-assistant-attachment:{clean} -->" if clean else ""
+        return f"{marker}\n{block}" if marker else block
+
+    @staticmethod
+    def _existing_attachment_url(existing: str, marker: str) -> str:
+        """Recover the media URL from an idempotent attachment block retry."""
+        start = str(existing or "").find(marker)
+        if start < 0:
+            return ""
+        fragment = str(existing or "")[start:]
+        next_marker = fragment.find(
+            "<!-- caldav-assistant-attachment:",
+            len(marker),
+        )
+        if next_marker >= 0:
+            fragment = fragment[:next_marker]
+        match = re.search(r'(?:src|href)="([^"]+)"', fragment)
+        return unescape(match.group(1)).strip() if match else ""
+
+    def attach_file(self, path: str | Path, **metadata: Any) -> dict[str, Any]:
+        """Import a local file and append its Gutenberg block to the daily log."""
+        value = Path(path).expanduser()
+        if not value.is_file():
+            raise ValidationError(f"WordPress attachment file does not exist: {value}")
+
+        logged_at = metadata.pop("_logged_at", None)
+        if logged_at:
+            try:
+                now = datetime.fromisoformat(str(logged_at))
+            except ValueError as exc:
+                raise ValidationError("Invalid WordPress attachment timestamp") from exc
+            if now.tzinfo is None:
+                now = now.astimezone()
+        else:
+            now = self._local_now()
+
+        request_id = metadata.pop("_request_id", None)
+        metadata.pop("_calendar_link", None)
+        metadata.pop("_work_event_id", None)
+        metadata.pop("_calendar_attachment_link", None)
+        post_status = metadata.pop("post_status", metadata.pop("status", "publish"))
+        post_type = str(metadata.pop("post_type", "post") or "post")
+        display_name = str(metadata.pop("filename", "") or value.name)
+        mime_type = str(
+            metadata.pop("mime_type", "")
+            or mimetypes.guess_type(display_name)[0]
+            or "application/octet-stream"
+        )
+
+        post_id = self._find_daily_post(now, post_type=post_type)
+        if post_id is None:
+            created = self.create_post(
+                self._daily_title(now),
+                "",
+                post_status=post_status,
+                post_type=post_type,
+            )
+            post_id = created["id"]
+
+        existing = self._post_content(post_id)
+        marker = (
+            f"<!-- caldav-assistant-attachment:{str(request_id).strip()} -->"
+            if str(request_id or "").strip()
+            else ""
+        )
+        if marker and marker in existing:
+            file_url = self._existing_attachment_url(existing, marker)
+            try:
+                post_url = self._post_url(post_id)
+            except Exception:
+                post_url = ""
+            return {
+                "id": None,
+                "post_id": post_id,
+                "url": file_url,
+                "post_url": post_url,
+                "mime_type": mime_type,
+                "filename": display_name,
+                "duplicate": True,
+            }
+
+        attachment_id = self._created_id(
+            self._run(
+                [
+                    "media",
+                    "import",
+                    str(value),
+                    self._argument("post_id", post_id),
+                    "--porcelain",
+                ]
+            )
+        )
+        file_url = self._run(
+            ["post", "get", str(attachment_id), "--field=guid"]
+        )
+        entry = self._render_attachment_block(
+            attachment_id=attachment_id,
+            file_url=file_url,
+            filename=display_name,
+            mime_type=mime_type,
+            request_id=request_id,
+        )
+        self.update_post(
+            post_id,
+            post_content=self._append_content(existing, entry),
+        )
+        try:
+            post_url = self._post_url(post_id)
+        except Exception:
+            post_url = ""
+        return {
+            "id": attachment_id,
+            "post_id": post_id,
+            "url": file_url,
+            "post_url": post_url,
+            "mime_type": mime_type,
+            "filename": display_name,
+        }
 
     def test_connection(self) -> bool:
         try:

@@ -51,7 +51,17 @@ class CalDAVWorkTaskService(TaskService):
         method = getattr(self.worklog, name)
         if snapshot is not None:
             kwargs["snapshot"] = snapshot
+        # Preserve compatibility with replacement WorkLog implementations that
+        # predate factual-time support.  Only explicit user times widen the call.
+        if kwargs.get("at", object()) is None:
+            kwargs.pop("at", None)
         return method(*args, **kwargs)
+
+    def _resolve_work_time(self, value: Any = None):
+        resolver = getattr(self.worklog, "resolve_time", None)
+        if callable(resolver):
+            return resolver(value)
+        return self._action_time(value)
 
     def _segments_for_command(self, task: Task, *, fallback_snapshot: Any):
         """Use per-Task server narrowing when production WorkLog supports it."""
@@ -70,7 +80,11 @@ class CalDAVWorkTaskService(TaskService):
         end_iso = end.isoformat() if callable(getattr(end, "isoformat", None)) else None
         if not start_iso or not end_iso:
             return None
-        return {"start": start_iso, "end": end_iso}
+        event_id = str(getattr(segment, "id", "") or "").strip()
+        result = {"start": start_iso, "end": end_iso}
+        if event_id:
+            result["event_id"] = event_id
+        return result
 
     def _session_current_id(self) -> str | None:
         if self.session is not None:
@@ -122,7 +136,7 @@ class CalDAVWorkTaskService(TaskService):
             )
         return task
 
-    def start(self, task: Task | str) -> ActionResult:
+    def start(self, task: Task | str, *, at: Any = None) -> ActionResult:
         lookup = self._start_lookup(task)
 
         if not self._worklog_configured():
@@ -130,7 +144,7 @@ class CalDAVWorkTaskService(TaskService):
             # not. Refresh a Task selected from cached UI before delegating to the
             # base lifecycle implementation.
             obj = self._require_live_start_task(self.get(lookup))
-            return super().start(obj)
+            return super().start(obj, at=at)
 
         # A guided menu may legitimately pass a Task object that came from the
         # explicitly stale startup cache. Convert it back to its stable id before
@@ -165,6 +179,7 @@ class CalDAVWorkTaskService(TaskService):
             "start_segment",
             obj,
             snapshot=open_snapshot,
+            at=at,
         )
         try:
             result = self._update(
@@ -186,6 +201,7 @@ class CalDAVWorkTaskService(TaskService):
         self._record(
             "task_started",
             result.affected,
+            at=at,
             task_summary=str(getattr(result.affected, "summary", "") or ""),
             work_session_before="none",
             work_session_after="current",
@@ -193,9 +209,9 @@ class CalDAVWorkTaskService(TaskService):
         )
         return result
 
-    def pause(self, task: Task | str) -> ActionResult:
+    def pause(self, task: Task | str, *, at: Any = None) -> ActionResult:
         if not self._worklog_configured():
-            return super().pause(task)
+            return super().pause(task, at=at)
 
         obj = self.get(task)
         task_id = self._require_id(obj)
@@ -215,10 +231,12 @@ class CalDAVWorkTaskService(TaskService):
             obj,
             required=True,
             snapshot=open_snapshot,
+            at=at,
         )
         self._record(
             "task_paused",
             obj,
+            at=at,
             task_summary=str(getattr(obj, "summary", "") or ""),
             work_segment=self._closed_segment_metadata(closed),
             work_session_before="current",
@@ -227,9 +245,9 @@ class CalDAVWorkTaskService(TaskService):
         )
         return ActionResult(True, affected=obj, undo_available=False)
 
-    def resume(self, task: Task | str) -> ActionResult:
+    def resume(self, task: Task | str, *, at: Any = None) -> ActionResult:
         if not self._worklog_configured():
-            return super().resume(task)
+            return super().resume(task, at=at)
 
         obj = self.get(task)
         task_id = self._require_id(obj)
@@ -264,10 +282,12 @@ class CalDAVWorkTaskService(TaskService):
             "start_segment",
             obj,
             snapshot=open_snapshot,
+            at=at,
         )
         self._record(
             "task_resumed",
             obj,
+            at=at,
             task_summary=str(getattr(obj, "summary", "") or ""),
             work_session_before="paused",
             work_session_after="current",
@@ -275,9 +295,9 @@ class CalDAVWorkTaskService(TaskService):
         )
         return ActionResult(True, affected=obj, undo_available=False)
 
-    def complete(self, task: Task | str) -> ActionResult:
+    def complete(self, task: Task | str, *, at: Any = None) -> ActionResult:
         if not self._worklog_configured():
-            return super().complete(task)
+            return super().complete(task, at=at)
 
         obj = self.get(task)
         task_id = self._require_id(obj)
@@ -305,13 +325,14 @@ class CalDAVWorkTaskService(TaskService):
         )
 
         closed = None
-        completed_at = self.worklog.now()
+        completed_at = self._resolve_work_time(at)
         if current_id == task_id:
             closed = self._work_call(
                 "close_segment",
                 obj,
                 required=True,
                 snapshot=open_snapshot,
+                at=at,
             )
             if getattr(closed, "end", None) is not None:
                 completed_at = closed.end
@@ -340,6 +361,78 @@ class CalDAVWorkTaskService(TaskService):
         self._record(
             "task_completed",
             result.affected,
+            at=at,
+            task_summary=str(getattr(result.affected, "summary", "") or ""),
+            work_segment=self._closed_segment_metadata(closed),
+            work_session_before=work_session_before,
+            work_session_after="none",
+            **self._plan_context(obj),
+        )
+        return result
+
+    def cancel(self, task: Task | str, *, at: Any = None) -> ActionResult:
+        """Cancel the VTODO while preserving and closing any factual work segment."""
+        if not self._worklog_configured():
+            return super().cancel(task, at=at)
+
+        obj = self.get(task)
+        task_id = self._require_id(obj)
+        if obj.status == "COMPLETED" or obj.completed:
+            raise ValidationError("A completed Task cannot be cancelled")
+        if obj.status == "CANCELLED":
+            raise ValidationError("This Task is already cancelled")
+
+        open_snapshot = self._open_work_snapshot()
+        current_id = self._work_call("current_task_id", snapshot=open_snapshot)
+        worked_before = False
+        if current_id == task_id:
+            worked_before = True
+        elif obj.status == "IN-PROCESS":
+            worked_before = bool(
+                self._segments_for_command(obj, fallback_snapshot=open_snapshot)
+            )
+        work_session_before = (
+            "current"
+            if current_id == task_id
+            else "paused"
+            if worked_before
+            else "none"
+        )
+
+        closed = None
+        if current_id == task_id:
+            closed = self._work_call(
+                "close_segment",
+                obj,
+                required=True,
+                snapshot=open_snapshot,
+                at=at,
+            )
+
+        try:
+            result = self._update(
+                obj,
+                {
+                    "status": "CANCELLED",
+                    "completed": False,
+                    "completed_at": None,
+                },
+                activity_action=None,
+            )
+        except Exception:
+            if closed is not None:
+                try:
+                    self.worklog.reopen_segment(closed)
+                except Exception:
+                    pass
+            raise
+
+        setattr(result.affected, "_caldav_cancel_segment_resolved", True)
+        setattr(result.affected, "_caldav_cancel_segment", closed)
+        self._record(
+            "task_cancelled",
+            result.affected,
+            at=at,
             task_summary=str(getattr(result.affected, "summary", "") or ""),
             work_segment=self._closed_segment_metadata(closed),
             work_session_before=work_session_before,

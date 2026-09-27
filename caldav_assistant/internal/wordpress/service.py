@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -19,12 +20,19 @@ class WordPressService:
     """Canonical WordPress business layer above an adapter + durable Outbox."""
 
     _SCHEMA_VERSION = 1
-    _OPERATIONS = frozenset({"create_log", "create_post", "update_post"})
+    _OPERATIONS = frozenset({"create_log", "create_post", "update_post", "attach_file"})
 
-    def __init__(self, adapter: Any, outbox: Any, activity: Any = None) -> None:
+    def __init__(
+        self,
+        adapter: Any,
+        outbox: Any,
+        activity: Any = None,
+        delivery_observer: Any = None,
+    ) -> None:
         self.adapter = adapter
         self.outbox = outbox
         self.activity = activity
+        self.delivery_observer = delivery_observer
 
     @staticmethod
     def _text(value: Any, name: str, *, allow_empty: bool = False) -> str:
@@ -99,6 +107,12 @@ class WordPressService:
                 **fields,
             )
 
+        if operation == "attach_file":
+            metadata = args.get("metadata") or {}
+            if not isinstance(metadata, dict):
+                raise ValueError("Malformed attach_file metadata")
+            return self.adapter.attach_file(args["path"], **metadata)
+
         changes = args.get("changes") or {}
         if not isinstance(changes, dict):
             raise ValueError("Malformed update_post changes")
@@ -127,8 +141,20 @@ class WordPressService:
             "create_log": "wordpress_log_created",
             "create_post": "wordpress_post_created",
             "update_post": "wordpress_post_updated",
+            "attach_file": "wordpress_attachment_created",
         }[operation]
         self._record(action, object_id, request_id=payload.get("request_id"))
+
+    def _observe_delivery(
+        self,
+        operation: str,
+        result: Any,
+        payload: dict[str, Any],
+    ) -> None:
+        observer = self.delivery_observer
+        callback = getattr(observer, "after_delivery", None)
+        if callable(callback):
+            callback(operation, result, payload)
 
     def _mark_failed(self, item_id: int, exc: Exception) -> None:
         try:
@@ -147,6 +173,16 @@ class WordPressService:
             return ActionResult(
                 True,
                 message="Saved locally; WordPress upload pending.",
+                affected=item,
+            )
+
+        try:
+            self._observe_delivery(payload["operation"], result, payload)
+        except Exception as exc:
+            self._mark_failed(item_id, exc)
+            return ActionResult(
+                True,
+                message="Uploaded to WordPress; Calendar link pending.",
                 affected=item,
             )
 
@@ -218,6 +254,23 @@ class WordPressService:
         )
         return self._queue_and_try(payload)
 
+    def attach_file(self, path: str | Path, **metadata: Any) -> ActionResult:
+        """Queue a local file for attachment to the factual daily WordPress log."""
+        value = Path(path).expanduser()
+        if not value.is_file():
+            raise ValidationError(f"WordPress attachment file does not exist: {value}")
+        payload = self._payload(
+            "attach_file",
+            {"path": str(value), "metadata": {}},
+        )
+        metadata = dict(metadata)
+        metadata.setdefault("post_status", "publish")
+        payload["args"]["metadata"] = self._log_transport_metadata(
+            metadata,
+            request_id=payload["request_id"],
+        )
+        return self._queue_and_try(payload)
+
     def pending(self, limit: int | None = None) -> list[dict[str, Any]]:
         return list(self.outbox.pending(limit=limit))
 
@@ -232,6 +285,7 @@ class WordPressService:
                 if not isinstance(payload, dict):
                     raise ValueError("Malformed WordPress Outbox item")
                 result = self._deliver_payload(payload)
+                self._observe_delivery(payload["operation"], result, payload)
                 self.outbox.mark_sent(item_id)
             except Exception as exc:
                 failed += 1

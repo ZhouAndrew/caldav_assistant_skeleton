@@ -41,6 +41,28 @@ class WorkLogService:
             value = value.astimezone()
         return value.astimezone(timezone.utc)
 
+    def resolve_time(self, value: Any = None) -> datetime:
+        """Normalize an optional user-supplied work timestamp to UTC.
+
+        Thunderbird and other interactive frontends may let the user correct the
+        factual start/stop time instead of forcing the button-click time.  ISO text
+        is accepted across IPC; naive values are interpreted in the local timezone.
+        """
+        if value is None:
+            return self.now()
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, str) and value.strip():
+            try:
+                parsed = datetime.fromisoformat(value.strip())
+            except ValueError as exc:
+                raise ValidationError("Work time must be an ISO datetime") from exc
+        else:
+            raise ValidationError("Work time must be a datetime or ISO datetime text")
+        if parsed.tzinfo is None:
+            parsed = parsed.astimezone()
+        return parsed.astimezone(timezone.utc)
+
     def configured(self) -> bool:
         value = self.collection_url_provider()
         return isinstance(value, str) and bool(value.strip())
@@ -206,6 +228,7 @@ class WorkLogService:
         task: Task,
         *,
         snapshot: Iterable[Event] | None = None,
+        at: Any = None,
     ) -> Event:
         task_id = str(task.id or "").strip()
         if not task_id:
@@ -221,7 +244,7 @@ class WorkLogService:
 
         event = Event(
             summary=f"Work — {task.summary}",
-            start=self.now(),
+            start=self.resolve_time(at),
             end=None,
             description=self._description(task_id),
             categories=[self.CATEGORY, self.OPEN_CATEGORY],
@@ -253,6 +276,7 @@ class WorkLogService:
         *,
         required: bool = True,
         snapshot: Iterable[Event] | None = None,
+        at: Any = None,
     ) -> Event | None:
         event = self.open_for(task, snapshot=snapshot)
         if event is None:
@@ -260,7 +284,13 @@ class WorkLogService:
                 raise ValidationError("This Task has no open CalDAV work interval")
             return None
         task_id = str(getattr(task, "id", task) or "").strip()
-        closed_at = self.now()
+        closed_at = self.resolve_time(at)
+        if isinstance(event.start, datetime):
+            start = event.start
+            if start.tzinfo is None:
+                start = start.astimezone()
+            if closed_at < start.astimezone(timezone.utc):
+                raise ValidationError("Work end time cannot be earlier than its start time")
         emit_progress(
             "worklog.close",
             "Closing current CalDAV Work interval...",
@@ -304,6 +334,53 @@ class WorkLogService:
             self._delete_work_event(event.id)
         except NotFoundError:
             return
+
+    def link_wordpress(
+        self,
+        event_id: str,
+        post_url: str,
+        *,
+        attachment_urls: Iterable[str] | None = None,
+    ) -> Event:
+        """Idempotently add WordPress links to one factual Work VEVENT.
+
+        Calendar linking is a secondary projection: the VEVENT's DTSTART/DTEND and
+        Task relation remain untouched.  Keeping links in DESCRIPTION works across
+        ordinary CalDAV clients, including Thunderbird, without requiring a richer
+        public Event model.
+        """
+        clean_event_id = str(event_id or "").strip()
+        clean_post_url = str(post_url or "").strip()
+        if not clean_event_id or not clean_post_url:
+            raise ValidationError("Work Event id and WordPress URL are required")
+
+        candidates = self._query_work_events(category=self.CATEGORY)
+        event = next(
+            (item for item in candidates if str(getattr(item, "id", "") or "") == clean_event_id),
+            None,
+        )
+        if event is None:
+            raise NotFoundError(clean_event_id)
+
+        lines = str(event.description or "").splitlines()
+        post_line = f"WordPress: {clean_post_url}"
+        if post_line not in lines:
+            lines.append(post_line)
+        for value in attachment_urls or ():
+            clean = str(value or "").strip()
+            if not clean:
+                continue
+            line = f"Attachment: {clean}"
+            if line not in lines:
+                lines.append(line)
+
+        updated = self._update_work_event(
+            clean_event_id,
+            {"description": "\n".join(lines)},
+        )
+        if not isinstance(updated, Event):
+            raise TypeError("CalDAVAdapter must return Event for work-log update")
+        return updated
 
     def segments_for(
         self,

@@ -29,6 +29,7 @@ from .events import EventService
 from .extensions import ExtensionManager, HookRegistry
 from .localization import LocaleService
 from .notifications import NotificationService
+from .integrations import WordPressCalendarLinker
 from .notifications.platform_adapters import (
     LinuxNotificationAdapter,
     MacOSNotificationAdapter,
@@ -91,7 +92,7 @@ from .undo import UndoManager
 from .wordpress import WordPressService
 from .wordpress.transports import WPCLIAdapter
 from .work_period import WorkPeriodService
-from .worklog import WorkLogService
+from .worklog import WorkLogProvisioner, WorkLogService
 
 
 _WORK_EVENT_CATEGORY = "caldav-assistant-work"
@@ -297,11 +298,13 @@ def build_service_application() -> ServiceApplication:
         app_caldav,
         lambda: settings_service.get(CALDAV_WORKLOG_COLLECTION_URL, None),
     )
+    worklog_provisioner = WorkLogProvisioner(settings_service, caldav)
 
     wordpress = WordPressService(
         WPCLIAdapter(settings_service.get(WORDPRESS_PATH, None)),
         outbox_repo,
         activity,
+        WordPressCalendarLinker(worklog),
     )
     completion_log = TaskCompletionLogService(worklog, wordpress)
 
@@ -393,6 +396,12 @@ def build_service_application() -> ServiceApplication:
     dispatcher.register_internal("work_period.allocate", work_periods.allocate)
     dispatcher.register_internal("work_period.status", work_periods.status)
     dispatcher.register_internal("work_period.cancel", work_periods.cancel)
+    # Thunderbird/native integrations use these internal routes to attach optional
+    # WordPress media to the factual Work VEVENT without widening the frozen v1 API.
+    dispatcher.register_internal("worklog.ensure_calendar", worklog_provisioner.ensure)
+    dispatcher.register_internal("worklog.open_for", worklog.open_for)
+    dispatcher.register_internal("worklog.segments_for", worklog.segments_for)
+    dispatcher.register_internal("wordpress.flush", wordpress.flush)
     background = AssistantService(
         sync,
         reminders,
