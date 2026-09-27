@@ -50,30 +50,22 @@ class Task:
             )
         return self._service
 
-    def complete(self, *, at: datetime | None = None) -> ActionResult:
-        service = self._bound_service()
-        return service.complete(self) if at is None else service.complete(self, at=at)
+    def complete(self) -> ActionResult:
+        return self._bound_service().complete(self)
 
-    def start_task(self, *, at: datetime | None = None) -> ActionResult:
+    def start_task(self) -> ActionResult:
         """Start this Task through Core Service.
 
         ``task.start`` is the frozen DTSTART-like data attribute, so Python cannot
         simultaneously expose a callable ``task.start()`` under the same name.
         """
-        service = self._bound_service()
-        return service.start(self) if at is None else service.start(self, at=at)
+        return self._bound_service().start(self)
 
-    def pause(self, *, at: datetime | None = None) -> ActionResult:
-        service = self._bound_service()
-        return service.pause(self) if at is None else service.pause(self, at=at)
+    def pause(self) -> ActionResult:
+        return self._bound_service().pause(self)
 
-    def resume(self, *, at: datetime | None = None) -> ActionResult:
-        service = self._bound_service()
-        return service.resume(self) if at is None else service.resume(self, at=at)
-
-    def cancel(self, *, at: datetime | None = None) -> ActionResult:
-        service = self._bound_service()
-        return service.cancel(self) if at is None else service.cancel(self, at=at)
+    def resume(self) -> ActionResult:
+        return self._bound_service().resume(self)
 
     def set_due(self, due: Any) -> ActionResult:
         return self._bound_service().update(self, due=due)
