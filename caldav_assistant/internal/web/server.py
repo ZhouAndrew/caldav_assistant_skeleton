@@ -10,7 +10,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 import json
 import secrets
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 from urllib.parse import urlsplit
 from urllib.request import urlopen
 
@@ -199,7 +200,10 @@ class WebActions:
             else:
                 raise ValidationError("请输入 CalDAV 服务器地址")
 
-        self.settings.set_caldav_base_url(base_url.strip())
+        clean_url = base_url.strip()
+        if "://" not in clean_url:
+            clean_url = "http://" + clean_url
+        self.settings.set_caldav_base_url(clean_url)
 
         username = payload.get("username")
         password = payload.get("password")
