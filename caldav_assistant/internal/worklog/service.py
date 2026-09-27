@@ -335,6 +335,53 @@ class WorkLogService:
         except NotFoundError:
             return
 
+    def link_wordpress(
+        self,
+        event_id: str,
+        post_url: str,
+        *,
+        attachment_urls: Iterable[str] | None = None,
+    ) -> Event:
+        """Idempotently add WordPress links to one factual Work VEVENT.
+
+        Calendar linking is a secondary projection: the VEVENT's DTSTART/DTEND and
+        Task relation remain untouched.  Keeping links in DESCRIPTION works across
+        ordinary CalDAV clients, including Thunderbird, without requiring a richer
+        public Event model.
+        """
+        clean_event_id = str(event_id or "").strip()
+        clean_post_url = str(post_url or "").strip()
+        if not clean_event_id or not clean_post_url:
+            raise ValidationError("Work Event id and WordPress URL are required")
+
+        candidates = self._query_work_events(category=self.CATEGORY)
+        event = next(
+            (item for item in candidates if str(getattr(item, "id", "") or "") == clean_event_id),
+            None,
+        )
+        if event is None:
+            raise NotFoundError(clean_event_id)
+
+        lines = str(event.description or "").splitlines()
+        post_line = f"WordPress: {clean_post_url}"
+        if post_line not in lines:
+            lines.append(post_line)
+        for value in attachment_urls or ():
+            clean = str(value or "").strip()
+            if not clean:
+                continue
+            line = f"Attachment: {clean}"
+            if line not in lines:
+                lines.append(line)
+
+        updated = self._update_work_event(
+            clean_event_id,
+            {"description": "\n".join(lines)},
+        )
+        if not isinstance(updated, Event):
+            raise TypeError("CalDAVAdapter must return Event for work-log update")
+        return updated
+
     def segments_for(
         self,
         task: Task | str,
