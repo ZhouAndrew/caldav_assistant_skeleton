@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 from caldav_assistant.api import ActionResult, Event, Task
@@ -150,5 +151,5 @@ def test_attachment_is_persisted_and_defaults_calendar_post_link_on(tmp_path, mo
     assert metadata["_calendar_attachment_link"] is False
     assert metadata["_work_event_id"] == "w-open"
     assert metadata["filename"] == "result.png"
-    assert (tmp_path / path.split("/")[-1]).read_bytes() == b"image"
+    assert (tmp_path / Path(path).name).read_bytes() == b"image"
     assert runtime.calls[0][0] == "worklog.open_for"
