@@ -125,3 +125,12 @@ def test_self_hosted_update_feed_matches_manifest_and_xpi():
     )
     assert entry["update_hash"] == "sha256:" + hashlib.sha256(xpi.read_bytes()).hexdigest()
     assert entry["applications"]["gecko"]["strict_min_version"] == "115.0"
+
+
+def test_self_hosted_publisher_targets_https_wordpress_docroot_and_verifies_xpi():
+    source = (THUNDERBIRD / "publish-self-hosted-update.sh").read_text(encoding="utf-8")
+
+    assert "/var/www/html/wordpress/caldav-assistant/thunderbird/experimental" in source
+    assert 'CALDAV_ASSISTANT_TB_UPDATE_ROOT' in source
+    assert 'manifest_json="$(curl --fail --silent --show-error "$UPDATE_URL")"' in source
+    assert 'curl --fail --silent --show-error --head "$xpi_url"' in source
