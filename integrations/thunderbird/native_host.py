@@ -126,7 +126,7 @@ def snapshot() -> dict[str, Any]:
         core_call("wordpress.flush")
     except Exception:
         pass
-    tasks = app().ctx.tasks.list()
+    tasks = app().ctx.tasks.list(actionable=True)
     current_id = app().ctx.session.current_task_id()
     paused_ids = list(app().ctx.session.paused_task_ids())
     today = []
