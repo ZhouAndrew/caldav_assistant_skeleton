@@ -632,24 +632,14 @@ function renderCoreProgress(progress, operationId) {
       received: "Core 已确认成功",
       next: "如有工作日志，转交 WordPress Outbox 独立同步",
     });
-  } else if (stage === "wordpress.flush" && state === "started") {
+  } else if (stage === "wordpress.background") {
     setOperationMonitor({
-      doing: "上传 WordPress 工作日志",
-      peer: "WordPress Adapter ↔ 本地 WordPress",
-      sent: `刷新 Outbox · pending=${details.pending ?? "?"}`,
-      waiting: "等待 WordPress 接收并确认日志",
-      received: "—",
-      next: "上传后补 Calendar ↔ WordPress 链接",
-    });
-  } else if (stage === "wordpress.flush" && state === "done") {
-    const result = details.result || {};
-    setOperationMonitor({
-      doing: "WordPress Outbox 已刷新",
-      peer: "本地 WordPress",
-      sent: `attempted=${result.attempted ?? "?"}`,
-      waiting: "无",
-      received: `sent=${result.sent ?? "?"} · failed=${result.failed ?? "?"} · pending=${result.pending ?? details.pending ?? "?"}`,
-      next: "继续写入 Calendar ↔ WordPress 引用",
+      doing: "WordPress 日志已交给后台服务",
+      peer: "SQLite WordPress Outbox → Assistant Background Service",
+      sent: `持久队列状态 · pending=${details.pending ?? "?"}`,
+      waiting: "前台不等待 WordPress 上传；后台 Assistant Service 负责发送与重试",
+      received: "Outbox 已安全保存",
+      next: "当前独立通道只继续建立 Calendar ↔ WordPress 回链",
     });
   } else if (stage === "wordpress.calendar_link" && state === "started") {
     setOperationMonitor({
@@ -698,12 +688,12 @@ async function runWordpressFollowUp(followUp, parentOperationId) {
   if (visibleOperationId === operationId) {
     appendOperationTrace("Task 操作已完成；WordPress 改由独立通道继续。", "info");
     setOperationMonitor({
-      doing: "准备同步 WordPress",
-      peer: "独立 Integration Native Host",
-      sent: `wordpress_sync · Task ${compactId(followUp.task_id)}`,
-      waiting: "等待 WordPress Outbox 上传开始",
-      received: "CalDAV Task 动作已成功",
-      next: "上传日志并补 Calendar ↔ WordPress 链接",
+      doing: "交接 WordPress 后续工作",
+      peer: "SQLite Outbox + Assistant Background Service + 独立回链通道",
+      sent: `检查 Outbox · Task ${compactId(followUp.task_id)}；如启用则建立 Calendar 回链`,
+      waiting: "不等待 WordPress 日志上传；只等待可选的 WordPress URL / CalDAV 回链确认",
+      received: "CalDAV Task 动作已成功，日志已持久入队",
+      next: "后台服务负责上传和重试；本通道完成 Calendar ↔ WordPress 链接",
     });
   }
 
@@ -715,14 +705,13 @@ async function runWordpressFollowUp(followUp, parentOperationId) {
     );
     if (visibleOperationId === operationId) {
       const wp = response.wordpress || {};
-      const flush = wp.flush || {};
       setOperationMonitor({
-        doing: "WordPress 集成完成",
-        peer: "WordPress + Radicale",
-        sent: "Outbox flush + Calendar reference",
-        waiting: "无",
-        received: `sent=${flush.sent ?? "?"} · failed=${flush.failed ?? "?"} · pending=${wp.pending_after ?? flush.pending ?? "?"}`,
-        next: "完成",
+        doing: "WordPress 集成交接完成",
+        peer: "Assistant Background Service + WordPress + Radicale",
+        sent: "Outbox ownership check + Calendar reference",
+        waiting: wp.pending ? "WordPress 日志仍在后台 Outbox，等待 Background Service 周期发送" : "无",
+        received: `delivery=${wp.delivery_owner || "background-service"} · pending=${wp.pending ?? "?"} · calendar-link=${wp.reference?.pending ? "pending" : "done"}`,
+        next: wp.pending ? "后台服务继续发送/重试；前台可以继续工作" : "完成",
       });
       appendOperationTrace("WordPress follow-up finished.", "done");
     }
@@ -730,10 +719,10 @@ async function runWordpressFollowUp(followUp, parentOperationId) {
   } catch (error) {
     if (visibleOperationId === operationId) {
       setOperationMonitor({
-        doing: "WordPress 后续同步未完成",
+        doing: "WordPress 回链后续未完成",
         peer: "WordPress Integration Native Host",
-        sent: "Outbox flush / Calendar reference",
-        waiting: "等待后台维护或下一次重试",
+        sent: "Outbox 状态 / Calendar reference",
+        waiting: "WordPress 日志仍由 Background Service 从 Outbox 重试；回链需要后续重试",
         received: error.message,
         next: "Task 的 CalDAV 成功结果保持不变；Outbox 数据不会丢失",
       });
