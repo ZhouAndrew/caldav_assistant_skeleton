@@ -24,7 +24,7 @@ from caldav_assistant.internal.wordpress.worklog import WorkLogFormatter
 
 
 _OPEN_ACTIONS = frozenset({"task_started", "task_resumed"})
-_CLOSE_ACTIONS = frozenset({"task_paused", "task_completed", "task_deleted"})
+_CLOSE_ACTIONS = frozenset({"task_paused", "task_completed", "task_cancelled", "task_deleted"})
 
 
 def _activity(event: HookEvent) -> Any:
@@ -152,8 +152,7 @@ def _queue(text: str) -> Any:
     return writer(text, _show_clock=False)
 
 
-@on("task.paused")
-def log_closed_work_segment(event: HookEvent) -> Any:
+def _log_closed_work_segment(event: HookEvent, *, status: str) -> Any:
     activity = _activity(event)
     activity_end = getattr(activity, "timestamp", None)
     uid = str(getattr(activity, "object_id", "") or "").strip()
@@ -173,6 +172,16 @@ def log_closed_work_segment(event: HookEvent) -> Any:
         task,
         start,
         end,
-        status="paused",
+        status=status,
     )
     return None if not text else _queue(text)
+
+
+@on("task.paused")
+def log_closed_work_segment(event: HookEvent) -> Any:
+    return _log_closed_work_segment(event, status="paused")
+
+
+@on("task.cancelled")
+def log_cancelled_work_segment(event: HookEvent) -> Any:
+    return _log_closed_work_segment(event, status="cancelled")
