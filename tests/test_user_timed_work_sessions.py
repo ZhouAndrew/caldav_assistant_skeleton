@@ -51,6 +51,9 @@ class EventAdapter:
         self.events[event.id] = event
         return event
 
+    def get_event(self, event_id):
+        return self.events[event_id]
+
     def update_event_in_collection(self, collection_url, event_id, changes):
         event = self.events[event_id]
         for key, value in changes.items():
@@ -107,3 +110,22 @@ def test_cancel_uses_user_time_and_keeps_task_as_cancelled_not_deleted():
     assert task.completed is False
     assert repo.rows[-1][0] == at
     assert repo.rows[-1][1] == "task_cancelled"
+
+
+def test_work_segment_can_point_back_to_wordpress_and_attachment():
+    adapter = EventAdapter()
+    service = WorkLogService(adapter, lambda: "http://example.invalid/work/")
+    task = Task(id="task-1", summary="Prepare Python course")
+    start = datetime(2026, 9, 27, 9, 20, tzinfo=timezone.utc)
+    end = datetime(2026, 9, 27, 10, 5, tzinfo=timezone.utc)
+
+    opened = service.start_segment(task, at=start, snapshot=())
+    closed = service.close_segment(task, at=end, snapshot=(opened,))
+    updated = service.add_references(
+        closed.id,
+        wordpress_url="https://wordpress.example/2026/09/27/log/",
+        attachment_urls=["https://wordpress.example/uploads/lesson.png"],
+    )
+
+    assert "WordPress: https://wordpress.example/2026/09/27/log/" in updated.description
+    assert "Attachment: https://wordpress.example/uploads/lesson.png" in updated.description
