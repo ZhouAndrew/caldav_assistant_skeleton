@@ -97,11 +97,16 @@ class RemoteTasksAPI(_RemoteAPI):
     def get(self, task): return self._call("get", task=task)
     def create(self, summary, **fields): return self._call("create", summary=summary, **fields)
     def update(self, task, **changes): return self._call("update", task=task, **changes)
-    def complete(self, task, *, at=None): return self._call("complete", task=task, at=at)
-    def cancel(self, task, *, at=None): return self._call("cancel", task=task, at=at)
-    def start(self, task, *, at=None): return self._call("start", task=task, at=at)
-    def pause(self, task, *, at=None): return self._call("pause", task=task, at=at)
-    def resume(self, task, *, at=None): return self._call("resume", task=task, at=at)
+    def _timed(self, name, task, at=None):
+        payload = {"task": task}
+        if at is not None:
+            payload["at"] = at
+        return self._call(name, **payload)
+    def complete(self, task, *, at=None): return self._timed("complete", task, at)
+    def cancel(self, task, *, at=None): return self._timed("cancel", task, at)
+    def start(self, task, *, at=None): return self._timed("start", task, at)
+    def pause(self, task, *, at=None): return self._timed("pause", task, at)
+    def resume(self, task, *, at=None): return self._timed("resume", task, at)
     def delete(self, task): return self._call("delete", task=task)
 
 class RemoteEventsAPI(_RemoteAPI):
