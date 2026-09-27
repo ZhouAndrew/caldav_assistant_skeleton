@@ -168,32 +168,39 @@ def test_python_update_server_sources_compile():
         THUNDERBIRD / "update-server" / "verify.py",
         THUNDERBIRD / "update-server" / "selftest.py",
         THUNDERBIRD / "verify-installed-native-host.py",
-        THUNDERBIRD / "setup_gui.py",
     ):
         py_compile.compile(str(path), doraise=True)
 
 
-def test_thunderbird_fast_path_uses_local_task_collections_and_local_core_state():
+def test_thunderbird_fast_path_uses_local_task_and_work_collections():
     source = (THUNDERBIRD / "assistant.js").read_text(encoding="utf-8")
     host = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
     experiment = (
         THUNDERBIRD / "experiments" / "assistantCalendar" / "parent.js"
     ).read_text(encoding="utf-8")
+    schema = (
+        THUNDERBIRD / "experiments" / "assistantCalendar" / "schema.json"
+    ).read_text(encoding="utf-8")
 
     assert "messenger.assistantCalendar.listTasks()" in source
-    assert 'host({command: "state"})' in source
+    assert "messenger.assistantCalendar.workState()" in source
+    assert 'host({command: "state"})' not in source
+    assert 'host({command: "activity_today"}, 5000)' in source
     assert "onTasksChanged.addListener(scheduleTaskRefresh)" in source
-    assert "getItemsAsArray" in experiment
+    assert '"name": "workState"' in schema
     assert "ITEM_FILTER_TYPE_TODO" in experiment
-    assert "cal.manager" in experiment
-    assert ".getCalendars()" in experiment
+    assert "ITEM_FILTER_TYPE_EVENT" in experiment
+    assert "caldav-assistant-work-open" in experiment
+    assert "Task-UID: " in experiment
+    assert "getItemsAsArray" in experiment
 
     state_start = host.index("def state_snapshot()")
     snapshot_start = host.index("def snapshot()", state_start)
     state_source = host[state_start:snapshot_start]
-    assert "list(actionable=True)" not in state_source
-    assert "ensure_history_calendar()" not in state_source
-    assert 'core_call("wordpress.flush")' not in state_source
+    assert "current_task_id()" not in state_source
+    assert "paused_task_ids()" not in state_source
+    assert "cached_startup_snapshot" in host
+    assert 'command == "activity_today"' in host
 
 
 def test_thunderbird_visible_logs_are_copyable_and_record_request_timings():
@@ -228,15 +235,14 @@ def test_update_feed_prunes_stale_generated_xpis():
     assert "Expected exactly one generated XPI" not in publish
 
 
-def test_interactive_setup_exposes_repair_and_log_verification():
+def test_terminal_setup_exposes_repair_and_log_verification():
     setup = (THUNDERBIRD / "setup.sh").read_text(encoding="utf-8")
     installer = (THUNDERBIRD / "install-native-host.sh").read_text(encoding="utf-8")
 
     assert "Full install/update (recommended)" in setup
-    assert 'exec python3 "$HERE/setup_gui.py"' in setup
-    assert "--terminal" in setup
     assert "Verify Native Host + log reachability" in setup
     assert "--verify" in setup
+    assert "setup_gui.py" not in setup
     assert "verify-installed-native-host.py" in setup
     assert "native-host.log" in setup
     assert "verify-installed-native-host.py" in installer
@@ -261,14 +267,37 @@ def test_log_panel_never_remains_indefinitely_loading():
     assert 'command not in {"logs", "logs_clear", "logs_open"}' in host
 
 
-def test_setup_gui_exposes_simple_one_click_actions():
-    source = (THUNDERBIRD / "setup_gui.py").read_text(encoding="utf-8")
 
-    assert "Install / Update Everything" in source
-    assert "Repair Native Host" in source
-    assert "Repair Update Server" in source
-    assert "Verify Everything" in source
-    assert "Open Log Folder" in source
-    assert "Live output" in source
-    assert "threading.Thread" in source
-    assert "scrolledtext.ScrolledText" in source
+
+def test_plugin_ui_is_tabbed_interactive_workspace():
+    html = (THUNDERBIRD / "assistant.html").read_text(encoding="utf-8")
+    css = (THUNDERBIRD / "assistant.css").read_text(encoding="utf-8")
+    source = (THUNDERBIRD / "assistant.js").read_text(encoding="utf-8")
+
+    for tab in ("work", "record", "today", "diagnostics"):
+        assert f'data-tab="{tab}"' in html
+        assert f'data-panel="{tab}"' in html
+    assert 'id="task-list"' in html
+    assert 'id="task-search"' in html
+    assert 'id="use-now"' in html
+    assert 'id="log-rows"' in html
+    assert 'id="latency-summary"' in html
+    assert "activateTab" in source
+    assert "renderTaskList" in source
+    assert "renderStructuredLogs" in source
+    assert "biggestTiming" in source
+    assert ".work-layout" in css
+    assert ".tabs" in css
+
+
+def test_explicit_resume_avoids_paused_state_network_probe():
+    source = (THUNDERBIRD / "assistant.js").read_text(encoding="utf-8")
+    host = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
+
+    assert "requestedAction =" in source
+    assert '"resume"' in source
+    action_start = host.index("def action(")
+    note_start = host.index("def note(", action_start)
+    action_source = host[action_start:note_start]
+    assert 'action_name == "resume"' in action_source
+    assert "session.paused_task_ids()" not in action_source
