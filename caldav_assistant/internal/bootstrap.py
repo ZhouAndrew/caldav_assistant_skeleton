@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +69,7 @@ from .settings.keys import (
     CALDAV_WORKLOG_COLLECTION_URL,
     EXPERIMENTAL_FAST_QUERY_CACHE,
     EXTENSIONS_ENABLED,
+    NOTIFICATIONS_ENABLED,
     NOTIFICATION_SOUND_ENABLED,
     TERMINAL_BELL_ENABLED,
     TERMINAL_BELL_INTERVAL_MS,
@@ -245,6 +247,18 @@ def build_service_application() -> ServiceApplication:
             pass
 
     settings_service = SettingsService(settings_repo)
+
+    # P0-2026-09-27 notification-flood safety migration.
+    # Previous builds exposed notifications.enabled in Settings but did not enforce
+    # it at the production NotificationService boundary. A user could therefore have
+    # a stored True value without it representing an informed choice under the fixed
+    # semantics. Force one safe-off transition after upgrading, then persist a marker
+    # so any later explicit re-enable remains respected.
+    flood_hotfix_key = "migration.notification_flood_20260927.safe_off"
+    if not bool(assistant_state.get(flood_hotfix_key, False)):
+        settings_service.set(NOTIFICATIONS_ENABLED, False)
+        assistant_state.set(flood_hotfix_key, True)
+
     _ensure_default_extension_settings(settings_service)
     public_settings = PublicSettingsAPI(settings_service)
     activity = ActivityService(activity_repo)
@@ -319,7 +333,10 @@ def build_service_application() -> ServiceApplication:
             sound_enabled=lambda: bool(
                 settings_service.get(NOTIFICATION_SOUND_ENABLED, True)
             )
-        )
+        ),
+        enabled=lambda: bool(
+            settings_service.get(NOTIFICATIONS_ENABLED, False)
+        ),
     )
     reminders = ReminderService(
         ReminderEngine(),
@@ -328,6 +345,7 @@ def build_service_application() -> ServiceApplication:
         assistant_state,
         sync.cached_tasks,
         _ordinary_cached_events(sync.cached_events),
+        max_lateness=timedelta(minutes=30),
     )
     work_periods = WorkPeriodService(
         reminders,

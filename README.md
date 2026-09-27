@@ -21,9 +21,16 @@ CalDAV Assistant 是一个 **local-first、CLI-first** 的任务与日程助手�
 - PEP 561 `py.typed`、Easy API 类型 stub 与 Object API Protocol，支持 VS Code/Pylance 自动补全和类型检查；
 - 由真实 Public API 自动生成的接口目录，可查询接口是否存在、签名、来源和用法。
 
+## 通知安全
+
+桌面通知由 `notifications.enabled` 总开关控制。**默认关闭**；只有用户明确开启后，后台才允许调用操作系统通知 Adapter。生产提醒只补发最近 30 分钟内到期的通知，更早的历史提醒不会在后台重启/升级后集中弹出。
+
+2026-09-27 曾修复一个 P0 通知洪水问题：旧实现虽然提供了 `notifications.enabled` 设置，但生产通知链没有真正执行这个总开关，同时会把历史未投递提醒当作当前提醒补发。事故说明、根因和永久防回归规则见 [`INCIDENTS.md`](INCIDENTS.md)。
+
 ## 文档
 
 - [`GUIDE.md`](GUIDE.md)：完整 CLI、日志、Task/Event 工作方式与排障指南；
+- [`INCIDENTS.md`](INCIDENTS.md)：已确认的高严重度运行事故、根因和永久防回归规则；
 - [`EXTENSIONS_GUIDE.md`](EXTENSIONS_GUIDE.md)：**用户扩展与维护指南**。把扩展当作 Siri Shortcuts 一样的“小自动化”，从 `extension new`、Easy API 积木、修改/reload 到出错恢复和升级维护；
 - `extension guide`：在程序内查看最短的扩展入门说明；
 - `api` / `api list easy` / `api <interface>`：在程序内查看当前安装版本真实存在的 Public API。

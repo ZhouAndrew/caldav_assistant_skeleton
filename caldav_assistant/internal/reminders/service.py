@@ -22,7 +22,7 @@ depend on these names.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import inspect
 from typing import Any
 from uuid import uuid4
@@ -45,6 +45,8 @@ class ReminderService:
         state: Any,
         tasks: Any,
         events: Any,
+        *,
+        max_lateness: timedelta | None = None,
     ) -> None:
         self.engine = engine
         self.notifications = notifications
@@ -52,6 +54,9 @@ class ReminderService:
         self.state = state
         self.tasks = tasks
         self.events = events
+        if max_lateness is not None and max_lateness < timedelta(0):
+            raise ValidationError("max_lateness must not be negative")
+        self.max_lateness = max_lateness
 
     # ------------------------------------------------------------------
     # Explicit Assistant reminders (local auxiliary state, not CalDAV facts)
@@ -401,6 +406,16 @@ class ReminderService:
 
         return when <= now
 
+    def _is_stale(self, when: date | datetime | None, now: datetime) -> bool:
+        """Whether a due notification is too old to surface after restart/downtime."""
+        if self.max_lateness is None or not isinstance(when, datetime):
+            return False
+        if when.tzinfo is None and now.tzinfo is not None:
+            return False
+        if when.tzinfo is not None and now.tzinfo is None:
+            return False
+        return now - when > self.max_lateness
+
     def due(self, now: datetime | None = None) -> list[Any]:
         """Return due, not-yet-delivered NotificationRequests without sending."""
         moment = self._coerce_now(now)
@@ -434,6 +449,8 @@ class ReminderService:
             if self._request_key(request) in delivered:
                 continue
             when = self._request_when(request)
+            if self._is_stale(when, moment):
+                continue
             if isinstance(when, datetime):
                 candidates.append(when)
 
@@ -449,7 +466,20 @@ class ReminderService:
         sent: list[Any] = []
         delivered = self._delivered_keys()
 
-        for request in self.due(now):
+        moment = self._coerce_now(now)
+        for request in self.due(moment):
+            key = self._request_key(request)
+            when = self._request_when(request)
+
+            # Never replay historical notification debt as a popup storm after
+            # daemon restart, upgrade, sleep, or a long period with notifications
+            # disabled. Stale requests are consumed for de-duplication but are not
+            # surfaced to the operating system.
+            if self._is_stale(when, moment):
+                delivered.add(key)
+                self._save_delivered_keys(delivered)
+                continue
+
             title = self._validate_title(getattr(request, "title", ""))
             body = getattr(request, "body", None)
             if body is None:
@@ -460,7 +490,6 @@ class ReminderService:
 
             self.notifications.send(title, str(body), actions)
 
-            key = self._request_key(request)
             delivered.add(key)
             self._save_delivered_keys(delivered)
             sent.append(request)

@@ -215,7 +215,7 @@ DEFAULT_SETTINGS_SCHEMA = SettingsSchema([
     SettingSpec(CALDAV_TASK_COLLECTION_URL, "Default task collection", "CalDAV", "text", None, validator=_collection_url),
     SettingSpec(CALDAV_EVENT_COLLECTION_URL, "Default event collection", "CalDAV", "text", None, validator=_collection_url),
     SettingSpec(CALDAV_WORKLOG_COLLECTION_URL, "Work log collection", "CalDAV", "text", None, validator=_collection_url),
-    SettingSpec(NOTIFICATIONS_ENABLED, "Notifications", "Notifications", "bool", True, validator=lambda v: _boolean(v, label="Notifications")),
+    SettingSpec(NOTIFICATIONS_ENABLED, "Notifications", "Notifications", "bool", False, validator=lambda v: _boolean(v, label="Notifications")),
     SettingSpec(NOTIFICATION_SOUND_ENABLED, "Reminder sound", "Notifications", "bool", True, validator=lambda v: _boolean(v, label="Reminder sound")),
     SettingSpec(TERMINAL_BELL_ENABLED, "Terminal bell", "Notifications", "bool", True, validator=lambda v: _boolean(v, label="Terminal bell")),
     SettingSpec(
