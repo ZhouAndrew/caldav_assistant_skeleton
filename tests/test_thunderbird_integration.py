@@ -15,7 +15,7 @@ def test_manifest_declares_native_messaging_and_stable_extension_id():
 
     assert manifest["manifest_version"] == 2
     assert "nativeMessaging" in manifest["permissions"]
-    assert manifest["applications"]["gecko"]["id"] == "caldav-assistant@zhouandrew.local"
+    assert manifest["applications"]["gecko"]["id"] == "caldav-assistant-experimental@zhouandrew.local"
     assert manifest["applications"]["gecko"]["strict_min_version"] == "115.0"
 
 
@@ -51,9 +51,12 @@ def test_native_host_is_side_by_side_and_does_not_use_production_runtime_client(
 def test_experimental_installer_uses_its_own_venv_and_does_not_replace_cli():
     source = (THUNDERBIRD / "install-native-host.sh").read_text(encoding="utf-8")
     assert "caldav-assistant-thunderbird-experimental" in source
+    assert 'HOST_NAME="local.caldav_assistant_experimental"' in source
+    assert 'EXT_ID="caldav-assistant-experimental@zhouandrew.local"' in source
     assert 'VENV_DIR="$BASE_DIR/venv"' in source
     assert 'pip install --upgrade "$ROOT"' in source
     assert "command -v caldav-assistant" not in source
+    assert "build_service_application()" not in source
     assert "Production caldav-assistant was not replaced." in source
 
 
