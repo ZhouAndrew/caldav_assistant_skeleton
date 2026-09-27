@@ -149,6 +149,31 @@ def ensure_history_calendar() -> dict[str, Any]:
     return HISTORY_CALENDAR
 
 
+def ensure_history_calendar_if_needed() -> dict[str, Any]:
+    """Keep first-run repair without adding a CalDAV round-trip to every action."""
+    try:
+        worklog = getattr(app().ctx.session, "worklog", None)
+        configured = getattr(worklog, "configured", None)
+        if callable(configured) and bool(configured()):
+            return {"configured": True, "created": False, "source": "local-setting"}
+    except Exception:
+        pass
+
+    emit_progress(
+        "history.ensure",
+        "Work history is not configured; provisioning CalDAV Assistant History...",
+        state="started",
+    )
+    result = ensure_history_calendar()
+    emit_progress(
+        "history.ensure",
+        "CalDAV Assistant History is ready.",
+        state="done",
+        created=bool((result or {}).get("created")) if isinstance(result, dict) else None,
+    )
+    return result
+
+
 def task_json(task: Any) -> dict[str, Any]:
     return {
         "id": str(getattr(task, "id", "") or ""),
@@ -320,6 +345,10 @@ def action(message: dict[str, Any]) -> dict[str, Any]:
     at = parse_at(message.get("at"))
     if not task_id:
         raise ValueError("task_id is required")
+
+    history_started = time.perf_counter()
+    ensure_history_calendar_if_needed()
+    timings["history_guard_ms"] = _elapsed_ms(history_started)
 
     emit_progress(
         "action.preflight",
