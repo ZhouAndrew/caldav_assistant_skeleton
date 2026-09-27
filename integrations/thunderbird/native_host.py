@@ -14,6 +14,7 @@ from caldav_assistant.internal.bootstrap import build_service_application
 
 
 APP = None
+UPLOADS: dict[str, dict[str, Any]] = {}
 
 
 def app():
@@ -212,19 +213,17 @@ def note(message: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def attachment(message: dict[str, Any]) -> dict[str, Any]:
-    task_id = str(message.get("task_id") or "").strip()
-    filename = Path(str(message.get("filename") or "attachment")).name
-    mime_type = str(message.get("mime_type") or "application/octet-stream")
-    at = parse_at(message.get("at"))
-    encoded = str(message.get("data_base64") or "")
-    if not encoded:
-        raise ValueError("attachment data is empty")
-
+def _attachment_store() -> Path:
     store = Path.home() / ".caldav-assistant" / "thunderbird-attachments"
     store.mkdir(parents=True, exist_ok=True)
-    path = store / f"{uuid4().hex}-{filename}"
-    path.write_bytes(base64.b64decode(encoded, validate=True))
+    return store
+
+
+def _finish_staged_attachment(state: dict[str, Any]) -> dict[str, Any]:
+    path = Path(state["path"])
+    at = state["at"]
+    task_id = state["task_id"]
+    mime_type = state["mime_type"]
 
     result = core_call(
         "wordpress.attach_file",
@@ -238,8 +237,8 @@ def attachment(message: dict[str, Any]) -> dict[str, Any]:
     post_url = str(payload.get("post_url") or "")
 
     event_id = latest_work_event_id(task_id)
-    if bool(message.get("calendar_link", True)) and event_id:
-        attachment_urls = [file_url] if bool(message.get("attachment_link", False)) and file_url else []
+    if state["calendar_link"] and event_id:
+        attachment_urls = [file_url] if state["attachment_link"] and file_url else []
         try:
             core_call(
                 "worklog.add_references",
@@ -248,6 +247,12 @@ def attachment(message: dict[str, Any]) -> dict[str, Any]:
                 attachment_urls=attachment_urls,
             )
         except Exception:
+            pass
+
+    if file_url:
+        try:
+            path.unlink()
+        except OSError:
             pass
 
     return {
@@ -259,6 +264,107 @@ def attachment(message: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def attachment_begin(message: dict[str, Any]) -> dict[str, Any]:
+    task_id = str(message.get("task_id") or "").strip()
+    if not task_id:
+        raise ValueError("task_id is required")
+    filename = Path(str(message.get("filename") or "attachment")).name
+    mime_type = str(message.get("mime_type") or "application/octet-stream")
+    at = parse_at(message.get("at"))
+    total_size = int(message.get("total_size") or 0)
+    if total_size < 0:
+        raise ValueError("total_size must not be negative")
+
+    upload_id = uuid4().hex
+    path = _attachment_store() / f"{upload_id}-{filename}"
+    path.write_bytes(b"")
+    UPLOADS[upload_id] = {
+        "path": str(path),
+        "task_id": task_id,
+        "filename": filename,
+        "mime_type": mime_type,
+        "at": at,
+        "total_size": total_size,
+        "received": 0,
+        "calendar_link": bool(message.get("calendar_link", True)),
+        "attachment_link": bool(message.get("attachment_link", False)),
+    }
+    return {"ok": True, "upload_id": upload_id}
+
+
+def attachment_chunk(message: dict[str, Any]) -> dict[str, Any]:
+    upload_id = str(message.get("upload_id") or "").strip()
+    state = UPLOADS.get(upload_id)
+    if state is None:
+        raise ValueError("unknown upload_id")
+    encoded = str(message.get("data_base64") or "")
+    if not encoded:
+        raise ValueError("attachment chunk is empty")
+    data = base64.b64decode(encoded, validate=True)
+
+    total_size = int(state["total_size"])
+    next_size = int(state["received"]) + len(data)
+    if total_size and next_size > total_size:
+        raise ValueError("attachment exceeds declared total_size")
+
+    with Path(state["path"]).open("ab") as stream:
+        stream.write(data)
+    state["received"] = next_size
+    return {
+        "ok": True,
+        "upload_id": upload_id,
+        "received": next_size,
+        "total_size": total_size,
+    }
+
+
+def attachment_finish(message: dict[str, Any]) -> dict[str, Any]:
+    upload_id = str(message.get("upload_id") or "").strip()
+    state = UPLOADS.get(upload_id)
+    if state is None:
+        raise ValueError("unknown upload_id")
+    if int(state["received"]) != int(state["total_size"]):
+        raise ValueError(
+            f"attachment incomplete: received {state['received']} of {state['total_size']} bytes"
+        )
+    result = _finish_staged_attachment(state)
+    UPLOADS.pop(upload_id, None)
+    return result
+
+
+def attachment_abort(message: dict[str, Any]) -> dict[str, Any]:
+    upload_id = str(message.get("upload_id") or "").strip()
+    state = UPLOADS.pop(upload_id, None)
+    if state is not None:
+        try:
+            Path(state["path"]).unlink()
+        except OSError:
+            pass
+    return {"ok": True, "upload_id": upload_id, "aborted": state is not None}
+
+
+def attachment(message: dict[str, Any]) -> dict[str, Any]:
+    """Compatibility one-shot attachment path used by older experimental XPI builds."""
+    begin = attachment_begin(
+        {
+            **message,
+            "total_size": len(base64.b64decode(str(message.get("data_base64") or ""), validate=True)),
+        }
+    )
+    upload_id = begin["upload_id"]
+    try:
+        attachment_chunk(
+            {
+                "upload_id": upload_id,
+                "data_base64": message.get("data_base64"),
+            }
+        )
+        return attachment_finish({"upload_id": upload_id})
+    except Exception:
+        attachment_abort({"upload_id": upload_id})
+        raise
+
+
 def dispatch(message: dict[str, Any]) -> dict[str, Any]:
     command = str(message.get("command") or "")
     if command == "snapshot":
@@ -267,6 +373,14 @@ def dispatch(message: dict[str, Any]) -> dict[str, Any]:
         return action(message)
     if command == "note":
         return note(message)
+    if command == "attachment_begin":
+        return attachment_begin(message)
+    if command == "attachment_chunk":
+        return attachment_chunk(message)
+    if command == "attachment_finish":
+        return attachment_finish(message)
+    if command == "attachment_abort":
+        return attachment_abort(message)
     if command == "attachment":
         return attachment(message)
     if command == "ping":
@@ -279,6 +393,12 @@ def main() -> int:
         try:
             message = read_message()
             if message is None:
+                for state in list(UPLOADS.values()):
+                    try:
+                        Path(state["path"]).unlink()
+                    except OSError:
+                        pass
+                UPLOADS.clear()
                 return 0
             write_message(dispatch(message))
         except Exception as exc:
