@@ -67,13 +67,19 @@
       <div class="section-heading">
         <h2>Logs</h2>
         <div class="inline-actions">
-          <button id="refresh-logs">Refresh</button>
+          <button id="refresh-logs">Retry</button>
           <button id="copy-logs">Copy</button>
+          <button id="open-log-folder">Open folder</button>
           <button id="clear-logs">Clear</button>
         </div>
       </div>
-      <p class="hint">Shows native-host request timings so slow CalDAV/WordPress steps are visible.</p>
-      <pre id="logs" class="copyable log-view" tabindex="0">Loading…</pre>
+      <p class="hint">Native-host timings. This panel never stays on “Loading…”: it shows either the log, an empty state, or a concrete connection error.</p>
+      <div class="log-meta">
+        <span id="log-status">Connecting to Native Host…</span>
+        <button id="copy-log-path" hidden>Copy path</button>
+      </div>
+      <code id="log-path" class="copyable log-path" tabindex="0"></code>
+      <pre id="logs" class="copyable log-view" tabindex="0">Connecting…</pre>
     </section>
 
     <div id="message" role="status"></div>

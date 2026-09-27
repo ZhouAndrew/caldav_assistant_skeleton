@@ -34,14 +34,30 @@ python3 "$TB_DIR/build-update-feed.py"
 SOURCE="$TB_DIR/dist/update-site/experimental"
 install -m 0644 "$SOURCE/updates.json" "$WWW_DIR/experimental/updates.json"
 
-shopt -s nullglob
-xpis=("$SOURCE"/caldav-assistant-thunderbird-*.xpi)
-shopt -u nullglob
-if [[ ${#xpis[@]} -ne 1 ]]; then
-  echo "Expected exactly one generated XPI, found ${#xpis[@]}." >&2
+XPI_NAME="$(python3 - "$SOURCE/updates.json" <<'PY'
+from __future__ import annotations
+import json
+from pathlib import Path
+import sys
+from urllib.parse import urlsplit
+
+manifest = Path(sys.argv[1])
+data = json.loads(manifest.read_text(encoding="utf-8"))
+updates = next(iter(data["addons"].values()))["updates"]
+if len(updates) != 1:
+    raise SystemExit(f"Expected exactly one current update entry, found {len(updates)}")
+name = Path(urlsplit(str(updates[0]["update_link"])).path).name
+if not name.endswith(".xpi"):
+    raise SystemExit(f"Update link does not point to an XPI: {name!r}")
+print(name)
+PY
+)"
+XPI_PATH="$SOURCE/$XPI_NAME"
+if [[ ! -f "$XPI_PATH" ]]; then
+  echo "Update manifest references missing XPI: $XPI_PATH" >&2
   exit 1
 fi
-install -m 0644 "${xpis[0]}" "$WWW_DIR/experimental/$(basename "${xpis[0]}")"
+install -m 0644 "$XPI_PATH" "$WWW_DIR/experimental/$XPI_NAME"
 
 install -m 0644 "$HERE/server.py" "$SERVER_PY"
 install -m 0644 "$HERE/verify.py" "$VERIFY_PY"
@@ -174,4 +190,4 @@ echo "Service: $SERVICE_NAME"
 echo "Update URL: $UPDATE_URL"
 echo "State: $STATE_DIR"
 echo "Manifest: $WWW_DIR/experimental/updates.json"
-echo "XPI: $WWW_DIR/experimental/$(basename "${xpis[0]}")"
+echo "XPI: $WWW_DIR/experimental/$XPI_NAME"

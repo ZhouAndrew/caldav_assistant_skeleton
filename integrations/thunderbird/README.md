@@ -15,6 +15,37 @@ Experimental standalone Thunderbird Space for the existing CalDAV Assistant Core
 - Calendar -> WordPress daily-log linking is enabled by default.
 - Direct Calendar -> attachment links are optional.
 
+## Interactive setup and diagnostics
+
+Use the interactive setup when installing or repairing the Thunderbird integration:
+
+```bash
+bash integrations/thunderbird/setup.sh
+```
+
+The menu can run a full install/update, repair only the Native Host, repair only
+the Python update server, verify the update endpoint, verify Native Host log
+reachability, or show the current paths/status. Pressing Enter chooses the
+recommended full install/update.
+
+Native Host diagnostics are persisted at:
+
+```text
+~/.local/state/caldav-assistant/thunderbird/native-host.log
+```
+
+The installer creates that file up front, exposes a convenience symlink under
+`~/.local/share/caldav-assistant-thunderbird-experimental/native-host.log`, and
+starts the installed Native Host once to prove the `ping` and `logs` protocol
+works and the file is readable before reporting success.
+
+The Thunderbird Logs panel uses a separate Native Messaging process from the
+normal Core request channel. This keeps log Refresh/Copy/Open-folder usable even
+while a slow CalDAV or WordPress operation is blocking the main request channel.
+The panel has a 5-second diagnostic timeout and must show either real log content,
+an empty state, or a concrete repair error; it must not remain indefinitely at
+`Loading…`.
+
 ## Build the XPI
 
 ```bash
@@ -79,7 +110,13 @@ with NSS `certutil`. Neither tool is part of the running server.
 
 ### One-command deployment
 
-From the repository root:
+For the normal human path, prefer the interactive setup:
+
+```bash
+bash integrations/thunderbird/setup.sh
+```
+
+For update-server-only repair, run:
 
 ```bash
 bash integrations/thunderbird/update-server/deploy.sh
@@ -117,8 +154,10 @@ To stop the server while retaining the private CA and published files:
 bash integrations/thunderbird/update-server/stop.sh
 ```
 
-**Bootstrap note:** install version 0.1.2 manually once. From 0.1.2 onward,
-Thunderbird can discover higher XPI versions through the standalone Python server.
+**Bootstrap note:** if the standalone update server was not successfully deployed
+before this release, install the current XPI manually once after running the setup
+wizard. From then on, Thunderbird can discover higher XPI versions through the
+standalone Python server.
 
 The native host and its Python environment remain outside the XPI. Thunderbird's
 XPI updater therefore updates only the add-on package; native-host protocol changes

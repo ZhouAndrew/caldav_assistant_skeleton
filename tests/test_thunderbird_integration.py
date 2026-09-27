@@ -163,6 +163,7 @@ def test_python_update_server_sources_compile():
         THUNDERBIRD / "update-server" / "server.py",
         THUNDERBIRD / "update-server" / "verify.py",
         THUNDERBIRD / "update-server" / "selftest.py",
+        THUNDERBIRD / "verify-installed-native-host.py",
     ):
         py_compile.compile(str(path), doraise=True)
 
@@ -207,3 +208,47 @@ def test_thunderbird_visible_logs_are_copyable_and_record_request_timings():
     assert '"task_action_ms"' in host
     assert '"wordpress_flush_ms"' in host
     assert '"calendar_link_ms"' in host
+
+
+def test_update_feed_prunes_stale_generated_xpis():
+    source = (THUNDERBIRD / "build-update-feed.py").read_text(encoding="utf-8")
+    deploy = (THUNDERBIRD / "update-server" / "deploy.sh").read_text(encoding="utf-8")
+    publish = (THUNDERBIRD / "publish-self-hosted-update.sh").read_text(encoding="utf-8")
+
+    assert 'SITE.glob("caldav-assistant-thunderbird-*.xpi")' in source
+    assert "stale.unlink()" in source
+    assert 'XPI_NAME="$(python3 - "$SOURCE/updates.json"' in deploy
+    assert 'XPI_NAME="$(python3 - "$SOURCE/updates.json"' in publish
+    assert "Expected exactly one generated XPI" not in deploy
+    assert "Expected exactly one generated XPI" not in publish
+
+
+def test_interactive_setup_exposes_repair_and_log_verification():
+    setup = (THUNDERBIRD / "setup.sh").read_text(encoding="utf-8")
+    installer = (THUNDERBIRD / "install-native-host.sh").read_text(encoding="utf-8")
+
+    assert "Full install/update (recommended)" in setup
+    assert "Verify Native Host + log reachability" in setup
+    assert "--verify" in setup
+    assert "verify-installed-native-host.py" in setup
+    assert "native-host.log" in setup
+    assert "verify-installed-native-host.py" in installer
+    assert 'ln -sfn "$LOG_PATH" "$BASE_DIR/native-host.log"' in installer
+
+
+def test_log_panel_never_remains_indefinitely_loading():
+    html = (THUNDERBIRD / "assistant.html").read_text(encoding="utf-8")
+    source = (THUNDERBIRD / "assistant.js").read_text(encoding="utf-8")
+    host = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
+
+    assert 'id="open-log-folder"' in html
+    assert 'id="copy-log-path"' in html
+    assert "renderLogError" in source
+    assert 'diagnosticHost({command: "logs", limit: 300}, 5000)' in source
+    assert "ensureDiagnosticPort" in source
+    assert "diagnosticPort = messenger.runtime.connectNative(HOST)" not in source
+    assert "const port = messenger.runtime.connectNative(HOST)" in source
+    assert "Promise.allSettled" in source
+    assert 'command == "logs_open"' in host
+    assert "open_log_folder" in host
+    assert 'command not in {"logs", "logs_clear", "logs_open"}' in host
