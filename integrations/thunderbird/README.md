@@ -55,13 +55,10 @@ bash integrations/thunderbird/uninstall-experimental.sh
 
 ## Self-hosted automatic XPI updates
 
-The Thunderbird add-on now uses a **standalone update server**. It does not publish
-through Apache, WordPress, PHP, the CalDAV server, or an existing Caddy instance.
-
-The only host runtime used by the server is Docker. The service itself runs in its
-own Caddy container, listens on TCP 17443, keeps its files and private CA under
-`~/.local/share/caldav-assistant-thunderbird-update-server/`, and restarts
-automatically after reboot.
+The Thunderbird add-on uses a **standalone lightweight Python HTTPS server**.
+The serving process uses only the Python standard library (`http.server`,
+`ssl`, `socket`, and related stdlib modules). It does not run through Apache,
+WordPress, PHP, Docker, Caddy, the CalDAV server, or another application stack.
 
 The fixed experimental add-on ID is:
 
@@ -69,13 +66,18 @@ The fixed experimental add-on ID is:
 caldav-assistant-experimental@zhouandrew.local
 ```
 
-The update manifest is:
+and the update endpoint is:
 
 ```text
 https://andrew.local:17443/experimental/updates.json
 ```
 
-### One-click first deployment
+Mozilla/Gecko requires an add-on `update_url` to use HTTPS, so the first deployment
+creates a small private CA and an HTTPS certificate for `andrew.local`. Certificate
+generation uses the host's `openssl` command once; Thunderbird trust is installed
+with NSS `certutil`. Neither tool is part of the running server.
+
+### One-command deployment
 
 From the repository root:
 
@@ -83,47 +85,44 @@ From the repository root:
 bash integrations/thunderbird/update-server/deploy.sh
 ```
 
-That one command:
+The deployment command:
 
 1. builds the current XPI and `updates.json`,
-2. creates isolated server state under the user's local data directory,
-3. starts/replaces the dedicated Caddy container with `--restart unless-stopped`,
-4. creates and persists the server's own local CA,
-5. adds that CA to the Linux trust store,
-6. imports the CA directly into discovered Thunderbird NSS profiles,
-7. verifies the HTTPS health endpoint, update manifest, and advertised XPI.
+2. copies the Python server into
+   `~/.local/share/caldav-assistant-thunderbird-update-server/`,
+3. creates and persists its private CA/certificate,
+4. imports the CA into discovered Thunderbird NSS profiles,
+5. installs a per-user systemd service with automatic restart,
+6. starts the Python HTTPS server on TCP 17443,
+7. verifies the health endpoint, JSON update manifest, and XPI over TLS.
 
-If `certutil` is missing on Debian/Ubuntu/Linux Mint, the deployment script installs
-`libnss3-tools` solely for the Thunderbird certificate import. The update server
-does not depend on that package after deployment.
+If `certutil` is missing on Debian/Ubuntu/Linux Mint, the deployer installs the
+small `libnss3-tools` package once. The running update server itself still needs
+only Python.
 
 ### Publishing later versions
 
-After the server is deployed, a new XPI version can be published with:
+Once the server is deployed, future XPI releases are published with:
 
 ```bash
 bash integrations/thunderbird/publish-self-hosted-update.sh
 ```
 
-The publisher writes only into the standalone server's private `www` directory and
-then verifies the live HTTPS manifest and XPI. It never writes under `/var/www`.
+No restart is needed: the Python server reads the new static files on the next
+request and the publisher verifies the live manifest and XPI immediately.
 
-To stop the standalone update server without deleting its state or trust material:
+To stop the server while retaining the private CA and published files:
 
 ```bash
 bash integrations/thunderbird/update-server/stop.sh
 ```
 
-Keeping the Caddy data directory preserves the same local CA across restarts and
-redeployments, avoiding a surprise certificate rotation.
-
-**Bootstrap note:** the earlier 0.1.0/0.1.1 builds did not point at this standalone
-endpoint. Install 0.1.2 manually once. From 0.1.2 onward, Thunderbird can discover
-higher XPI versions from the standalone server.
+**Bootstrap note:** install version 0.1.2 manually once. From 0.1.2 onward,
+Thunderbird can discover higher XPI versions through the standalone Python server.
 
 The native host and its Python environment remain outside the XPI. Thunderbird's
-XPI updater therefore updates only the add-on UI/package; native-host protocol
-changes must remain backward compatible or be upgraded separately.
+XPI updater therefore updates only the add-on package; native-host protocol changes
+must remain backward compatible or be upgraded separately.
 
 ## Real acceptance required
 
