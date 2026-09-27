@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import py_compile
+import subprocess
+import sys
 import zipfile
 
 
@@ -15,8 +18,13 @@ def test_manifest_declares_native_messaging_and_stable_extension_id():
 
     assert manifest["manifest_version"] == 2
     assert "nativeMessaging" in manifest["permissions"]
-    assert manifest["applications"]["gecko"]["id"] == "caldav-assistant-experimental@zhouandrew.local"
-    assert manifest["applications"]["gecko"]["strict_min_version"] == "115.0"
+    gecko = manifest["browser_specific_settings"]["gecko"]
+    assert gecko["id"] == "caldav-assistant-experimental@zhouandrew.local"
+    assert gecko["strict_min_version"] == "115.0"
+    assert gecko["update_url"] == (
+        "https://andrew.local/caldav-assistant/thunderbird/"
+        "experimental/updates.json"
+    )
 
 
 def test_native_host_is_valid_python():
@@ -28,7 +36,8 @@ def test_xpi_contains_only_extension_runtime_files(tmp_path, monkeypatch):
     namespace = {"__file__": str(THUNDERBIRD / "build-xpi.py")}
     exec(compile(script, str(THUNDERBIRD / "build-xpi.py"), "exec"), namespace)
 
-    xpi = THUNDERBIRD / "dist" / "caldav-assistant-thunderbird-0.1.0.xpi"
+    manifest = json.loads((THUNDERBIRD / "manifest.json").read_text(encoding="utf-8"))
+    xpi = THUNDERBIRD / "dist" / f"caldav-assistant-thunderbird-{manifest['version']}.xpi"
     assert xpi.exists()
     with zipfile.ZipFile(xpi) as archive:
         names = set(archive.namelist())
@@ -92,3 +101,27 @@ def test_thunderbird_picker_reuses_core_actionable_semantics_and_state_actions()
     assert 'start.textContent = "继续"' in source
     assert 'start.textContent = "开始"' in source
     assert 'pause.hidden = false' in source
+
+
+def test_self_hosted_update_feed_matches_manifest_and_xpi():
+    manifest = json.loads((THUNDERBIRD / "manifest.json").read_text(encoding="utf-8"))
+    subprocess.run(
+        [sys.executable, str(THUNDERBIRD / "build-update-feed.py")],
+        cwd=ROOT,
+        check=True,
+    )
+
+    version = manifest["version"]
+    addon_id = manifest["browser_specific_settings"]["gecko"]["id"]
+    site = THUNDERBIRD / "dist" / "update-site" / "experimental"
+    xpi = site / f"caldav-assistant-thunderbird-{version}.xpi"
+    updates = json.loads((site / "updates.json").read_text(encoding="utf-8"))
+    entry = updates["addons"][addon_id]["updates"][0]
+
+    assert entry["version"] == version
+    assert entry["update_link"] == (
+        "https://andrew.local/caldav-assistant/thunderbird/experimental/"
+        f"{xpi.name}"
+    )
+    assert entry["update_hash"] == "sha256:" + hashlib.sha256(xpi.read_bytes()).hexdigest()
+    assert entry["applications"]["gecko"]["strict_min_version"] == "115.0"
