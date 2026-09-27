@@ -1,5 +1,9 @@
 const HOST = "local.caldav_assistant";
+const ATTACHMENT_CHUNK_BYTES = 256 * 1024;
 const $ = (id) => document.getElementById(id);
+
+let nativePort = null;
+const nativeWaiters = [];
 
 function localInputNow() {
   const d = new Date();
@@ -22,12 +26,41 @@ function show(message) {
   setTimeout(() => box.classList.remove("show"), 4000);
 }
 
-async function host(message) {
-  const result = await messenger.runtime.sendNativeMessage(HOST, message);
-  if (!result || result.ok === false) {
-    throw new Error(result?.error || "Native host did not return a valid response.");
-  }
-  return result;
+function ensureNativePort() {
+  if (nativePort) return nativePort;
+
+  const port = messenger.runtime.connectNative(HOST);
+  port.onMessage.addListener((result) => {
+    const waiter = nativeWaiters.shift();
+    if (!waiter) return;
+    if (!result || result.ok === false) {
+      waiter.reject(new Error(result?.error || "Native host returned an invalid response."));
+      return;
+    }
+    waiter.resolve(result);
+  });
+  port.onDisconnect.addListener(() => {
+    const detail = messenger.runtime.lastError?.message || "Native host disconnected.";
+    nativePort = null;
+    while (nativeWaiters.length) {
+      nativeWaiters.shift().reject(new Error(detail));
+    }
+  });
+  nativePort = port;
+  return port;
+}
+
+function host(message) {
+  return new Promise((resolve, reject) => {
+    const port = ensureNativePort();
+    nativeWaiters.push({resolve, reject});
+    try {
+      port.postMessage(message);
+    } catch (error) {
+      nativeWaiters.pop();
+      reject(error);
+    }
+  });
 }
 
 function selectedTaskId() {
@@ -62,7 +95,10 @@ async function refresh() {
   $("task-status").textContent = data.state.current_task_id
     ? "Working: " + (data.tasks.find(t => t.id === data.state.current_task_id)?.summary || data.state.current_task_id)
     : "No active work";
-  $("today").textContent = (data.today || []).join("\n") || "No recorded activity today.";
+
+  const history = data.history_calendar?.name || "CalDAV Assistant History";
+  const lines = data.today || [];
+  $("today").textContent = [`History: ${history}`, ...lines].join("\n");
 }
 
 async function doAction(action) {
@@ -94,21 +130,55 @@ async function addNote() {
   show(response.message || "Added to WordPress.");
 }
 
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error);
-    reader.onload = () => {
-      const bytes = new Uint8Array(reader.result);
-      let binary = "";
-      const chunk = 0x8000;
-      for (let i = 0; i < bytes.length; i += chunk) {
-        binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-      }
-      resolve(btoa(binary));
-    };
-    reader.readAsArrayBuffer(file);
+function bytesToBase64(bytes) {
+  let binary = "";
+  const stride = 0x8000;
+  for (let i = 0; i < bytes.length; i += stride) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + stride));
+  }
+  return btoa(binary);
+}
+
+async function uploadOneFile(file, row) {
+  const common = {
+    task_id: selectedTaskId(),
+    filename: file.name,
+    mime_type: file.type || "application/octet-stream",
+    at: isoFromInput(),
+    calendar_link: $("calendar-link").checked,
+    attachment_link: $("attachment-link").checked,
+  };
+
+  const begin = await host({
+    command: "attachment_begin",
+    ...common,
+    total_size: file.size,
   });
+  const uploadId = begin.upload_id;
+
+  try {
+    let sent = 0;
+    while (sent < file.size) {
+      const blob = file.slice(sent, sent + ATTACHMENT_CHUNK_BYTES);
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      await host({
+        command: "attachment_chunk",
+        upload_id: uploadId,
+        data_base64: bytesToBase64(bytes),
+      });
+      sent += bytes.length;
+      const pct = file.size ? Math.min(100, Math.round((sent / file.size) * 100)) : 100;
+      row.textContent = `Uploading ${file.name}… ${pct}%`;
+    }
+
+    return await host({
+      command: "attachment_finish",
+      upload_id: uploadId,
+    });
+  } catch (error) {
+    host({command: "attachment_abort", upload_id: uploadId}).catch(() => {});
+    throw error;
+  }
 }
 
 async function uploadFiles(files) {
@@ -118,16 +188,7 @@ async function uploadFiles(files) {
     row.textContent = "Uploading " + file.name + "…";
     area.appendChild(row);
     try {
-      const response = await host({
-        command: "attachment",
-        task_id: selectedTaskId(),
-        filename: file.name,
-        mime_type: file.type || "application/octet-stream",
-        data_base64: await fileToBase64(file),
-        at: isoFromInput(),
-        calendar_link: $("calendar-link").checked,
-        attachment_link: $("attachment-link").checked,
-      });
+      const response = await uploadOneFile(file, row);
       row.textContent = "✓ " + file.name + (response.url ? " → " + response.url : " (queued)");
     } catch (error) {
       row.textContent = "✗ " + file.name + ": " + error.message;
@@ -158,6 +219,12 @@ $("add-note").addEventListener("click", () => addNote().catch(e => show(e.messag
 $("attachment").addEventListener("change", (event) => {
   uploadFiles([...event.target.files]).catch(e => show(e.message));
   event.target.value = "";
+});
+window.addEventListener("pagehide", () => {
+  if (nativePort) {
+    nativePort.disconnect();
+    nativePort = null;
+  }
 });
 
 $("when").value = localInputNow();
