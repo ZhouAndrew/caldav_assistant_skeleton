@@ -80,3 +80,15 @@ def test_native_host_has_chunk_lifecycle_and_retries_outbox_on_open():
     ):
         assert f"def {name}(" in source
     assert 'core_call("wordpress.flush")' in source
+
+
+def test_thunderbird_picker_reuses_core_actionable_semantics_and_state_actions():
+    host = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
+    source = (THUNDERBIRD / "assistant.js").read_text(encoding="utf-8")
+
+    assert "tasks.list(actionable=True)" in host
+    assert 'task.status === "COMPLETED"' not in source
+    assert 'task.status === "CANCELLED"' not in source
+    assert 'start.textContent = "继续"' in source
+    assert 'start.textContent = "开始"' in source
+    assert 'pause.hidden = false' in source

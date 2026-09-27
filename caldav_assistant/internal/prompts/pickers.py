@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Callable, Iterable, Sequence
 
 from ..presentation import DatePickerView, ScrollableListView, TaskPickerView
+from ..tasks.semantics import task_is_finished
 
 
 def _as_date(value: Any) -> date | None:
@@ -30,16 +31,9 @@ def task_matches_date(task: Any, selected: date) -> bool:
     )
 
 
-def _task_is_finished(task: Any) -> bool:
-    if bool(getattr(task, "completed", False)):
-        return True
-    status = str(getattr(task, "status", "") or "").strip().upper()
-    return status in {"COMPLETED", "CANCELLED"}
-
-
 def task_is_overdue(task: Any, today: date) -> bool:
     """Return whether an unfinished Task belongs to today's overdue backlog."""
-    if _task_is_finished(task):
+    if task_is_finished(task):
         return False
     if bool(getattr(task, "overdue", False)):
         return True
@@ -49,7 +43,7 @@ def task_is_overdue(task: Any, today: date) -> bool:
 
 def task_matches_picker_date(task: Any, selected: date, today: date) -> bool:
     """Task Picker semantics: actionable only; today also includes overdue backlog."""
-    if _task_is_finished(task):
+    if task_is_finished(task):
         return False
     if selected == today and task_is_overdue(task, today):
         return True

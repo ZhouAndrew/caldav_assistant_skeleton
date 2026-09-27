@@ -4,6 +4,7 @@ const $ = (id) => document.getElementById(id);
 
 let nativePort = null;
 const nativeWaiters = [];
+let currentSnapshot = null;
 
 function localInputNow() {
   const d = new Date();
@@ -73,13 +74,50 @@ function taskLabel(task, state) {
   const marks = [];
   if (state.current_task_id === task.id) marks.push("▶");
   if ((state.paused_task_ids || []).includes(task.id)) marks.push("⏸");
-  if (task.status === "COMPLETED") marks.push("✓");
-  if (task.status === "CANCELLED") marks.push("×");
   return (marks.length ? marks.join("") + " " : "") + task.summary;
+}
+
+function renderActionState() {
+  const data = currentSnapshot;
+  const taskId = $("task").value;
+  const task = data?.tasks?.find(item => item.id === taskId) || null;
+  const current = Boolean(task && data?.state?.current_task_id === taskId);
+  const paused = Boolean(task && (data?.state?.paused_task_ids || []).includes(taskId));
+
+  const start = $("action-start");
+  const pause = $("action-pause");
+  const cancel = $("action-cancel");
+  const complete = $("action-complete");
+  const buttons = [start, pause, cancel, complete];
+
+  for (const button of buttons) {
+    button.hidden = true;
+    button.disabled = !task;
+  }
+  if (!task) return;
+
+  if (current) {
+    pause.hidden = false;
+    cancel.hidden = false;
+    complete.hidden = false;
+    return;
+  }
+
+  if (paused) {
+    start.textContent = "继续";
+    start.hidden = false;
+    cancel.hidden = false;
+    complete.hidden = false;
+    return;
+  }
+
+  start.textContent = "开始";
+  start.hidden = false;
 }
 
 async function refresh() {
   const data = await host({command: "snapshot"});
+  currentSnapshot = data;
   const select = $("task");
   const old = select.value;
   select.textContent = "";
@@ -91,10 +129,13 @@ async function refresh() {
   }
   if (old && data.tasks.some(t => t.id === old)) select.value = old;
   if (!select.value && data.state.current_task_id) select.value = data.state.current_task_id;
+  select.disabled = data.tasks.length === 0;
   $("bridge-status").textContent = "Core connected";
   $("task-status").textContent = data.state.current_task_id
     ? "Working: " + (data.tasks.find(t => t.id === data.state.current_task_id)?.summary || data.state.current_task_id)
     : "No active work";
+
+  renderActionState();
 
   const history = data.history_calendar?.name || "CalDAV Assistant History";
   const lines = data.today || [];
@@ -212,6 +253,7 @@ $("attachment-link").addEventListener("change", () =>
   messenger.storage.local.set({attachmentLink: $("attachment-link").checked})
 );
 $("refresh").addEventListener("click", () => refresh().catch(e => show(e.message)));
+$("task").addEventListener("change", renderActionState);
 for (const button of document.querySelectorAll("[data-action]")) {
   button.addEventListener("click", () => doAction(button.dataset.action).catch(e => show(e.message)));
 }
