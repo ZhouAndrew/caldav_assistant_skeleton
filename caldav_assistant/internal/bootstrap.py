@@ -387,6 +387,7 @@ def build_service_application() -> ServiceApplication:
     dispatcher.register_internal("caldav.clear_credentials", _caldav_setup.clear_credentials)
     dispatcher.register_internal("caldav.test", _caldav_setup.test_connection)
     dispatcher.register_internal("caldav.collections", _caldav_setup.collections)
+    dispatcher.register_internal("caldav.ensure_worklog_collection", _caldav_setup.ensure_worklog_collection)
     dispatcher.register_internal("experimental.cache.status", app_caldav.diagnostics)
     dispatcher.register_internal("experimental.cache.refresh", sync.refresh)
     dispatcher.register_internal("undo.last", undo.undo_last)
