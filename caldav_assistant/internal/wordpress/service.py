@@ -22,10 +22,17 @@ class WordPressService:
     _SCHEMA_VERSION = 1
     _OPERATIONS = frozenset({"create_log", "create_post", "update_post", "attach_file"})
 
-    def __init__(self, adapter: Any, outbox: Any, activity: Any = None) -> None:
+    def __init__(
+        self,
+        adapter: Any,
+        outbox: Any,
+        activity: Any = None,
+        delivery_observer: Any = None,
+    ) -> None:
         self.adapter = adapter
         self.outbox = outbox
         self.activity = activity
+        self.delivery_observer = delivery_observer
 
     @staticmethod
     def _text(value: Any, name: str, *, allow_empty: bool = False) -> str:
@@ -138,6 +145,17 @@ class WordPressService:
         }[operation]
         self._record(action, object_id, request_id=payload.get("request_id"))
 
+    def _observe_delivery(
+        self,
+        operation: str,
+        result: Any,
+        payload: dict[str, Any],
+    ) -> None:
+        observer = self.delivery_observer
+        callback = getattr(observer, "after_delivery", None)
+        if callable(callback):
+            callback(operation, result, payload)
+
     def _mark_failed(self, item_id: int, exc: Exception) -> None:
         try:
             self.outbox.mark_failed(item_id, exc)
@@ -155,6 +173,16 @@ class WordPressService:
             return ActionResult(
                 True,
                 message="Saved locally; WordPress upload pending.",
+                affected=item,
+            )
+
+        try:
+            self._observe_delivery(payload["operation"], result, payload)
+        except Exception as exc:
+            self._mark_failed(item_id, exc)
+            return ActionResult(
+                True,
+                message="Uploaded to WordPress; Calendar link pending.",
                 affected=item,
             )
 
@@ -257,6 +285,7 @@ class WordPressService:
                 if not isinstance(payload, dict):
                     raise ValueError("Malformed WordPress Outbox item")
                 result = self._deliver_payload(payload)
+                self._observe_delivery(payload["operation"], result, payload)
                 self.outbox.mark_sent(item_id)
             except Exception as exc:
                 failed += 1
