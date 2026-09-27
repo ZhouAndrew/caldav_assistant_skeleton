@@ -68,8 +68,27 @@
             <button id="action-complete" data-action="complete" class="success">完成</button>
           </div>
 
+          <section class="operation-monitor" aria-live="polite" aria-label="Operation transparency">
+            <div class="operation-monitor-heading">
+              <strong>当前操作</strong>
+              <span class="muted">透明通信状态</span>
+            </div>
+            <dl class="operation-grid">
+              <div><dt>正在做</dt><dd id="operation-doing">等待操作</dd></div>
+              <div><dt>和谁通信</dt><dd id="operation-peer">—</dd></div>
+              <div><dt>发送了什么</dt><dd id="operation-sent">—</dd></div>
+              <div><dt>在等待什么</dt><dd id="operation-waiting">—</dd></div>
+              <div><dt>收到了什么</dt><dd id="operation-received">—</dd></div>
+              <div><dt>下一步</dt><dd id="operation-next">—</dd></div>
+            </dl>
+            <details class="operation-history">
+              <summary>本次操作过程</summary>
+              <ol id="operation-trace" class="operation-trace"></ol>
+            </details>
+          </section>
+
           <div id="work-warning" class="callout warning" hidden></div>
-          <p class="hint">界面立即响应；写入仍由 CalDAV Assistant Core 完成。Thunderbird 本地 Calendar/Tasks 缓存用于快速读取。</p>
+          <p class="hint">CalDAV 权威写入必须等待服务器确认；等待期间会显示真实进度。WordPress 日志先进入持久 Outbox，再由独立通道上传与回链，不阻塞 Task 成功结果。</p>
         </section>
       </div>
     </section>
