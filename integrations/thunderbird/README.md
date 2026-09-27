@@ -55,52 +55,75 @@ bash integrations/thunderbird/uninstall-experimental.sh
 
 ## Self-hosted automatic XPI updates
 
-The experimental add-on uses Thunderbird/Gecko's native self-update mechanism.
-Its fixed add-on ID remains:
+The Thunderbird add-on now uses a **standalone update server**. It does not publish
+through Apache, WordPress, PHP, the CalDAV server, or an existing Caddy instance.
+
+The only host runtime used by the server is Docker. The service itself runs in its
+own Caddy container, listens on TCP 17443, keeps its files and private CA under
+`~/.local/share/caldav-assistant-thunderbird-update-server/`, and restarts
+automatically after reboot.
+
+The fixed experimental add-on ID is:
 
 ```text
 caldav-assistant-experimental@zhouandrew.local
 ```
 
-and its update manifest is:
+The update manifest is:
 
 ```text
-https://andrew.local/caldav-assistant/thunderbird/experimental/updates.json
+https://andrew.local:17443/experimental/updates.json
 ```
 
-Build the XPI plus the JSON update feed with:
+### One-click first deployment
+
+From the repository root:
 
 ```bash
-python3 integrations/thunderbird/build-update-feed.py
+bash integrations/thunderbird/update-server/deploy.sh
 ```
 
-The generated files are under
-`integrations/thunderbird/dist/update-site/experimental/`. The update feed includes
-the current XPI version and a SHA-256 `update_hash`.
+That one command:
 
-On the `andrew.local` server, publish the current feed with:
+1. builds the current XPI and `updates.json`,
+2. creates isolated server state under the user's local data directory,
+3. starts/replaces the dedicated Caddy container with `--restart unless-stopped`,
+4. creates and persists the server's own local CA,
+5. adds that CA to the Linux trust store,
+6. imports the CA directly into discovered Thunderbird NSS profiles,
+7. verifies the HTTPS health endpoint, update manifest, and advertised XPI.
+
+If `certutil` is missing on Debian/Ubuntu/Linux Mint, the deployment script installs
+`libnss3-tools` solely for the Thunderbird certificate import. The update server
+does not depend on that package after deployment.
+
+### Publishing later versions
+
+After the server is deployed, a new XPI version can be published with:
 
 ```bash
 bash integrations/thunderbird/publish-self-hosted-update.sh
 ```
 
-On the current `andrew.local` layout, HTTPS is served from the WordPress document
-root, so the publisher automatically uses
-`/var/www/html/wordpress/caldav-assistant/thunderbird/experimental/` when that
-document root exists. Otherwise it falls back to
-`/var/www/html/caldav-assistant/thunderbird/experimental/`. The publish root can
-still be overridden with `CALDAV_ASSISTANT_TB_UPDATE_ROOT`.
+The publisher writes only into the standalone server's private `www` directory and
+then verifies the live HTTPS manifest and XPI. It never writes under `/var/www`.
 
-The publisher verifies both the HTTPS `updates.json` endpoint and the XPI URL
-advertised by that manifest before reporting success.
+To stop the standalone update server without deleting its state or trust material:
 
-**Bootstrap note:** version 0.1.0 did not contain an `update_url`, so an existing
-0.1.0 installation must install 0.1.1 manually once. From 0.1.1 onward, Thunderbird
-can discover higher XPI versions from the self-hosted update manifest.
+```bash
+bash integrations/thunderbird/update-server/stop.sh
+```
 
-The native host and its Python environment are outside the XPI and are therefore
-not replaced by Thunderbird's XPI updater. XPI releases must remain compatible with
-the installed native-host protocol unless the native host is updated separately.
+Keeping the Caddy data directory preserves the same local CA across restarts and
+redeployments, avoiding a surprise certificate rotation.
+
+**Bootstrap note:** the earlier 0.1.0/0.1.1 builds did not point at this standalone
+endpoint. Install 0.1.2 manually once. From 0.1.2 onward, Thunderbird can discover
+higher XPI versions from the standalone server.
+
+The native host and its Python environment remain outside the XPI. Thunderbird's
+XPI updater therefore updates only the add-on UI/package; native-host protocol
+changes must remain backward compatible or be upgraded separately.
 
 ## Real acceptance required
 
