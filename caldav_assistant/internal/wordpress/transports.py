@@ -10,6 +10,7 @@ from collections.abc import Callable
 from datetime import datetime
 from html import escape
 import json
+import mimetypes
 from pathlib import Path
 import re
 from typing import Any
@@ -318,6 +319,122 @@ class WPCLIAdapter:
             "id": post_id,
             "title": item["title"],
             "content": self._post_content(post_id),
+        }
+
+    def _post_url(self, post_id: Any) -> str:
+        return self._run(["post", "url", str(post_id)]).strip()
+
+    def ensure_daily_log_reference(
+        self,
+        *,
+        at: datetime | None = None,
+        post_type: str = "post",
+    ) -> dict[str, Any]:
+        value = self._local_now() if at is None else at
+        if not isinstance(value, datetime):
+            raise TypeError("WordPress daily-log timestamp must be datetime")
+        if value.tzinfo is None:
+            value = value.astimezone()
+        item = self._find_daily_post_record(value, post_type=post_type)
+        if item is None:
+            created = self.create_post(
+                self._daily_title(value),
+                "",
+                post_status="publish",
+                post_type=post_type,
+            )
+            post_id = created["id"]
+            title = self._daily_title(value)
+        else:
+            post_id = item["id"]
+            title = item["title"]
+        return {
+            "id": post_id,
+            "title": title,
+            "url": self._post_url(post_id),
+        }
+
+    def attach_file(self, file_path: str | Path, **metadata: Any) -> dict[str, Any]:
+        path = Path(file_path).expanduser()
+        if not path.is_file():
+            raise ValidationError(f"Attachment file not found: {path}")
+
+        logged_at = metadata.pop("_logged_at", None)
+        if logged_at:
+            try:
+                at = datetime.fromisoformat(str(logged_at))
+            except ValueError as exc:
+                raise ValidationError("Invalid WordPress attachment timestamp") from exc
+            if at.tzinfo is None:
+                at = at.astimezone()
+        else:
+            at = self._local_now()
+
+        reference = self.ensure_daily_log_reference(
+            at=at,
+            post_type=str(metadata.pop("post_type", "post") or "post"),
+        )
+        post_id = reference["id"]
+        attachment_id = self._created_id(
+            self._run(
+                [
+                    "media",
+                    "import",
+                    str(path),
+                    self._argument("post_id", post_id),
+                    "--porcelain",
+                ]
+            )
+        )
+        file_url = self._run(
+            ["post", "get", str(attachment_id), "--field=guid"]
+        ).strip()
+        mime_type = str(
+            metadata.pop("mime_type", "")
+            or mimetypes.guess_type(path.name)[0]
+            or "application/octet-stream"
+        )
+
+        safe_name = escape(path.name, quote=False)
+        safe_url = escape(file_url, quote=True)
+        if mime_type.startswith("image/"):
+            block = (
+                f'<!-- wp:image {{"id":{attachment_id},"sizeSlug":"large"}} -->\n'
+                f'<figure class="wp-block-image size-large"><img src="{safe_url}" '
+                f'alt="{safe_name}" class="wp-image-{attachment_id}"/></figure>\n'
+                '<!-- /wp:image -->'
+            )
+        elif mime_type.startswith("video/"):
+            block = (
+                f'<!-- wp:video {{"id":{attachment_id}}} -->\n'
+                f'<figure class="wp-block-video"><video controls src="{safe_url}"></video></figure>\n'
+                '<!-- /wp:video -->'
+            )
+        elif mime_type.startswith("audio/"):
+            block = (
+                f'<!-- wp:audio {{"id":{attachment_id}}} -->\n'
+                f'<figure class="wp-block-audio"><audio controls src="{safe_url}"></audio></figure>\n'
+                '<!-- /wp:audio -->'
+            )
+        else:
+            block = (
+                f'<!-- wp:file {{"id":{attachment_id},"href":"{safe_url}"}} -->\n'
+                f'<div class="wp-block-file"><a href="{safe_url}">{safe_name}</a></div>\n'
+                '<!-- /wp:file -->'
+            )
+
+        existing = self._post_content(post_id)
+        self.update_post(
+            post_id,
+            post_content=self._append_content(existing, block),
+        )
+        return {
+            "id": attachment_id,
+            "post_id": post_id,
+            "url": file_url,
+            "post_url": reference["url"],
+            "filename": path.name,
+            "mime_type": mime_type,
         }
 
     def create_post(self, title: str, content: str = "", **fields: Any) -> dict[str, Any]:
