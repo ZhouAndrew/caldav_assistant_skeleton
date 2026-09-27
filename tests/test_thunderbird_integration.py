@@ -244,7 +244,10 @@ def test_log_panel_never_remains_indefinitely_loading():
     assert 'id="open-log-folder"' in html
     assert 'id="copy-log-path"' in html
     assert "renderLogError" in source
-    assert 'host({command: "logs", limit: 300}, 5000)' in source
+    assert 'diagnosticHost({command: "logs", limit: 300}, 5000)' in source
+    assert "ensureDiagnosticPort" in source
+    assert "diagnosticPort = messenger.runtime.connectNative(HOST)" not in source
+    assert "const port = messenger.runtime.connectNative(HOST)" in source
     assert "Promise.allSettled" in source
     assert 'command == "logs_open"' in host
     assert "open_log_folder" in host
