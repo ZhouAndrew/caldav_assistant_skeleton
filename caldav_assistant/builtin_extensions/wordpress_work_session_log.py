@@ -139,7 +139,7 @@ def _closed_segment(
     return _hook_segment(activity) or _caldav_segment(task, end) or _activity_segment(task, end)
 
 
-def _queue(text: str) -> Any:
+def _queue(text: str, *, logged_at: datetime) -> Any:
     ctx = get_current_context()
     wordpress = ctx.wordpress
     writer = getattr(wordpress, "queue_log", None)
@@ -149,7 +149,7 @@ def _queue(text: str) -> Any:
         return None
     # The line already contains its start/end range; suppress the transport's
     # ordinary "logged at" prefix so WordPress contains exactly the human entry.
-    return writer(text, _show_clock=False)
+    return writer(text, _show_clock=False, _logged_at=logged_at.isoformat())
 
 
 def _log_closed_work_segment(event: HookEvent, *, status: str) -> Any:
@@ -174,7 +174,7 @@ def _log_closed_work_segment(event: HookEvent, *, status: str) -> Any:
         end,
         status=status,
     )
-    return None if not text else _queue(text)
+    return None if not text else _queue(text, logged_at=end)
 
 
 @on("task.paused")
