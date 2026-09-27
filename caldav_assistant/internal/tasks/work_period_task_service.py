@@ -90,26 +90,32 @@ class WorkPeriodAwareTaskService(CompletionLoggingTaskService):
             cancelled=cancelled,
         )
 
-    def start(self, task: Any):
-        result = super().start(task)
+    def start(self, task: Any, *, at: Any = None):
+        result = super().start(task, at=at)
         self._update_session_snapshot("set_current", result.affected)
         return result
 
-    def pause(self, task: Any):
-        result = super().pause(task)
+    def pause(self, task: Any, *, at: Any = None):
+        result = super().pause(task, at=at)
         self._update_session_snapshot("mark_paused", result.affected)
         self._cancel_work_period(result.affected, reason="task_paused")
         return result
 
-    def resume(self, task: Any):
-        result = super().resume(task)
+    def resume(self, task: Any, *, at: Any = None):
+        result = super().resume(task, at=at)
         self._update_session_snapshot("set_current", result.affected)
         return result
 
-    def complete(self, task: Any):
-        result = super().complete(task)
+    def complete(self, task: Any, *, at: Any = None):
+        result = super().complete(task, at=at)
         self._update_session_snapshot("forget", result.affected)
         self._cancel_work_period(result.affected, reason="task_completed")
+        return result
+
+    def cancel(self, task: Any, *, at: Any = None):
+        result = super().cancel(task, at=at)
+        self._update_session_snapshot("forget", result.affected)
+        self._cancel_work_period(result.affected, reason="task_cancelled")
         return result
 
     def delete(self, task: Any):
