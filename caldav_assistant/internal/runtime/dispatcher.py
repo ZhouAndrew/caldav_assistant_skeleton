@@ -25,7 +25,6 @@ class RuntimeDispatcher:
             "tasks.create": ctx.tasks.create,
             "tasks.update": ctx.tasks.update,
             "tasks.complete": ctx.tasks.complete,
-            "tasks.cancel": ctx.tasks.cancel,
             "tasks.start": ctx.tasks.start,
             "tasks.pause": ctx.tasks.pause,
             "tasks.resume": ctx.tasks.resume,
@@ -48,7 +47,6 @@ class RuntimeDispatcher:
             "wordpress.log": ctx.wordpress.log,
             "wordpress.create_post": ctx.wordpress.create_post,
             "wordpress.update_post": ctx.wordpress.update_post,
-            "wordpress.attach_file": ctx.wordpress.attach_file,
             "wordpress.pending": ctx.wordpress.pending,
             "activity.today": ctx.activity.today,
             "activity.for_task": ctx.activity.for_task,
@@ -59,6 +57,13 @@ class RuntimeDispatcher:
             "settings.describe": ctx.settings.describe,
             "settings.list": ctx.settings.list,
         }
+
+        cancel_task = getattr(ctx.tasks, "cancel", None)
+        if callable(cancel_task):
+            self._routes["tasks.cancel"] = cancel_task
+        attach_file = getattr(ctx.wordpress, "attach_file", None)
+        if callable(attach_file):
+            self._routes["wordpress.attach_file"] = attach_file
 
         # Startup needs Upcoming + Recommended from the same source read. Keep this
         # as an internal runtime route rather than widening the frozen Public API.
