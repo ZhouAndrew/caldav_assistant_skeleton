@@ -63,3 +63,35 @@ def test_send_rejects_unstructured_actions_container():
 
     with pytest.raises(ValidationError):
         service.send("Reminder", actions={"done": "Done"})
+
+
+def test_master_gate_blocks_adapter_and_can_change_live():
+    adapter = FakeNotificationAdapter()
+    state = {"enabled": False}
+    service = NotificationService(
+        adapter,
+        enabled=lambda: state["enabled"],
+    )
+
+    service.send("Blocked", "must not reach adapter")
+    assert service.is_enabled() is False
+    assert adapter.calls == []
+
+    state["enabled"] = True
+    service.send("Allowed", "now enabled")
+    assert service.is_enabled() is True
+    assert adapter.calls == [("Allowed", "now enabled", None)]
+
+    state["enabled"] = False
+    service.send("Blocked again")
+    assert adapter.calls == [("Allowed", "now enabled", None)]
+
+
+def test_disabled_master_gate_still_validates_public_inputs():
+    service = NotificationService(
+        FakeNotificationAdapter(),
+        enabled=False,
+    )
+
+    with pytest.raises(ValidationError):
+        service.send("")
