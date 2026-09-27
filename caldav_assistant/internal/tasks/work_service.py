@@ -122,7 +122,7 @@ class CalDAVWorkTaskService(TaskService):
             )
         return task
 
-    def start(self, task: Task | str) -> ActionResult:
+    def start(self, task: Task | str, *, at: Any = None) -> ActionResult:
         lookup = self._start_lookup(task)
 
         if not self._worklog_configured():
@@ -130,7 +130,7 @@ class CalDAVWorkTaskService(TaskService):
             # not. Refresh a Task selected from cached UI before delegating to the
             # base lifecycle implementation.
             obj = self._require_live_start_task(self.get(lookup))
-            return super().start(obj)
+            return super().start(obj, at=at)
 
         # A guided menu may legitimately pass a Task object that came from the
         # explicitly stale startup cache. Convert it back to its stable id before
@@ -164,6 +164,7 @@ class CalDAVWorkTaskService(TaskService):
         segment = self._work_call(
             "start_segment",
             obj,
+            at=at,
             snapshot=open_snapshot,
         )
         try:
@@ -186,6 +187,7 @@ class CalDAVWorkTaskService(TaskService):
         self._record(
             "task_started",
             result.affected,
+            at=at,
             task_summary=str(getattr(result.affected, "summary", "") or ""),
             work_session_before="none",
             work_session_after="current",
@@ -193,9 +195,9 @@ class CalDAVWorkTaskService(TaskService):
         )
         return result
 
-    def pause(self, task: Task | str) -> ActionResult:
+    def pause(self, task: Task | str, *, at: Any = None) -> ActionResult:
         if not self._worklog_configured():
-            return super().pause(task)
+            return super().pause(task, at=at)
 
         obj = self.get(task)
         task_id = self._require_id(obj)
@@ -213,12 +215,14 @@ class CalDAVWorkTaskService(TaskService):
         closed = self._work_call(
             "close_segment",
             obj,
+            at=at,
             required=True,
             snapshot=open_snapshot,
         )
         self._record(
             "task_paused",
             obj,
+            at=at,
             task_summary=str(getattr(obj, "summary", "") or ""),
             work_segment=self._closed_segment_metadata(closed),
             work_session_before="current",
@@ -227,9 +231,9 @@ class CalDAVWorkTaskService(TaskService):
         )
         return ActionResult(True, affected=obj, undo_available=False)
 
-    def resume(self, task: Task | str) -> ActionResult:
+    def resume(self, task: Task | str, *, at: Any = None) -> ActionResult:
         if not self._worklog_configured():
-            return super().resume(task)
+            return super().resume(task, at=at)
 
         obj = self.get(task)
         task_id = self._require_id(obj)
@@ -263,11 +267,13 @@ class CalDAVWorkTaskService(TaskService):
         self._work_call(
             "start_segment",
             obj,
+            at=at,
             snapshot=open_snapshot,
         )
         self._record(
             "task_resumed",
             obj,
+            at=at,
             task_summary=str(getattr(obj, "summary", "") or ""),
             work_session_before="paused",
             work_session_after="current",
@@ -275,9 +281,9 @@ class CalDAVWorkTaskService(TaskService):
         )
         return ActionResult(True, affected=obj, undo_available=False)
 
-    def complete(self, task: Task | str) -> ActionResult:
+    def complete(self, task: Task | str, *, at: Any = None) -> ActionResult:
         if not self._worklog_configured():
-            return super().complete(task)
+            return super().complete(task, at=at)
 
         obj = self.get(task)
         task_id = self._require_id(obj)
@@ -305,11 +311,12 @@ class CalDAVWorkTaskService(TaskService):
         )
 
         closed = None
-        completed_at = self.worklog.now()
+        completed_at = self.worklog.now() if at is None else self.worklog.normalize_time(at)
         if current_id == task_id:
             closed = self._work_call(
                 "close_segment",
                 obj,
+                at=at,
                 required=True,
                 snapshot=open_snapshot,
             )
@@ -340,9 +347,55 @@ class CalDAVWorkTaskService(TaskService):
         self._record(
             "task_completed",
             result.affected,
+            at=completed_at,
             task_summary=str(getattr(result.affected, "summary", "") or ""),
             work_segment=self._closed_segment_metadata(closed),
             work_session_before=work_session_before,
+            work_session_after="none",
+            **self._plan_context(obj),
+        )
+        return result
+
+
+    def cancel(self, task: Task | str, *, at: Any = None) -> ActionResult:
+        if not self._worklog_configured():
+            return super().cancel(task, at=at)
+
+        obj = self.get(task)
+        task_id = self._require_id(obj)
+        open_snapshot = self._open_work_snapshot()
+        current_id = self._work_call("current_task_id", snapshot=open_snapshot)
+
+        closed = None
+        if current_id == task_id:
+            closed = self._work_call(
+                "close_segment",
+                obj,
+                at=at,
+                required=True,
+                snapshot=open_snapshot,
+            )
+
+        result = self._update(
+            obj,
+            {
+                "status": "CANCELLED",
+                "completed": False,
+                "completed_at": None,
+            },
+            activity_action=None,
+        )
+        cancelled_at = (
+            getattr(closed, "end", None)
+            or (self.worklog.now() if at is None else self.worklog.normalize_time(at))
+        )
+        self._record(
+            "task_cancelled",
+            result.affected,
+            at=cancelled_at,
+            task_summary=str(getattr(result.affected, "summary", "") or ""),
+            work_segment=self._closed_segment_metadata(closed),
+            work_session_before="current" if current_id == task_id else "paused",
             work_session_after="none",
             **self._plan_context(obj),
         )
