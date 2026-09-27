@@ -283,7 +283,7 @@ class WPCLIAdapter:
         show_clock = bool(metadata.pop("_show_clock", True))
         # Integration metadata is consumed by WordPressService's delivery observer,
         # not forwarded as arbitrary wp_insert_post fields.
-        metadata.pop("_calendar_link", None)
+        calendar_link_requested = bool(metadata.pop("_calendar_link", False))
         metadata.pop("_work_event_id", None)
         metadata.pop("_calendar_attachment_link", None)
         post_status = metadata.pop("post_status", metadata.pop("status", "draft"))
@@ -308,19 +308,28 @@ class WPCLIAdapter:
                 **metadata,
             )
             post_id = created["id"]
-            return {"id": post_id, "post_url": self._post_url(post_id)}
+            result = {"id": post_id}
+            if calendar_link_requested:
+                result["post_url"] = self._post_url(post_id)
+            return result
 
         existing = self._post_content(post_id)
         if marker and marker in existing:
             # At-least-once Outbox retry after a remote success must not duplicate
             # the same visible diary line.
-            return {"id": post_id, "post_url": self._post_url(post_id)}
+            result = {"id": post_id}
+            if calendar_link_requested:
+                result["post_url"] = self._post_url(post_id)
+            return result
 
         self.update_post(
             post_id,
             post_content=self._append_content(existing, entry),
         )
-        return {"id": post_id, "post_url": self._post_url(post_id)}
+        result = {"id": post_id}
+        if calendar_link_requested:
+            result["post_url"] = self._post_url(post_id)
+        return result
 
     def read_daily_log(
         self,
@@ -341,7 +350,6 @@ class WPCLIAdapter:
         return {
             "id": post_id,
             "title": item["title"],
-            "url": self._post_url(post_id),
             "content": self._post_content(post_id),
         }
 
