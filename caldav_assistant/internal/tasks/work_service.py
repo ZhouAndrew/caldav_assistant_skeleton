@@ -70,7 +70,11 @@ class CalDAVWorkTaskService(TaskService):
         end_iso = end.isoformat() if callable(getattr(end, "isoformat", None)) else None
         if not start_iso or not end_iso:
             return None
-        return {"start": start_iso, "end": end_iso}
+        payload = {"start": start_iso, "end": end_iso}
+        event_id = str(getattr(segment, "id", "") or "").strip()
+        if event_id:
+            payload["event_id"] = event_id
+        return payload
 
     def _session_current_id(self) -> str | None:
         if self.session is not None:
