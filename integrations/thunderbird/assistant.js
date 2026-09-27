@@ -6,6 +6,8 @@ let nativePort = null;
 const nativeWaiters = [];
 let currentSnapshot = null;
 let taskRefreshTimer = null;
+let logAutoRefreshTimer = null;
+const EXPECTED_LOG_PATH = "~/.local/state/caldav-assistant/thunderbird/native-host.log";
 
 function localInputNow() {
   const d = new Date();
@@ -35,6 +37,12 @@ function ensureNativePort() {
   port.onMessage.addListener((result) => {
     const waiter = nativeWaiters.shift();
     if (!waiter) return;
+
+    if (waiter.timer) clearTimeout(waiter.timer);
+    // A timed-out request remains in the FIFO until its delayed response
+    // arrives. Discard that one response instead of giving it to a newer call.
+    if (waiter.expired) return;
+
     if (!result || result.ok === false) {
       waiter.reject(new Error(result?.error || "Native host returned an invalid response."));
       return;
@@ -45,21 +53,32 @@ function ensureNativePort() {
     const detail = messenger.runtime.lastError?.message || "Native host disconnected.";
     nativePort = null;
     while (nativeWaiters.length) {
-      nativeWaiters.shift().reject(new Error(detail));
+      const waiter = nativeWaiters.shift();
+      if (waiter.timer) clearTimeout(waiter.timer);
+      if (!waiter.expired) waiter.reject(new Error(detail));
     }
   });
   nativePort = port;
   return port;
 }
 
-function host(message) {
+function host(message, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
     const port = ensureNativePort();
-    nativeWaiters.push({resolve, reject});
+    const waiter = {resolve, reject, expired: false, timer: null};
+    waiter.timer = setTimeout(() => {
+      waiter.expired = true;
+      reject(new Error(
+        `Native Host did not answer “${message.command || "request"}” within ${timeoutMs} ms.`
+      ));
+    }, timeoutMs);
+    nativeWaiters.push(waiter);
     try {
       port.postMessage(message);
     } catch (error) {
-      nativeWaiters.pop();
+      const index = nativeWaiters.indexOf(waiter);
+      if (index >= 0) nativeWaiters.splice(index, 1);
+      clearTimeout(waiter.timer);
       reject(error);
     }
   });
@@ -268,15 +287,63 @@ async function copyText(text, label) {
   show(label + " copied.");
 }
 
+function renderLogError(error) {
+  const detail = error?.message || String(error || "Unknown Native Host error");
+  const meta = $("log-status").parentElement;
+  meta.dataset.state = "error";
+  $("log-status").textContent = "Log unavailable — Retry after repairing Native Host";
+  $("log-path").textContent = EXPECTED_LOG_PATH;
+  $("copy-log-path").hidden = false;
+  $("logs").textContent =
+    "The log bridge did not answer.\n\n" +
+    detail +
+    "\n\nExpected log file:\n" +
+    EXPECTED_LOG_PATH +
+    "\n\nUse Retry after reinstalling/updating the Native Host.";
+}
+
 async function refreshLogs() {
-  const response = await host({command: "logs", limit: 300});
-  $("logs").textContent = (response.lines || []).join("\n") || "No log entries yet.";
+  const meta = $("log-status").parentElement;
+  meta.dataset.state = "loading";
+  $("log-status").textContent = "Connecting to Native Host…";
+  $("logs").textContent = "Connecting…";
+
+  try {
+    const response = await host({command: "logs", limit: 300}, 5000);
+    const path = response.path || EXPECTED_LOG_PATH;
+    meta.dataset.state = "ok";
+    $("log-status").textContent = "Connected · log readable";
+    $("log-path").textContent = path;
+    $("copy-log-path").hidden = false;
+    $("logs").textContent = (response.lines || []).join("\n") || "No log entries yet.";
+    return response;
+  } catch (error) {
+    renderLogError(error);
+    throw error;
+  }
 }
 
 async function clearLogs() {
-  await host({command: "logs_clear"});
+  await host({command: "logs_clear"}, 5000);
   $("logs").textContent = "No log entries yet.";
+  $("log-status").textContent = "Connected · log readable";
   show("Logs cleared.");
+}
+
+async function openLogFolder() {
+  const response = await host({command: "logs_open"}, 5000);
+  if (response.path) {
+    $("log-path").textContent = response.path;
+    $("copy-log-path").hidden = false;
+  }
+  show(response.opened ? "Log folder opened." : "Log folder is ready; copy the path to open it manually.");
+}
+
+function startLogAutoRefresh() {
+  if (logAutoRefreshTimer) return;
+  logAutoRefreshTimer = setInterval(() => {
+    if (!document.hidden) refreshLogs().catch(() => {});
+  }, 3000);
 }
 
 function bytesToBase64(bytes) {
@@ -369,6 +436,15 @@ $("copy-today").addEventListener("click", () =>
 $("copy-logs").addEventListener("click", () =>
   copyText($("logs").textContent, "Logs").catch(error => show(error.message))
 );
+$("copy-log-path").addEventListener("click", () =>
+  copyText($("log-path").textContent, "Log path").catch(error => show(error.message))
+);
+$("open-log-folder").addEventListener("click", () =>
+  openLogFolder().catch(error => {
+    renderLogError(error);
+    show(error.message);
+  })
+);
 $("clear-logs").addEventListener("click", () => clearLogs().catch(error => show(error.message)));
 $("task").addEventListener("change", renderActionState);
 for (const button of document.querySelectorAll("[data-action]")) {
@@ -385,6 +461,10 @@ if (messenger.assistantCalendar?.onTasksChanged) {
 }
 
 window.addEventListener("pagehide", () => {
+  if (logAutoRefreshTimer) {
+    clearInterval(logAutoRefreshTimer);
+    logAutoRefreshTimer = null;
+  }
   if (nativePort) {
     nativePort.disconnect();
     nativePort = null;
@@ -393,8 +473,20 @@ window.addEventListener("pagehide", () => {
 
 $("when").value = localInputNow();
 loadSettings()
-  .then(() => Promise.all([refresh(), refreshLogs()]))
+  .then(async () => {
+    // Task/status and logs are independent surfaces. A failure in one must not
+    // leave the other permanently stuck at “Loading…”.
+    await Promise.allSettled([
+      refresh().catch(error => {
+        $("bridge-status").textContent = "Core unavailable";
+        show(error.message);
+      }),
+      refreshLogs().catch(() => {}),
+    ]);
+    startLogAutoRefresh();
+  })
   .catch(error => {
     $("bridge-status").textContent = "Core unavailable";
+    renderLogError(error);
     show(error.message);
   });
