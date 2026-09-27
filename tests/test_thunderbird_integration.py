@@ -22,8 +22,7 @@ def test_manifest_declares_native_messaging_and_stable_extension_id():
     assert gecko["id"] == "caldav-assistant-experimental@zhouandrew.local"
     assert gecko["strict_min_version"] == "115.0"
     assert gecko["update_url"] == (
-        "https://andrew.local/caldav-assistant/thunderbird/"
-        "experimental/updates.json"
+        "https://andrew.local:17443/experimental/updates.json"
     )
 
 
@@ -120,17 +119,29 @@ def test_self_hosted_update_feed_matches_manifest_and_xpi():
 
     assert entry["version"] == version
     assert entry["update_link"] == (
-        "https://andrew.local/caldav-assistant/thunderbird/experimental/"
+        "https://andrew.local:17443/experimental/"
         f"{xpi.name}"
     )
     assert entry["update_hash"] == "sha256:" + hashlib.sha256(xpi.read_bytes()).hexdigest()
     assert entry["applications"]["gecko"]["strict_min_version"] == "115.0"
 
 
-def test_self_hosted_publisher_targets_https_wordpress_docroot_and_verifies_xpi():
-    source = (THUNDERBIRD / "publish-self-hosted-update.sh").read_text(encoding="utf-8")
+def test_standalone_update_server_isolated_from_existing_web_stack():
+    publisher = (THUNDERBIRD / "publish-self-hosted-update.sh").read_text(encoding="utf-8")
+    deploy = (THUNDERBIRD / "update-server" / "deploy.sh").read_text(encoding="utf-8")
+    caddy = (THUNDERBIRD / "update-server" / "Caddyfile").read_text(encoding="utf-8")
 
-    assert "/var/www/html/wordpress/caldav-assistant/thunderbird/experimental" in source
-    assert 'CALDAV_ASSISTANT_TB_UPDATE_ROOT' in source
-    assert 'manifest_json="$(curl --fail --silent --show-error "$UPDATE_URL")"' in source
-    assert 'curl --fail --silent --show-error --head "$xpi_url"' in source
+    assert "/var/www" not in publisher
+    assert "wordpress" not in publisher.casefold()
+    assert "apache" not in publisher.casefold()
+    assert "caldav-assistant-thunderbird-update-server" in deploy
+    assert "--restart unless-stopped" in deploy
+    assert 'caddy:2-alpine' in deploy
+    assert 'PORT="17443"' in deploy
+    assert 'HOSTNAME="andrew.local"' in deploy
+    assert "update-ca-certificates" in deploy
+    assert "certutil -A" in deploy
+    assert "https://andrew.local:17443" in caddy
+    assert "tls internal" in caddy
+    assert 'manifest_json="$(curl --fail --silent --show-error "$UPDATE_URL")"' in publisher
+    assert 'curl --fail --silent --show-error --head "$xpi_url"' in publisher
