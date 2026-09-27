@@ -57,9 +57,21 @@ caldav-assistant today
 caldav-assistant next
 ```
 
+### 网页版：一条命令
+
+```bash
+caldav-assistant web
+```
+
+默认会启动仅监听本机 `127.0.0.1` 的网页入口并打开默认浏览器。首次使用时不需要先进入 CLI：页面会直接让你填写（或使用自动发现的）CalDAV 服务器，随后自动测试连接、发现 collection，并为 Task / Event / Assistant Work 选择可用 collection。以后再次运行同一条命令即可。
+
+也保留独立入口 `caldav-assistant-web`；无图形环境或自动化验收可使用 `--no-open`。默认端口被其他程序占用时，网页版会自动选择可用的本机端口，不要求用户手工排查。
+
 ## 首次配置
 
-进入：
+**网页版用户：** 直接运行 `caldav-assistant web`，首次连接在页面内完成。
+
+**CLI 用户：** 进入：
 
 ```text
 > settings
