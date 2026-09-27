@@ -86,8 +86,8 @@ class CompletionLoggingTaskService(CalDAVWorkTaskService):
         super().__init__(*args, **kwargs)
         self.completion_log = completion_log
 
-    def complete(self, task: Task | str, *, at: Any = None):
-        result = super().complete(task, at=at)
+    def _complete(self, task: Task | str, *, at: Any = None):
+        result = super()._complete(task, at=at)
         try:
             self.completion_log.queue_for(result.affected)
         except Exception:
