@@ -1,0 +1,24 @@
+{
+  "manifest_version": 2,
+  "name": "CalDAV Assistant",
+  "version": "0.1.0",
+  "description": "Work with CalDAV VTODOs, record factual work sessions, and keep a WordPress work log.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "caldav-assistant@zhouandrew.local",
+      "strict_min_version": "128.0"
+    }
+  },
+  "icons": {
+    "16": "icon.svg",
+    "32": "icon.svg",
+    "64": "icon.svg"
+  },
+  "permissions": [
+    "nativeMessaging",
+    "storage"
+  ],
+  "background": {
+    "scripts": ["background.js"]
+  }
+}
