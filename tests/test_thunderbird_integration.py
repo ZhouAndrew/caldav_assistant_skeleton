@@ -164,6 +164,7 @@ def test_python_update_server_sources_compile():
         THUNDERBIRD / "update-server" / "verify.py",
         THUNDERBIRD / "update-server" / "selftest.py",
         THUNDERBIRD / "verify-installed-native-host.py",
+        THUNDERBIRD / "setup_gui.py",
     ):
         py_compile.compile(str(path), doraise=True)
 
@@ -228,6 +229,8 @@ def test_interactive_setup_exposes_repair_and_log_verification():
     installer = (THUNDERBIRD / "install-native-host.sh").read_text(encoding="utf-8")
 
     assert "Full install/update (recommended)" in setup
+    assert 'exec python3 "$HERE/setup_gui.py"' in setup
+    assert "--terminal" in setup
     assert "Verify Native Host + log reachability" in setup
     assert "--verify" in setup
     assert "verify-installed-native-host.py" in setup
@@ -252,3 +255,16 @@ def test_log_panel_never_remains_indefinitely_loading():
     assert 'command == "logs_open"' in host
     assert "open_log_folder" in host
     assert 'command not in {"logs", "logs_clear", "logs_open"}' in host
+
+
+def test_setup_gui_exposes_simple_one_click_actions():
+    source = (THUNDERBIRD / "setup_gui.py").read_text(encoding="utf-8")
+
+    assert "Install / Update Everything" in source
+    assert "Repair Native Host" in source
+    assert "Repair Update Server" in source
+    assert "Verify Everything" in source
+    assert "Open Log Folder" in source
+    assert "Live output" in source
+    assert "threading.Thread" in source
+    assert "scrolledtext.ScrolledText" in source
