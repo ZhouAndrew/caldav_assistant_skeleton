@@ -51,7 +51,17 @@ class CalDAVWorkTaskService(TaskService):
         method = getattr(self.worklog, name)
         if snapshot is not None:
             kwargs["snapshot"] = snapshot
+        # Preserve compatibility with replacement WorkLog implementations that
+        # predate factual-time support.  Only explicit user times widen the call.
+        if kwargs.get("at", object()) is None:
+            kwargs.pop("at", None)
         return method(*args, **kwargs)
+
+    def _resolve_work_time(self, value: Any = None):
+        resolver = getattr(self.worklog, "resolve_time", None)
+        if callable(resolver):
+            return resolver(value)
+        return self._action_time(value)
 
     def _segments_for_command(self, task: Task, *, fallback_snapshot: Any):
         """Use per-Task server narrowing when production WorkLog supports it."""
@@ -315,7 +325,7 @@ class CalDAVWorkTaskService(TaskService):
         )
 
         closed = None
-        completed_at = self.worklog.resolve_time(at)
+        completed_at = self._resolve_work_time(at)
         if current_id == task_id:
             closed = self._work_call(
                 "close_segment",
