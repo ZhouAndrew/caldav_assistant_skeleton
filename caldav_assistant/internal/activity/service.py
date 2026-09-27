@@ -122,22 +122,15 @@ class ActivityService:
             value = value.astimezone()
         return value.astimezone(timezone.utc)
 
-    def record(
+    def _record_value(
         self,
         action: str,
-        object_id: str | None = None,
-        *,
-        at: datetime | None = None,
-        **metadata: Any,
+        object_id: str | None,
+        timestamp: datetime,
+        metadata: dict[str, Any],
     ) -> Activity:
-        """Persist one minimal Assistant behaviour event and return it.
-
-        This method never changes Task/Event state. Upstream business services
-        must first complete their authoritative operation, then call record().
-        """
         normalized_action = self._normalize_action(action)
         normalized_object_id = self._object_id(object_id)
-        timestamp = self._now() if at is None else self._normalize_timestamp(at)
         safe_metadata = deepcopy(metadata)
 
         item = Activity(
@@ -170,6 +163,35 @@ class ActivityService:
         )
         self._emit_lifecycle_hook(item)
         return item
+
+    def record(
+        self,
+        action: str,
+        object_id: str | None = None,
+        **metadata: Any,
+    ) -> Activity:
+        """Persist one minimal Assistant behaviour event and return it."""
+        return self._record_value(
+            action,
+            object_id,
+            self._now(),
+            metadata,
+        )
+
+    def _record_at(
+        self,
+        timestamp: datetime,
+        action: str,
+        object_id: str | None = None,
+        **metadata: Any,
+    ) -> Activity:
+        """Internal integration helper; not part of the frozen Activity API."""
+        return self._record_value(
+            action,
+            object_id,
+            self._normalize_timestamp(timestamp),
+            metadata,
+        )
 
     def today(self) -> list[Activity]:
         """Return activities for the current *local* calendar day."""
