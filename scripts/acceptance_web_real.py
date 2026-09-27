@@ -166,7 +166,11 @@ def main() -> int:
 
             code, configured = http(
                 base + "/api/setup/connect",
-                data={"base_url": radicale_url},
+                data={
+                    "base_url": radicale_url,
+                    "username": "test",
+                    "password": "test",
+                },
                 headers=post_headers,
             )
             assert code == 200 and configured["ready"] is True, configured
@@ -176,7 +180,8 @@ def main() -> int:
             assert configured["roles"]["event"]
             assert configured["roles"]["worklog"]
             assert configured["roles"]["worklog"] != configured["roles"]["task"]
-            print("PASS: first-run CalDAV setup auto-tests and assigns collection roles")
+            assert configured["credentials_configured"] is True
+            print("PASS: first-run CalDAV setup saves credentials, tests, and assigns collection roles")
 
             code, initial = http(base + "/api/snapshot?live=1")
             assert code == 200, initial
