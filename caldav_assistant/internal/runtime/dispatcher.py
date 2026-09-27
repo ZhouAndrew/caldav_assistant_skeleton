@@ -25,6 +25,7 @@ class RuntimeDispatcher:
             "tasks.create": ctx.tasks.create,
             "tasks.update": ctx.tasks.update,
             "tasks.complete": ctx.tasks.complete,
+            "tasks.cancel": ctx.tasks.cancel,
             "tasks.start": ctx.tasks.start,
             "tasks.pause": ctx.tasks.pause,
             "tasks.resume": ctx.tasks.resume,
