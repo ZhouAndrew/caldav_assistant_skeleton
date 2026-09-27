@@ -58,10 +58,6 @@ class RuntimeDispatcher:
             "settings.list": ctx.settings.list,
         }
 
-        cancel_task = getattr(ctx.tasks, "cancel", None)
-        if callable(cancel_task):
-            self._routes["tasks.cancel"] = cancel_task
-
         # Startup needs Upcoming + Recommended from the same source read. Keep this
         # as an internal runtime route rather than widening the frozen Public API.
         startup_snapshot = getattr(ctx.agenda, "startup_snapshot", None)
