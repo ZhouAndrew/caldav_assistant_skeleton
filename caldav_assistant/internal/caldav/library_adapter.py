@@ -1112,6 +1112,36 @@ class LibraryCalDAVAdapter:
                 exc
             ) from exc
 
+    def create_collection(
+        self,
+        name: str,
+        *,
+        components: Sequence[str] | None = None,
+        collection_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Create one CalDAV calendar collection through the replaceable library."""
+        clean_name = str(name or "").strip()
+        if not clean_name:
+            raise ValidationError("CalDAV collection name must not be empty")
+        supported = [
+            str(value).upper()
+            for value in (components or ("VEVENT",))
+            if str(value).strip()
+        ]
+        if not supported:
+            raise ValidationError("CalDAV collection components must not be empty")
+
+        try:
+            principal = self._client_now().get_principal()
+            calendar = principal.make_calendar(
+                name=clean_name,
+                cal_id=(str(collection_id).strip() if collection_id else None),
+                supported_calendar_component_set=supported,
+            )
+            return self._collection_info(calendar)
+        except Exception as exc:
+            raise _app_error(exc) from exc
+
     def get_task(
         self,
         task_id: str,
