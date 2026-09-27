@@ -435,15 +435,18 @@ async function doAction(action) {
   const task = selectedTask();
   if (!task) throw new Error("Choose a task first.");
 
+  const requestedAction =
+    action === "start" && stateForTask(task) === "paused" ? "resume" : action;
+
   actionBusy = true;
-  $("operation-status").textContent = actionProgressLabel(action);
+  $("operation-status").textContent = actionProgressLabel(requestedAction);
   renderActionState();
 
   const started = performance.now();
   try {
     const response = await host({
       command: "action",
-      action,
+      action: requestedAction,
       task_id: task.id,
       task,
       at: isoFromInput(),
@@ -452,7 +455,7 @@ async function doAction(action) {
     const elapsed = performance.now() - started;
     $("metric-core").textContent = `${elapsed.toFixed(0)} ms`;
     $("operation-status").textContent = `已同步 · ${elapsed.toFixed(0)} ms`;
-    applySuccessfulAction(action, task.id);
+    applySuccessfulAction(requestedAction, task.id);
 
     const wp = response.wordpress;
     show(response.message + (wp?.message ? " · " + wp.message : ""));
