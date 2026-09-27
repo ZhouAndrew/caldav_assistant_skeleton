@@ -48,6 +48,7 @@ class RuntimeDispatcher:
             "wordpress.log": ctx.wordpress.log,
             "wordpress.create_post": ctx.wordpress.create_post,
             "wordpress.update_post": ctx.wordpress.update_post,
+            "wordpress.attach_file": ctx.wordpress.attach_file,
             "wordpress.pending": ctx.wordpress.pending,
             "activity.today": ctx.activity.today,
             "activity.for_task": ctx.activity.for_task,
