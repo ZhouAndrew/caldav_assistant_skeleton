@@ -153,3 +153,25 @@ def test_attachment_is_persisted_and_defaults_calendar_post_link_on(tmp_path, mo
     assert metadata["filename"] == "result.png"
     assert (tmp_path / Path(path).name).read_bytes() == b"image"
     assert runtime.calls[0][0] == "worklog.open_for"
+
+
+def test_quick_note_defaults_to_linking_the_selected_work_event():
+    value, ctx, runtime = bridge()
+
+    result = value.handle(
+        {
+            "type": "log",
+            "text": "Found the scheduler issue",
+            "task_id": "t1",
+            "at": "2026-09-27T10:45:00+08:00",
+        }
+    )
+
+    assert result["ok"] is True
+    operation, text_value, metadata = ctx.wordpress.calls[-1]
+    assert operation == "log"
+    assert text_value == "Found the scheduler issue"
+    assert metadata["_logged_at"] == "2026-09-27T10:45:00+08:00"
+    assert metadata["_calendar_link"] is True
+    assert metadata["_work_event_id"] == "w-open"
+    assert runtime.calls[0][0] == "worklog.open_for"
