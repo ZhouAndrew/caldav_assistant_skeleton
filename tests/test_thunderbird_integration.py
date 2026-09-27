@@ -68,7 +68,11 @@ def test_experimental_installer_uses_its_own_venv_and_does_not_replace_cli():
     assert 'HOST_NAME="local.caldav_assistant_experimental"' in source
     assert 'EXT_ID="caldav-assistant-experimental@zhouandrew.local"' in source
     assert 'VENV_DIR="$BASE_DIR/venv"' in source
-    assert 'pip install --upgrade "$ROOT"' in source
+    assert "--no-deps" in source
+    assert "--no-build-isolation" in source
+    assert "--force-reinstall" in source
+    assert "run_with_heartbeat" in source
+    assert "pip install --upgrade pip" not in source
     assert "command -v caldav-assistant" not in source
     assert "build_service_application()" not in source
     assert "Production caldav-assistant was not replaced." in source
