@@ -73,7 +73,7 @@ def test_activity_can_use_user_entered_timestamp():
     service = ActivityService(repo)
     supplied = datetime(2026, 9, 27, 9, 20, tzinfo=timezone.utc)
 
-    item = service.record("task_started", "task-1", at=supplied)
+    item = service._record_at(supplied, "task_started", "task-1")
 
     assert item.timestamp == supplied
     assert repo.rows[0][0] == supplied
@@ -103,7 +103,7 @@ def test_cancel_uses_user_time_and_keeps_task_as_cancelled_not_deleted():
     service = TaskService(TaskAdapter(task), activity=activity)
     at = datetime(2026, 9, 27, 11, 10, tzinfo=timezone.utc)
 
-    result = service.cancel(task, at=at)
+    result = service._cancel(task, at=at)
 
     assert result.success is True
     assert task.status == "CANCELLED"
