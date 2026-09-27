@@ -179,9 +179,9 @@ class CalDAVSetupService:
         if not callable(creator):
             raise UnavailableError("CalDAV adapter cannot create a Work History calendar")
 
-        item = self._collection_view(
-            creator(name, components=("VEVENT",))
-        )
+        raw_item = creator(name, components=("VEVENT",))
+        created = bool(raw_item.get("created", True)) if isinstance(raw_item, Mapping) else True
+        item = self._collection_view(raw_item)
         url = str(item.get("url") or item.get("href") or "").strip()
         if not url:
             raise UnavailableError("Created Work History calendar has no URL")
@@ -189,7 +189,7 @@ class CalDAVSetupService:
         return {
             **item,
             "url": url,
-            "created": True,
+            "created": created,
             "configured": True,
         }
 
