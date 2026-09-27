@@ -67,3 +67,25 @@ button, .file-label {
 }
 #message.show { visibility: visible; }
 pre { white-space: pre-wrap; }
+
+.section-heading, .inline-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.section-heading h2 { margin: 0; }
+.inline-actions { justify-content: flex-end; }
+.copyable {
+  user-select: text;
+  -moz-user-select: text;
+  cursor: text;
+}
+.log-view {
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, Canvas 98%, CanvasText 2%);
+}
