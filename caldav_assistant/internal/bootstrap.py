@@ -394,6 +394,7 @@ def build_service_application() -> ServiceApplication:
     dispatcher.register_internal("wordpress.daily_log_reference", wordpress.daily_log_reference)
     dispatcher.register_internal("wordpress.flush", wordpress.flush)
     dispatcher.register_internal("worklog.add_references", worklog.add_references)
+    dispatcher.register_internal("worklog.open_for", worklog.open_for)
     dispatcher.register_internal("work_period.allocate", work_periods.allocate)
     dispatcher.register_internal("work_period.status", work_periods.status)
     dispatcher.register_internal("work_period.cancel", work_periods.cancel)
