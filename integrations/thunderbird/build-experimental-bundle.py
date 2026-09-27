@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import shutil
 import subprocess
 import sys
@@ -14,8 +15,10 @@ ROOT = HERE.parents[1]
 DIST = HERE / "dist"
 DIST.mkdir(exist_ok=True)
 
-XPI = DIST / "caldav-assistant-thunderbird-0.1.0.xpi"
-BUNDLE = DIST / "caldav-assistant-thunderbird-experimental-0.1.0.zip"
+MANIFEST = json.loads((HERE / "manifest.json").read_text(encoding="utf-8"))
+VERSION = str(MANIFEST["version"])
+XPI = DIST / f"caldav-assistant-thunderbird-{VERSION}.xpi"
+BUNDLE = DIST / f"caldav-assistant-thunderbird-experimental-{VERSION}.zip"
 
 
 def main() -> int:
