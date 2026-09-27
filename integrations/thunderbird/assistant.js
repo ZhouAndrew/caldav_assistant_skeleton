@@ -6,6 +6,8 @@ let nativePort = null;
 const nativeWaiters = [];
 let diagnosticPort = null;
 const diagnosticWaiters = [];
+let integrationPort = null;
+const integrationWaiters = [];
 let currentSnapshot = {tasks: [], state: {current_task_id: null, paused_task_ids: []}, today: []};
 let selectedTaskIdValue = "";
 let taskRefreshTimer = null;
@@ -41,6 +43,12 @@ function ensureNativePort() {
   const port = messenger.runtime.connectNative(HOST);
 
   port.onMessage.addListener(result => {
+    if (result?.kind === "progress") {
+      const waiter = nativeWaiters[0];
+      if (!waiter || waiter.expired) return;
+      if (typeof waiter.onProgress === "function") waiter.onProgress(result);
+      return;
+    }
     const waiter = nativeWaiters.shift();
     if (!waiter) return;
     if (waiter.timer) clearTimeout(waiter.timer);
@@ -66,10 +74,10 @@ function ensureNativePort() {
   return port;
 }
 
-function host(message, timeoutMs = 30000) {
+function host(message, timeoutMs = 30000, onProgress = null) {
   return new Promise((resolve, reject) => {
     const port = ensureNativePort();
-    const waiter = {resolve, reject, expired: false, timer: null};
+    const waiter = {resolve, reject, expired: false, timer: null, onProgress};
     waiter.timer = setTimeout(() => {
       waiter.expired = true;
       reject(new Error(
@@ -134,6 +142,64 @@ function diagnosticHost(message, timeoutMs = 5000) {
     } catch (error) {
       const index = diagnosticWaiters.indexOf(waiter);
       if (index >= 0) diagnosticWaiters.splice(index, 1);
+      clearTimeout(waiter.timer);
+      reject(error);
+    }
+  });
+}
+
+function ensureIntegrationPort() {
+  if (integrationPort) return integrationPort;
+  const port = messenger.runtime.connectNative(HOST);
+
+  port.onMessage.addListener(result => {
+    if (result?.kind === "progress") {
+      const waiter = integrationWaiters[0];
+      if (!waiter || waiter.expired) return;
+      if (typeof waiter.onProgress === "function") waiter.onProgress(result);
+      return;
+    }
+    const waiter = integrationWaiters.shift();
+    if (!waiter) return;
+    if (waiter.timer) clearTimeout(waiter.timer);
+    if (waiter.expired) return;
+    if (!result || result.ok === false) {
+      waiter.reject(new Error(result?.error || "Integration Native Host returned an invalid response."));
+      return;
+    }
+    waiter.resolve(result);
+  });
+
+  port.onDisconnect.addListener(() => {
+    const detail = messenger.runtime.lastError?.message || "Integration Native Host disconnected.";
+    integrationPort = null;
+    while (integrationWaiters.length) {
+      const waiter = integrationWaiters.shift();
+      if (waiter.timer) clearTimeout(waiter.timer);
+      if (!waiter.expired) waiter.reject(new Error(detail));
+    }
+  });
+
+  integrationPort = port;
+  return port;
+}
+
+function integrationHost(message, timeoutMs = 60000, onProgress = null) {
+  return new Promise((resolve, reject) => {
+    const port = ensureIntegrationPort();
+    const waiter = {resolve, reject, expired: false, timer: null, onProgress};
+    waiter.timer = setTimeout(() => {
+      waiter.expired = true;
+      reject(new Error(
+        `WordPress integration did not answer “${message.command || "request"}” within ${timeoutMs} ms.`
+      ));
+    }, timeoutMs);
+    integrationWaiters.push(waiter);
+    try {
+      port.postMessage(message);
+    } catch (error) {
+      const index = integrationWaiters.indexOf(waiter);
+      if (index >= 0) integrationWaiters.splice(index, 1);
       clearTimeout(waiter.timer);
       reject(error);
     }
@@ -409,6 +475,237 @@ function actionProgressLabel(action) {
   }[action] || "正在处理…";
 }
 
+let visibleOperationId = "";
+
+function newOperationId(prefix = "tb") {
+  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function setOperationMonitor({
+  doing = "—",
+  peer = "—",
+  sent = "—",
+  waiting = "—",
+  received = "—",
+  next = "—",
+} = {}) {
+  $("operation-doing").textContent = doing;
+  $("operation-peer").textContent = peer;
+  $("operation-sent").textContent = sent;
+  $("operation-waiting").textContent = waiting;
+  $("operation-received").textContent = received;
+  $("operation-next").textContent = next;
+}
+
+function resetOperationTrace() {
+  $("operation-trace").textContent = "";
+}
+
+function appendOperationTrace(message, state = "info") {
+  const row = document.createElement("li");
+  row.className = `trace-${state}`;
+  row.textContent = message;
+  $("operation-trace").appendChild(row);
+  while ($("operation-trace").children.length > 16) {
+    $("operation-trace").firstElementChild.remove();
+  }
+}
+
+function compactId(value) {
+  const text = String(value || "");
+  return text.length > 18 ? text.slice(0, 8) + "…" + text.slice(-6) : text;
+}
+
+function renderCoreProgress(progress, operationId) {
+  if (visibleOperationId !== operationId) return;
+  const details = progress.details || {};
+  const state = progress.state || "info";
+  const taskId = compactId(details.task_id);
+  const stage = progress.stage || "";
+
+  if (stage === "action.preflight") {
+    setOperationMonitor({
+      doing: "验证任务与当前工作时段",
+      peer: "CalDAV Assistant Core ↔ Radicale",
+      sent: `读取 Task ${taskId || "当前任务"} 与 Work VEVENT 状态`,
+      waiting: "等待 Radicale 返回权威 CalDAV 状态",
+      received: "—",
+      next: "校验通过后执行任务动作",
+    });
+  } else if (stage === "worklog.open" && state === "started") {
+    setOperationMonitor({
+      doing: "创建工作时段",
+      peer: "Radicale · CalDAV Work collection",
+      sent: `创建 VEVENT · Task-UID=${taskId}`,
+      waiting: "等待服务器确认 VEVENT 已创建",
+      received: "—",
+      next: "随后写入 Task 的 IN-PROCESS 状态",
+    });
+  } else if (stage === "worklog.open" && state === "done") {
+    setOperationMonitor({
+      doing: "工作时段已创建",
+      peer: "Radicale · CalDAV Work collection",
+      sent: "VEVENT create",
+      waiting: "无",
+      received: `VEVENT ${compactId(details.event_id)} · DTSTART ${details.start || "已确认"}`,
+      next: "继续写入 Task 状态",
+    });
+  } else if (stage === "worklog.close" && state === "started") {
+    setOperationMonitor({
+      doing: "关闭当前工作时段",
+      peer: "Radicale · CalDAV Work collection",
+      sent: `更新 VEVENT ${compactId(details.event_id)}：写入 DTEND，移除 open 标记`,
+      waiting: "等待服务器确认 Work VEVENT 更新",
+      received: "—",
+      next: "随后写入 Task 状态 / 保存日志 Outbox",
+    });
+  } else if (stage === "worklog.close" && state === "done") {
+    setOperationMonitor({
+      doing: "工作时段已关闭",
+      peer: "Radicale · CalDAV Work collection",
+      sent: `VEVENT ${compactId(details.event_id)} update`,
+      waiting: "无",
+      received: `DTEND ${details.end || "已确认"}`,
+      next: "继续处理 Task 状态",
+    });
+  } else if (stage === "task.write" && state === "started") {
+    const fields = Array.isArray(details.fields) ? details.fields.join(", ") : "Task fields";
+    setOperationMonitor({
+      doing: "写入任务状态",
+      peer: "Radicale · CalDAV Task collection",
+      sent: `VTODO ${taskId} · ${fields}`,
+      waiting: "等待 Radicale 返回 VTODO 更新确认",
+      received: "—",
+      next: "确认后才向界面报告成功",
+    });
+  } else if (stage === "task.write" && state === "done") {
+    setOperationMonitor({
+      doing: "任务状态已确认",
+      peer: "Radicale · CalDAV Task collection",
+      sent: `VTODO ${taskId} update`,
+      waiting: "无",
+      received: `STATUS=${details.status || "已更新"} · completed=${Boolean(details.completed)}`,
+      next: "更新界面；WordPress 不阻塞此成功结果",
+    });
+  } else if (stage === "action.commit") {
+    setOperationMonitor({
+      doing: "CalDAV 动作完成",
+      peer: "CalDAV Assistant Core",
+      sent: `${details.action || "action"} · Task ${taskId}`,
+      waiting: "无",
+      received: "Core 已确认成功",
+      next: "如有工作日志，转交 WordPress Outbox 独立同步",
+    });
+  } else if (stage === "wordpress.flush" && state === "started") {
+    setOperationMonitor({
+      doing: "上传 WordPress 工作日志",
+      peer: "WordPress Adapter ↔ 本地 WordPress",
+      sent: `刷新 Outbox · pending=${details.pending ?? "?"}`,
+      waiting: "等待 WordPress 接收并确认日志",
+      received: "—",
+      next: "上传后补 Calendar ↔ WordPress 链接",
+    });
+  } else if (stage === "wordpress.flush" && state === "done") {
+    const result = details.result || {};
+    setOperationMonitor({
+      doing: "WordPress Outbox 已刷新",
+      peer: "本地 WordPress",
+      sent: `attempted=${result.attempted ?? "?"}`,
+      waiting: "无",
+      received: `sent=${result.sent ?? "?"} · failed=${result.failed ?? "?"} · pending=${result.pending ?? details.pending ?? "?"}`,
+      next: "继续写入 Calendar ↔ WordPress 引用",
+    });
+  } else if (stage === "wordpress.calendar_link" && state === "started") {
+    setOperationMonitor({
+      doing: "建立 Calendar ↔ WordPress 回链",
+      peer: "WordPress + Radicale Work VEVENT",
+      sent: `查找 Task ${taskId} 的工作事件并写入 WordPress URL`,
+      waiting: "等待 WordPress 日志 URL 与 CalDAV VEVENT 更新确认",
+      received: "—",
+      next: "完成后整个集成链闭环",
+    });
+  } else if (stage === "wordpress.calendar_link" && state === "done") {
+    setOperationMonitor({
+      doing: "Calendar ↔ WordPress 已连接",
+      peer: "Radicale · CalDAV Work collection",
+      sent: `更新 VEVENT ${compactId(details.event_id)} 引用`,
+      waiting: "无",
+      received: details.wordpress_url ? `WordPress URL: ${details.wordpress_url}` : "链接步骤完成",
+      next: "完成",
+    });
+  } else if (stage === "wordpress.calendar_link" && state === "failed") {
+    setOperationMonitor({
+      doing: "Calendar ↔ WordPress 回链未完成",
+      peer: "WordPress / Radicale",
+      sent: `Task ${taskId} link request`,
+      waiting: "等待后续重试",
+      received: details.error || "当前未能建立链接",
+      next: "WordPress 日志仍保留在 Outbox，不影响 Task 已完成状态",
+    });
+  } else {
+    setOperationMonitor({
+      doing: progress.message || stage || "正在处理",
+      peer: "CalDAV Assistant Core",
+      sent: taskId ? `Task ${taskId}` : "内部请求",
+      waiting: state === "started" ? "等待当前步骤完成" : "无",
+      received: state === "done" ? "已完成" : state === "failed" ? "失败" : "—",
+      next: "继续下一步",
+    });
+  }
+  appendOperationTrace(progress.message || stage, state);
+}
+
+async function runWordpressFollowUp(followUp, parentOperationId) {
+  if (!followUp) return;
+  const operationId = newOperationId("wordpress");
+  if (visibleOperationId === parentOperationId) visibleOperationId = operationId;
+  if (visibleOperationId === operationId) {
+    appendOperationTrace("Task 操作已完成；WordPress 改由独立通道继续。", "info");
+    setOperationMonitor({
+      doing: "准备同步 WordPress",
+      peer: "独立 Integration Native Host",
+      sent: `wordpress_sync · Task ${compactId(followUp.task_id)}`,
+      waiting: "等待 WordPress Outbox 上传开始",
+      received: "CalDAV Task 动作已成功",
+      next: "上传日志并补 Calendar ↔ WordPress 链接",
+    });
+  }
+
+  try {
+    const response = await integrationHost(
+      {...followUp, operation_id: operationId},
+      60000,
+      progress => renderCoreProgress(progress, operationId)
+    );
+    if (visibleOperationId === operationId) {
+      const wp = response.wordpress || {};
+      const flush = wp.flush || {};
+      setOperationMonitor({
+        doing: "WordPress 集成完成",
+        peer: "WordPress + Radicale",
+        sent: "Outbox flush + Calendar reference",
+        waiting: "无",
+        received: `sent=${flush.sent ?? "?"} · failed=${flush.failed ?? "?"} · pending=${wp.pending_after ?? flush.pending ?? "?"}`,
+        next: "完成",
+      });
+      appendOperationTrace("WordPress follow-up finished.", "done");
+    }
+    refreshLogs().catch(() => {});
+  } catch (error) {
+    if (visibleOperationId === operationId) {
+      setOperationMonitor({
+        doing: "WordPress 后续同步未完成",
+        peer: "WordPress Integration Native Host",
+        sent: "Outbox flush / Calendar reference",
+        waiting: "等待后台维护或下一次重试",
+        received: error.message,
+        next: "Task 的 CalDAV 成功结果保持不变；Outbox 数据不会丢失",
+      });
+      appendOperationTrace("WordPress follow-up pending: " + error.message, "failed");
+    }
+  }
+}
+
 function applySuccessfulAction(action, taskId) {
   const state = currentSnapshot.state;
   const paused = new Set(state.paused_task_ids || []);
@@ -438,6 +735,19 @@ async function doAction(action) {
 
   const requestedAction =
     action === "start" && stateForTask(task) === "paused" ? "resume" : action;
+  const operationId = newOperationId("caldav");
+  const at = isoFromInput();
+  visibleOperationId = operationId;
+  resetOperationTrace();
+  setOperationMonitor({
+    doing: actionProgressLabel(requestedAction).replace("…", ""),
+    peer: "Thunderbird → 本地 CalDAV Assistant Native Host",
+    sent: `action=${requestedAction} · Task=${task.summary} (${compactId(task.id)}) · at=${at}`,
+    waiting: "等待 Core 校验，并等待 Radicale 对权威 CalDAV 写入的确认",
+    received: "—",
+    next: "CalDAV 成功后立即更新界面；WordPress 使用独立后续通道",
+  });
+  appendOperationTrace("已把动作交给本地 CalDAV Assistant Core。", "started");
 
   actionBusy = true;
   $("operation-status").textContent = actionProgressLabel(requestedAction);
@@ -445,27 +755,56 @@ async function doAction(action) {
 
   const started = performance.now();
   try {
-    const response = await host({
-      command: "action",
-      action: requestedAction,
-      task_id: task.id,
-      task,
-      at: isoFromInput(),
-      calendar_link: $("calendar-link").checked,
-    });
+    const response = await host(
+      {
+        command: "action",
+        action: requestedAction,
+        task_id: task.id,
+        task,
+        at,
+        calendar_link: $("calendar-link").checked,
+        operation_id: operationId,
+      },
+      30000,
+      progress => renderCoreProgress(progress, operationId)
+    );
     const elapsed = performance.now() - started;
     $("metric-core").textContent = `${elapsed.toFixed(0)} ms`;
-    $("operation-status").textContent = `已同步 · ${elapsed.toFixed(0)} ms`;
+    $("operation-status").textContent = `CalDAV 已确认 · ${elapsed.toFixed(0)} ms`;
     applySuccessfulAction(requestedAction, task.id);
 
     const wp = response.wordpress;
+    if (visibleOperationId === operationId) {
+      setOperationMonitor({
+        doing: "CalDAV Task 动作已完成",
+        peer: "CalDAV Assistant Core ↔ Radicale",
+        sent: `action=${requestedAction} · Task=${compactId(task.id)}`,
+        waiting: wp ? "不再等待 WordPress；WordPress 将在独立通道继续" : "无",
+        received: `${response.message} · Core ${elapsed.toFixed(0)} ms`,
+        next: wp ? "WordPress Outbox 上传 + Calendar 回链" : "完成",
+      });
+      appendOperationTrace(`CalDAV 权威操作已确认（${elapsed.toFixed(0)} ms）。`, "done");
+    }
+
     show(response.message + (wp?.message ? " · " + wp.message : ""));
     $("when").value = localInputNow();
 
     setTimeout(() => refreshFast().catch(() => {}), 250);
     refreshLogs().catch(() => {});
+    runWordpressFollowUp(response.follow_up, operationId);
   } catch (error) {
     $("operation-status").textContent = "操作失败";
+    if (visibleOperationId === operationId) {
+      setOperationMonitor({
+        doing: "操作失败",
+        peer: "CalDAV Assistant Core / Radicale",
+        sent: `action=${requestedAction} · Task=${compactId(task.id)}`,
+        waiting: "无",
+        received: error.message,
+        next: "未把失败伪装成成功；请根据错误修正后重试",
+      });
+      appendOperationTrace("失败：" + error.message, "failed");
+    }
     show(error.message);
     throw error;
   } finally {
@@ -789,8 +1128,10 @@ window.addEventListener("pagehide", () => {
   if (logAutoRefreshTimer) clearInterval(logAutoRefreshTimer);
   if (nativePort) nativePort.disconnect();
   if (diagnosticPort) diagnosticPort.disconnect();
+  if (integrationPort) integrationPort.disconnect();
   nativePort = null;
   diagnosticPort = null;
+  integrationPort = null;
 });
 
 $("version-badge").textContent = "v" + messenger.runtime.getManifest().version;
