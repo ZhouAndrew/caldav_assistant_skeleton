@@ -23,10 +23,15 @@ Use the interactive setup when installing or repairing the Thunderbird integrati
 bash integrations/thunderbird/setup.sh
 ```
 
-The menu can run a full install/update, repair only the Native Host, repair only
-the Python update server, verify the update endpoint, verify Native Host log
-reachability, or show the current paths/status. Pressing Enter chooses the
-recommended full install/update.
+On a graphical Linux desktop this opens a small native desktop window by default.
+It provides one large **Install / Update Everything** button plus separate repair,
+verify, status, log-folder, and Desktop-XPI actions. Command output streams into
+the window live, so an install cannot look frozen at a bare `Processing ./.`
+line. The GUI does not use a browser.
+
+If Python tkinter is unavailable, the same command falls back to the terminal
+menu. Use `bash integrations/thunderbird/setup.sh --terminal` to force that
+terminal interface.
 
 Native Host diagnostics are persisted at:
 
