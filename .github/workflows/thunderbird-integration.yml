@@ -1,0 +1,52 @@
+name: thunderbird-integration
+
+on:
+  pull_request:
+  push:
+    branches:
+      - "feat/thunderbird-assistant-workspace"
+
+jobs:
+  build-xpi:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install project and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e . pytest "radicale==3.5.4"
+
+      - name: Validate Thunderbird integration
+        run: |
+          python -m pytest -q \
+            tests/test_thunderbird_integration.py \
+            tests/test_user_timed_work_sessions.py \
+            tests/test_caldav_auto_history_calendar.py \
+            tests/test_wordpress_work_session_extension.py \
+            tests/test_public_api_freeze_guard.py
+          python -m py_compile integrations/thunderbird/native_host.py
+          python integrations/thunderbird/selftest_native_host_protocol.py
+          python scripts/acceptance_thunderbird_history_calendar_real.py
+          python integrations/thunderbird/build-experimental-bundle.py
+          bash integrations/thunderbird/selftest_bundle_install.sh
+
+      - name: Inspect install artifacts
+        run: |
+          unzip -t integrations/thunderbird/dist/caldav-assistant-thunderbird-0.1.0.xpi
+          unzip -l integrations/thunderbird/dist/caldav-assistant-thunderbird-0.1.0.xpi
+          unzip -t integrations/thunderbird/dist/caldav-assistant-thunderbird-experimental-0.1.0.zip
+          unzip -l integrations/thunderbird/dist/caldav-assistant-thunderbird-experimental-0.1.0.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: caldav-assistant-thunderbird-experimental
+          path: |
+            integrations/thunderbird/dist/caldav-assistant-thunderbird-0.1.0.xpi
+            integrations/thunderbird/dist/caldav-assistant-thunderbird-experimental-0.1.0.zip
+          if-no-files-found: error

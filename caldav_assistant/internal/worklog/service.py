@@ -33,6 +33,14 @@ class WorkLogService:
         self.collection_url_provider = collection_url_provider
         self._clock = clock or (lambda: datetime.now(timezone.utc))
 
+    @staticmethod
+    def normalize_time(value: datetime) -> datetime:
+        if not isinstance(value, datetime):
+            raise ValidationError("Work time must be a datetime")
+        if value.tzinfo is None:
+            value = value.astimezone()
+        return value.astimezone(timezone.utc)
+
     def now(self) -> datetime:
         value = self._clock()
         if not isinstance(value, datetime):
@@ -205,6 +213,7 @@ class WorkLogService:
         self,
         task: Task,
         *,
+        at: datetime | None = None,
         snapshot: Iterable[Event] | None = None,
     ) -> Event:
         task_id = str(task.id or "").strip()
@@ -221,7 +230,7 @@ class WorkLogService:
 
         event = Event(
             summary=f"Work — {task.summary}",
-            start=self.now(),
+            start=self.now() if at is None else self.normalize_time(at),
             end=None,
             description=self._description(task_id),
             categories=[self.CATEGORY, self.OPEN_CATEGORY],
@@ -251,6 +260,7 @@ class WorkLogService:
         self,
         task: Task | str,
         *,
+        at: datetime | None = None,
         required: bool = True,
         snapshot: Iterable[Event] | None = None,
     ) -> Event | None:
@@ -260,7 +270,9 @@ class WorkLogService:
                 raise ValidationError("This Task has no open CalDAV work interval")
             return None
         task_id = str(getattr(task, "id", task) or "").strip()
-        closed_at = self.now()
+        closed_at = self.now() if at is None else self.normalize_time(at)
+        if isinstance(event.start, datetime) and closed_at < self.normalize_time(event.start):
+            raise ValidationError("Work segment end cannot be earlier than its start")
         emit_progress(
             "worklog.close",
             "Closing current CalDAV Work interval...",
@@ -285,6 +297,63 @@ class WorkLogService:
             event_id=updated.id,
             end=updated.end.isoformat() if isinstance(updated.end, datetime) else updated.end,
         )
+        return updated
+
+    def add_references(
+        self,
+        event_id: str,
+        *,
+        wordpress_url: str | None = None,
+        attachment_urls: Iterable[str] = (),
+    ) -> Event:
+        target = self._collection_url(required=True)
+        scoped_get = getattr(self.adapter, "get_event_in_collection", None)
+        if callable(scoped_get):
+            event = scoped_get(str(target), str(event_id))
+        else:
+            event = self.adapter.get_event(str(event_id))
+        if not isinstance(event, Event) or not self._is_work_event(event):
+            raise ValidationError("Event is not a CalDAV Assistant work segment")
+
+        lines = str(event.description or "").splitlines()
+        additions: list[str] = []
+        clean_wordpress = str(wordpress_url or "").strip()
+        if clean_wordpress:
+            additions.append(f"WordPress: {clean_wordpress}")
+        for value in attachment_urls or ():
+            clean = str(value or "").strip()
+            if clean:
+                additions.append(f"Attachment: {clean}")
+
+        for line in additions:
+            if line not in lines:
+                lines.append(line)
+
+        description = "\n".join(lines)
+        specialized = getattr(
+            self.adapter,
+            "update_event_references_in_collection",
+            None,
+        )
+        if callable(specialized):
+            updated = specialized(
+                str(target),
+                str(event_id),
+                description=description,
+                wordpress_url=clean_wordpress or None,
+                attachment_urls=[
+                    str(value or "").strip()
+                    for value in attachment_urls or ()
+                    if str(value or "").strip()
+                ],
+            )
+        else:
+            updated = self._update_work_event(
+                str(event_id),
+                {"description": description},
+            )
+        if not isinstance(updated, Event):
+            raise TypeError("CalDAVAdapter must return Event for work-log update")
         return updated
 
     def reopen_segment(self, event: Event) -> Event:

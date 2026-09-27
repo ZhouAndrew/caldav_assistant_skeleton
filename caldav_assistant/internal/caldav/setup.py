@@ -9,7 +9,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from ...api.v1.errors import AmbiguousError, UnavailableError, ValidationError
-from ..settings.keys import CALDAV_CREDENTIALS
+from ..settings.keys import CALDAV_CREDENTIALS, CALDAV_WORKLOG_COLLECTION_URL
 
 
 class CalDAVSetupService:
@@ -166,6 +166,32 @@ class CalDAVSetupService:
             self._collection_view(item)
             for item in (self.adapter.collections() or ())
         ]
+
+    def ensure_worklog_collection(
+        self,
+        name: str = "CalDAV Assistant History",
+    ) -> dict[str, Any]:
+        configured = self.settings.get(CALDAV_WORKLOG_COLLECTION_URL, None)
+        if isinstance(configured, str) and configured.strip():
+            return {"url": configured.strip(), "created": False, "configured": True}
+
+        creator = getattr(self.adapter, "ensure_calendar", None)
+        if not callable(creator):
+            raise UnavailableError("CalDAV adapter cannot create a Work History calendar")
+
+        raw_item = creator(name, components=("VEVENT",))
+        created = bool(raw_item.get("created", True)) if isinstance(raw_item, Mapping) else True
+        item = self._collection_view(raw_item)
+        url = str(item.get("url") or item.get("href") or "").strip()
+        if not url:
+            raise UnavailableError("Created Work History calendar has no URL")
+        self.settings.set(CALDAV_WORKLOG_COLLECTION_URL, url)
+        return {
+            **item,
+            "url": url,
+            "created": created,
+            "configured": True,
+        }
 
     def test_connection(self) -> dict[str, Any]:
         # An authenticated collection operation is the connection test; merely

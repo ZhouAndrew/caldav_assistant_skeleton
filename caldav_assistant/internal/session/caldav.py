@@ -16,7 +16,7 @@ from ...api.v1.errors import AmbiguousError
 
 _CURRENT_ACTIONS = frozenset({"task_started", "task_resumed"})
 _PAUSED_ACTION = "task_paused"
-_TERMINAL_ACTIONS = frozenset({"task_completed", "task_deleted"})
+_TERMINAL_ACTIONS = frozenset({"task_completed", "task_cancelled", "task_deleted"})
 _LIFECYCLE_ACTIONS = _CURRENT_ACTIONS | {_PAUSED_ACTION} | _TERMINAL_ACTIONS
 
 

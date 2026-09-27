@@ -68,7 +68,11 @@ class TaskCompletionLogService:
             text = self.render(task, self.worklog.segments_for(task))
         if not text:
             return None
-        return self.wordpress.queue_log(text, _show_clock=False)
+        completed_at = getattr(task, "completed_at", None)
+        metadata = {"_show_clock": False}
+        if isinstance(completed_at, datetime):
+            metadata["_logged_at"] = completed_at.isoformat()
+        return self.wordpress.queue_log(text, **metadata)
 
 
 class CompletionLoggingTaskService(CalDAVWorkTaskService):
@@ -82,8 +86,8 @@ class CompletionLoggingTaskService(CalDAVWorkTaskService):
         super().__init__(*args, **kwargs)
         self.completion_log = completion_log
 
-    def complete(self, task: Task | str):
-        result = super().complete(task)
+    def _complete(self, task: Task | str, *, at: Any = None):
+        result = super()._complete(task, at=at)
         try:
             self.completion_log.queue_for(result.affected)
         except Exception:

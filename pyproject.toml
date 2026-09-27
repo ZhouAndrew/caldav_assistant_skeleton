@@ -20,3 +20,7 @@ caldav-assistant-web = "caldav_assistant.internal.web.server:main"
 
 [tool.setuptools.package-data]
 caldav_assistant = ["py.typed", "*.pyi", "internal/web/static/*"]
+
+
+[tool.setuptools.packages.find]
+include = ["caldav_assistant*"]

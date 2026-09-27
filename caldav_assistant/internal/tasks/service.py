@@ -22,6 +22,7 @@ from typing import Any
 from ...api import ActionResult, Task
 from ...api.v1.errors import AmbiguousError, NotFoundError, ValidationError
 from ..caldav.adapter import CalDAVAdapter
+from .semantics import task_is_actionable
 
 
 class TaskService:
@@ -191,9 +192,22 @@ class TaskService:
             "priority": deepcopy(task.priority),
         }
 
-    def _record(self, action: str, task: Task, **metadata: Any) -> None:
-        if self.activity is not None:
-            self.activity.record(action, task.id, **metadata)
+    def _record(
+        self,
+        action: str,
+        task: Task,
+        *,
+        at: datetime | None = None,
+        **metadata: Any,
+    ) -> None:
+        if self.activity is None:
+            return
+        if isinstance(at, datetime):
+            writer = getattr(self.activity, "_record_at", None)
+            if callable(writer):
+                writer(at, action, task.id, **metadata)
+                return
+        self.activity.record(action, task.id, **metadata)
 
     def _remember(self, payload: dict[str, Any]) -> bool:
         if self.undo is None:
@@ -214,7 +228,13 @@ class TaskService:
         return tuple(getter()) if callable(getter) else ()
 
     def list(self, **filters: Any) -> list[Task]:
-        return [self._bind(task) for task in self.adapter.list_tasks(**filters)]
+        # actionable is a Core selection semantic, not a CalDAV transport
+        # filter. Consume it here so every client reuses the same rule.
+        actionable = bool(filters.pop("actionable", False))
+        items = [self._bind(task) for task in self.adapter.list_tasks(**filters)]
+        if actionable:
+            items = [task for task in items if task_is_actionable(task)]
+        return items
 
     def find(self, query: str, **filters: Any) -> Task:
         if not isinstance(query, str) or not query.strip():
@@ -328,6 +348,18 @@ class TaskService:
         return self._update(task, changes, activity_action=action)
 
     def complete(self, task: Task | str) -> ActionResult:
+        return self._complete(task)
+
+    def start(self, task: Task | str) -> ActionResult:
+        return self._start(task)
+
+    def pause(self, task: Task | str) -> ActionResult:
+        return self._pause(task)
+
+    def resume(self, task: Task | str) -> ActionResult:
+        return self._resume(task)
+
+    def _complete(self, task: Task | str, *, at: datetime | None = None) -> ActionResult:
         obj = self.get(task)
         task_id = self._require_id(obj)
         work_session_before = (
@@ -342,7 +374,7 @@ class TaskService:
             {
                 "status": "COMPLETED",
                 "completed": True,
-                "completed_at": datetime.now(timezone.utc),
+                "completed_at": at.astimezone(timezone.utc) if isinstance(at, datetime) else datetime.now(timezone.utc),
             },
             activity_action=None,
         )
@@ -353,13 +385,14 @@ class TaskService:
         self._record(
             "task_completed",
             result.affected,
+            at=at,
             work_session_before=work_session_before,
             work_session_after="none",
             **self._plan_context(obj),
         )
         return result
 
-    def start(self, task: Task | str) -> ActionResult:
+    def _start(self, task: Task | str, *, at: datetime | None = None) -> ActionResult:
         obj = self.get(task)
         task_id = self._require_id(obj)
         if obj.completed or obj.status in {"COMPLETED", "CANCELLED"}:
@@ -389,13 +422,14 @@ class TaskService:
         self._record(
             "task_started",
             result.affected,
+            at=at,
             work_session_before="none",
             work_session_after="current",
             **self._plan_context(obj),
         )
         return result
 
-    def pause(self, task: Task | str) -> ActionResult:
+    def _pause(self, task: Task | str, *, at: datetime | None = None) -> ActionResult:
         obj = self.get(task)
         task_id = self._require_id(obj)
         if obj.status != "IN-PROCESS":
@@ -411,13 +445,14 @@ class TaskService:
         self._record(
             "task_paused",
             obj,
+            at=at,
             work_session_before="current",
             work_session_after="paused",
             **self._plan_context(obj),
         )
         return ActionResult(True, affected=obj, undo_available=False)
 
-    def resume(self, task: Task | str) -> ActionResult:
+    def _resume(self, task: Task | str, *, at: datetime | None = None) -> ActionResult:
         obj = self.get(task)
         task_id = self._require_id(obj)
         if obj.completed or obj.status in {"COMPLETED", "CANCELLED"}:
@@ -450,8 +485,42 @@ class TaskService:
         self._record(
             "task_resumed",
             result.affected,
+            at=at,
             work_session_before="paused",
             work_session_after="current",
+            **self._plan_context(obj),
+        )
+        return result
+
+    def _cancel(self, task: Task | str, *, at: datetime | None = None) -> ActionResult:
+        obj = self.get(task)
+        task_id = self._require_id(obj)
+        work_session_before = (
+            "current"
+            if self._session_current_id() == task_id
+            else "paused"
+            if task_id in self._session_paused_ids()
+            else "none"
+        )
+        result = self._update(
+            obj,
+            {
+                "status": "CANCELLED",
+                "completed": False,
+                "completed_at": None,
+            },
+            activity_action=None,
+        )
+        if self.session is not None:
+            forget = getattr(self.session, "forget", None)
+            if callable(forget):
+                forget(result.affected)
+        self._record(
+            "task_cancelled",
+            result.affected,
+            at=at,
+            work_session_before=work_session_before,
+            work_session_after="none",
             **self._plan_context(obj),
         )
         return result

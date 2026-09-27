@@ -168,7 +168,10 @@ def test_default_worklog_writes_one_line_only_when_segment_closes():
 
         assert tasks.pause(task).success is True
         assert wordpress.calls == [
-            (f"{_local_clock(t0)}-{_local_clock(t1)} Anki", {"_show_clock": False}),
+            (
+                f"{_local_clock(t0)}-{_local_clock(t1)} Anki",
+                {"_show_clock": False, "_logged_at": t1.isoformat()},
+            ),
         ]
 
         assert tasks.resume(task).success is True
@@ -177,7 +180,7 @@ def test_default_worklog_writes_one_line_only_when_segment_closes():
         assert tasks.pause(task).success is True
         assert wordpress.calls[-1] == (
             f"{_local_clock(t2)}-{_local_clock(t3)} Anki",
-            {"_show_clock": False},
+            {"_show_clock": False, "_logged_at": t3.isoformat()},
         )
 
         # Detailed facts are still preserved locally rather than dumped into WP.
@@ -221,7 +224,7 @@ def test_worklog_format_is_customizable_per_user_settings():
         assert wordpress.calls == [
             (
                 f"Anki | 10 min | {_local_clock(t0)}->{_local_clock(t1)}",
-                {"_show_clock": False},
+                {"_show_clock": False, "_logged_at": t1.isoformat()},
             ),
         ]
     finally:

@@ -29,6 +29,7 @@ _TASK_LIFECYCLE_HOOKS = {
     "task_started": "task.started",
     "task_paused": "task.paused",
     "task_resumed": "task.resumed",
+    "task_cancelled": "task.cancelled",
 }
 
 
@@ -111,20 +112,25 @@ class ActivityService:
             failures=len(getattr(report, "failures", ()) or ()),
         )
 
-    def record(
+    @staticmethod
+    def _normalize_timestamp(value: datetime | None) -> datetime:
+        if value is None:
+            raise TypeError("timestamp must be datetime")
+        if not isinstance(value, datetime):
+            raise TypeError("timestamp must be datetime")
+        if value.tzinfo is None:
+            value = value.astimezone()
+        return value.astimezone(timezone.utc)
+
+    def _record_value(
         self,
         action: str,
-        object_id: str | None = None,
-        **metadata: Any,
+        object_id: str | None,
+        timestamp: datetime,
+        metadata: dict[str, Any],
     ) -> Activity:
-        """Persist one minimal Assistant behaviour event and return it.
-
-        This method never changes Task/Event state. Upstream business services
-        must first complete their authoritative operation, then call record().
-        """
         normalized_action = self._normalize_action(action)
         normalized_object_id = self._object_id(object_id)
-        timestamp = self._now()
         safe_metadata = deepcopy(metadata)
 
         item = Activity(
@@ -157,6 +163,35 @@ class ActivityService:
         )
         self._emit_lifecycle_hook(item)
         return item
+
+    def record(
+        self,
+        action: str,
+        object_id: str | None = None,
+        **metadata: Any,
+    ) -> Activity:
+        """Persist one minimal Assistant behaviour event and return it."""
+        return self._record_value(
+            action,
+            object_id,
+            self._now(),
+            metadata,
+        )
+
+    def _record_at(
+        self,
+        timestamp: datetime,
+        action: str,
+        object_id: str | None = None,
+        **metadata: Any,
+    ) -> Activity:
+        """Internal integration helper; not part of the frozen Activity API."""
+        return self._record_value(
+            action,
+            object_id,
+            self._normalize_timestamp(timestamp),
+            metadata,
+        )
 
     def today(self) -> list[Activity]:
         """Return activities for the current *local* calendar day."""

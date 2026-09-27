@@ -122,6 +122,25 @@ def test_list_binds_service_and_find_prefers_exact_match():
     assert service.find("report").id == "1"
 
 
+def test_list_actionable_excludes_completed_and_cancelled_in_core():
+    service, adapter, _, _, _ = make_service()
+    adapter.items["3"] = Task(
+        id="3",
+        summary="Done",
+        status="COMPLETED",
+        completed=True,
+    )
+    adapter.items["4"] = Task(
+        id="4",
+        summary="Cancelled",
+        status="CANCELLED",
+    )
+
+    items = service.list(actionable=True)
+
+    assert [item.id for item in items] == ["1", "2"]
+
+
 def test_find_uses_stable_public_errors():
     service, _, _, _, _ = make_service()
 

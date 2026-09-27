@@ -216,7 +216,16 @@ def main() -> int:
             )
             for marker in forbidden:
                 if marker in log:
-                    raise AssertionError(f"service.log contains {marker!r}")
+                    index = log.index(marker)
+                    start = max(0, index - 1200)
+                    end = min(len(log), index + 5000)
+                    excerpt = log[start:end]
+                    raise AssertionError(
+                        f"service.log contains {marker!r}:\n"
+                        "----- service.log excerpt -----\n"
+                        f"{excerpt}\n"
+                        "----- end excerpt -----"
+                    )
 
         print(
             "PASS: extreme runtime lifecycle completed "

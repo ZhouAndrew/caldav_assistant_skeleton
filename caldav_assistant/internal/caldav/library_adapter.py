@@ -496,6 +496,39 @@ class LibraryCalDAVAdapter:
             )
         )
 
+    def ensure_calendar(
+        self,
+        name: str,
+        *,
+        components: Sequence[str] = ("VEVENT",),
+    ) -> dict[str, Any]:
+        clean_name = str(name or "").strip()
+        if not clean_name:
+            raise ValidationError("Calendar name must not be empty")
+        wanted = {str(value).upper() for value in components if str(value).strip()}
+        matches = []
+        for calendar in self._calendars():
+            info = self._collection_info(calendar)
+            if str(info.get("name") or "").strip() != clean_name:
+                continue
+            supported = {str(value).upper() for value in info.get("components", ())}
+            if not wanted or not supported or wanted.issubset(supported):
+                matches.append(info)
+        if len(matches) > 1:
+            raise AmbiguousError(f"More than one CalDAV calendar is named {clean_name!r}")
+        if matches:
+            return {**matches[0], "created": False}
+
+        try:
+            principal = self._client_now().get_principal()
+            calendar = principal.make_calendar(
+                name=clean_name,
+                supported_calendar_component_set=sorted(wanted) or None,
+            )
+        except Exception as exc:
+            raise _app_error(exc) from exc
+        return {**self._collection_info(calendar), "created": True}
+
     def _compatible(
         self,
         component_name: str,

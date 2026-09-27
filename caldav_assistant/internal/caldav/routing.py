@@ -223,6 +223,16 @@ class CollectionRoutingCalDAVAdapter:
                 pass
         return calendar.get_events()
 
+    def get_event_in_collection(self, collection_url: str, event_id: str) -> Event:
+        calendar = self._selected_calendar(collection_url)
+        mapper = getattr(self.adapter, "_to_event", None)
+        if calendar is None or not callable(mapper):
+            return self.adapter.get_event(event_id)
+        try:
+            return mapper(calendar.get_event_by_uid(event_id), calendar)
+        except Exception as exc:
+            raise _app_error(exc) from exc
+
     def list_events_in_collection(self, collection_url: str, **filters: Any):
         calendar = self._selected_calendar(collection_url)
         mapper = getattr(self.adapter, "_to_event", None)
@@ -429,6 +439,53 @@ class CollectionRoutingCalDAVAdapter:
             mapper_name="_to_event",
             fallback_name="update_event",
         )
+
+    def update_event_references_in_collection(
+        self,
+        collection_url: str,
+        event_id: str,
+        *,
+        description: str,
+        wordpress_url: str | None = None,
+        attachment_urls: tuple[str, ...] | list[str] = (),
+    ) -> Event:
+        """Update Assistant-owned VEVENT links without widening public Event fields."""
+        calendar = self._selected_calendar(collection_url)
+        mapper = getattr(self.adapter, "_to_event", None)
+        if calendar is None or not callable(mapper):
+            return self.update_event_in_collection(
+                collection_url,
+                event_id,
+                {"description": description},
+            )
+        try:
+            resource = calendar.get_event_by_uid(event_id)
+            with resource.edit_icalendar_component() as component:
+                component.pop("DESCRIPTION", None)
+                component.add("DESCRIPTION", description)
+
+                clean_wordpress = str(wordpress_url or "").strip()
+                if clean_wordpress:
+                    component.pop("URL", None)
+                    component.add("URL", clean_wordpress)
+
+                existing_raw = component.get("ATTACH")
+                if existing_raw is None:
+                    existing_values: set[str] = set()
+                elif isinstance(existing_raw, (list, tuple)):
+                    existing_values = {str(value) for value in existing_raw}
+                else:
+                    existing_values = {str(existing_raw)}
+
+                for value in attachment_urls or ():
+                    clean = str(value or "").strip()
+                    if clean and clean not in existing_values:
+                        component.add("ATTACH", clean, parameters={"VALUE": "URI"})
+                        existing_values.add(clean)
+            resource.save()
+            return mapper(resource, calendar)
+        except Exception as exc:
+            raise _app_error(exc) from exc
 
     def update_event(
         self,
