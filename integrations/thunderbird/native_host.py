@@ -14,6 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 from caldav_assistant.internal.bootstrap import build_service_application
+from caldav_assistant.internal.progress import bind_progress_sink, emit_progress, operation_scope
 
 
 APP = None
@@ -296,6 +297,13 @@ def snapshot() -> dict[str, Any]:
     return data
 
 
+def _wordpress_pending_count() -> int | None:
+    try:
+        return len(app().ctx.wordpress.pending())
+    except Exception:
+        return None
+
+
 def action(message: dict[str, Any]) -> dict[str, Any]:
     started = time.perf_counter()
     timings: dict[str, Any] = {}
@@ -306,9 +314,13 @@ def action(message: dict[str, Any]) -> dict[str, Any]:
     if not task_id:
         raise ValueError("task_id is required")
 
-    history_started = time.perf_counter()
-    ensure_history_calendar()
-    timings["ensure_history_ms"] = _elapsed_ms(history_started)
+    emit_progress(
+        "action.preflight",
+        "Checking authoritative Task and Work state in CalDAV...",
+        state="started",
+        task_id=task_id,
+        action=action_name,
+    )
 
     tasks = app().ctx.tasks
     task_action_started = time.perf_counter()
@@ -331,31 +343,111 @@ def action(message: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("unsupported action")
     timings["task_action_ms"] = _elapsed_ms(task_action_started)
 
-    wp = None
-    if action_name in {"pause", "cancel", "complete"}:
-        wordpress_started = time.perf_counter()
-        try:
-            core_call("wordpress.flush")
-            wp = {"message": "WordPress log updated"}
-        except Exception as exc:
-            wp = {"message": "WordPress update pending", "error": str(exc)}
-        timings["wordpress_flush_ms"] = _elapsed_ms(wordpress_started)
+    emit_progress(
+        "action.commit",
+        "CalDAV Assistant Core accepted the Task action.",
+        state="done",
+        task_id=task_id,
+        action=action_name,
+    )
 
-        if bool(message.get("calendar_link", True)):
-            link_started = time.perf_counter()
-            event_id = latest_work_event_id(task_id)
-            ref = link_event(event_id, at=at)
-            timings["calendar_link_ms"] = _elapsed_ms(link_started)
-            if ref and ref.get("pending"):
-                wp = wp or {}
-                wp["calendar_link_pending"] = True
+    wordpress = None
+    follow_up = None
+    if action_name in {"pause", "cancel", "complete"}:
+        pending = _wordpress_pending_count()
+        wordpress = {
+            "message": "Work log saved to the durable WordPress Outbox; upload continues separately.",
+            "queued": True,
+            "pending": pending,
+        }
+        follow_up = {
+            "command": "wordpress_sync",
+            "task_id": task_id,
+            "at": at.isoformat(),
+            "calendar_link": bool(message.get("calendar_link", True)),
+        }
 
     timings["total_ms"] = _elapsed_ms(started)
     return {
         "ok": True,
         "message": f"{verb} at {at.astimezone().strftime('%H:%M')}",
         "task": task_json(getattr(result, "affected", None)),
-        "wordpress": wp,
+        "wordpress": wordpress,
+        "follow_up": follow_up,
+        "timings": timings,
+    }
+
+
+def wordpress_sync(message: dict[str, Any]) -> dict[str, Any]:
+    started = time.perf_counter()
+    timings: dict[str, Any] = {}
+    task_id = str(message.get("task_id") or "").strip()
+    at = parse_at(message.get("at"))
+    if not task_id:
+        raise ValueError("task_id is required")
+
+    pending_before = _wordpress_pending_count()
+    emit_progress(
+        "wordpress.flush",
+        "Uploading queued work log entries to WordPress...",
+        state="started",
+        task_id=task_id,
+        pending=pending_before,
+    )
+    wordpress_started = time.perf_counter()
+    flush_result = core_call("wordpress.flush")
+    timings["wordpress_flush_ms"] = _elapsed_ms(wordpress_started)
+    pending_after = _wordpress_pending_count()
+    emit_progress(
+        "wordpress.flush",
+        "WordPress Outbox flush finished.",
+        state="done",
+        task_id=task_id,
+        result=flush_result,
+        pending=pending_after,
+    )
+
+    reference = None
+    if bool(message.get("calendar_link", True)):
+        emit_progress(
+            "wordpress.calendar_link",
+            "Linking the CalDAV Work event to the WordPress daily log...",
+            state="started",
+            task_id=task_id,
+        )
+        link_started = time.perf_counter()
+        event_id = latest_work_event_id(task_id)
+        reference = link_event(event_id, at=at)
+        timings["calendar_link_ms"] = _elapsed_ms(link_started)
+        if reference and reference.get("pending"):
+            emit_progress(
+                "wordpress.calendar_link",
+                "Calendar↔WordPress link is pending and needs a later retry.",
+                state="failed",
+                task_id=task_id,
+                event_id=event_id,
+                error=reference.get("error"),
+            )
+        else:
+            emit_progress(
+                "wordpress.calendar_link",
+                "Calendar↔WordPress link finished.",
+                state="done",
+                task_id=task_id,
+                event_id=event_id,
+                wordpress_url=(reference or {}).get("url"),
+            )
+
+    timings["total_ms"] = _elapsed_ms(started)
+    return {
+        "ok": True,
+        "message": "WordPress follow-up finished.",
+        "wordpress": {
+            "flush": flush_result,
+            "pending_before": pending_before,
+            "pending_after": pending_after,
+            "reference": reference,
+        },
         "timings": timings,
     }
 
@@ -539,6 +631,8 @@ def dispatch(message: dict[str, Any]) -> dict[str, Any]:
         return snapshot()
     if command == "action":
         return action(message)
+    if command == "wordpress_sync":
+        return wordpress_sync(message)
     if command == "note":
         return note(message)
     if command == "attachment_begin":
@@ -569,9 +663,15 @@ def dispatch(message: dict[str, Any]) -> dict[str, Any]:
 
 def main() -> int:
     log_event("native_host_started")
+
+    def progress_sink(payload: dict[str, Any]) -> None:
+        write_message({"ok": True, "kind": "progress", **payload})
+
+    bind_progress_sink(progress_sink)
+
     while True:
         message: dict[str, Any] | None = None
-        started = time.perf_counter()
+        started: float | None = None
         try:
             message = read_message()
             if message is None:
@@ -584,8 +684,13 @@ def main() -> int:
                 log_event("native_host_stopped")
                 return 0
 
+            # Start request timing only after a complete Native Messaging request has
+            # arrived.  Idle time between requests is not request latency.
+            started = time.perf_counter()
             command = str(message.get("command") or "")
-            result = dispatch(message)
+            operation_id = str(message.get("operation_id") or "").strip() or None
+            with operation_scope(operation_id):
+                result = dispatch(message)
             total_ms = _elapsed_ms(started)
             if isinstance(result, dict):
                 timings = result.setdefault("timings", {})
@@ -603,7 +708,7 @@ def main() -> int:
             write_message(result)
         except Exception as exc:
             command = str((message or {}).get("command") or "")
-            total_ms = _elapsed_ms(started)
+            total_ms = _elapsed_ms(started) if started is not None else 0.0
             log_event(
                 "request",
                 command=command,
