@@ -1,0 +1,19 @@
+{
+  admin off
+}
+
+https://andrew.local:17443 {
+  tls internal
+
+  @health path /healthz
+  respond @health "ok" 200
+
+  @update_manifest path /experimental/updates.json
+  header @update_manifest Cache-Control "no-store, max-age=0"
+
+  @xpi path_regexp xpi \.xpi$
+  header @xpi Cache-Control "public, max-age=31536000, immutable"
+
+  root * /srv
+  file_server
+}
