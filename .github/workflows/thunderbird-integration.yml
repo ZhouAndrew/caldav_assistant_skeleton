@@ -26,6 +26,7 @@ jobs:
         run: |
           python -m pytest -q             tests/test_thunderbird_integration.py             tests/test_user_timed_work_sessions.py             tests/test_caldav_auto_history_calendar.py             tests/test_wordpress_work_session_extension.py
           python -m py_compile integrations/thunderbird/native_host.py
+          python integrations/thunderbird/selftest_native_host_protocol.py
           python integrations/thunderbird/build-xpi.py
 
       - name: Inspect XPI
