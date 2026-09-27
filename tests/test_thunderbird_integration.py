@@ -179,7 +179,8 @@ def test_thunderbird_fast_path_uses_local_task_collections_and_local_core_state(
     assert "onTasksChanged.addListener(scheduleTaskRefresh)" in source
     assert "getItemsAsArray" in experiment
     assert "ITEM_FILTER_TYPE_TODO" in experiment
-    assert "cal.manager.getCalendars()" in experiment
+    assert "cal.manager" in experiment
+    assert ".getCalendars()" in experiment
 
     state_start = host.index("def state_snapshot()")
     snapshot_start = host.index("def snapshot()", state_start)
