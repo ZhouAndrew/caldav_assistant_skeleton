@@ -1,0 +1,22 @@
+[
+  {
+    "namespace": "assistantCalendar",
+    "functions": [
+      {
+        "name": "listTasks",
+        "type": "function",
+        "async": true,
+        "description": "Read enabled Thunderbird task collections through the local calendar cache.",
+        "parameters": []
+      }
+    ],
+    "events": [
+      {
+        "name": "onTasksChanged",
+        "type": "function",
+        "description": "Fired when Thunderbird adds, modifies, deletes, or reloads calendar items.",
+        "parameters": []
+      }
+    ]
+  }
+]
