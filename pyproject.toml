@@ -20,5 +20,9 @@ caldav-assistant-web = "caldav_assistant.internal.web.server:main"
 caldav-assistant-thunderbird-host = "caldav_assistant.internal.thunderbird.native_host:main"
 caldav-assistant-thunderbird-install = "caldav_assistant.internal.thunderbird.install:main"
 
+[tool.setuptools.packages.find]
+include = ["caldav_assistant*"]
+exclude = ["thunderbird_extension*"]
+
 [tool.setuptools.package-data]
 caldav_assistant = ["py.typed", "*.pyi", "internal/web/static/*"]
