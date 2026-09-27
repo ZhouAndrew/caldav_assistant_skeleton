@@ -223,8 +223,9 @@ def test_thunderbird_visible_logs_are_copyable_and_record_request_timings():
     assert 'command: "logs_clear"' in source
     assert "native-host.log" in host
     assert '"task_action_ms"' in host
-    assert '"wordpress_flush_ms"' in host
+    assert '"history_guard_ms"' in host
     assert '"calendar_link_ms"' in host
+    assert '"wordpress_flush_ms"' not in host
 
 
 def test_update_feed_prunes_stale_generated_xpis():
