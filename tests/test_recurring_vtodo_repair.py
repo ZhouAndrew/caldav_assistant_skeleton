@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,6 +12,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "repair_recurring_vto
 SPEC = importlib.util.spec_from_file_location("repair_recurring_vtodos", SCRIPT)
 assert SPEC and SPEC.loader
 repair = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = repair
 SPEC.loader.exec_module(repair)
 
 
