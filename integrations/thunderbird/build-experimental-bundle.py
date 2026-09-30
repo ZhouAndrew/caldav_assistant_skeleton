@@ -54,6 +54,7 @@ def main() -> int:
             HERE / "install-bundle.sh": "install.sh",
             HERE / "uninstall-experimental.sh": "uninstall.sh",
             HERE / "native_host.py": "native_host.py",
+            HERE / "verify-xpi-identity.py": "verify-xpi-identity.py",
             XPI: XPI.name,
             wheels[0]: wheels[0].name,
         }

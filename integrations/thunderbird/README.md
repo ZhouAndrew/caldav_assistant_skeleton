@@ -65,9 +65,23 @@ bash integrations/thunderbird/install-native-host.sh
 
 The installer creates its own isolated environment under
 `~/.local/share/caldav-assistant-thunderbird-experimental/`, registers only the
-experimental Thunderbird native host, builds the XPI, and copies the XPI to the
-Desktop. It does **not** replace the existing `caldav-assistant` executable or
-its Python environment.
+experimental Thunderbird native host, builds and verifies the XPI, and copies one
+unambiguous handoff file to the Desktop:
+
+```text
+CALDAV-ASSISTANT-EXPERIMENTAL-<version>.xpi
+```
+
+Install **that exact file**. In Thunderbird Add-ons Manager it must identify itself
+as **CalDAV Assistant Experimental** with add-on ID
+`caldav-assistant-experimental@zhouandrew.local`. `Thunderbird TaskFix Lab` is a
+separate add-on with a separate purpose and does not provide this CalDAV Assistant
+workspace. It may remain installed side-by-side.
+
+The installer refuses to hand off an XPI if the package identity, nativeMessaging
+permission, Calendar Experiment API, Space creation code, workspace tabs, or
+Start/Pause/Cancel/Complete controls are missing. It does **not** replace the
+existing `caldav-assistant` executable or its Python environment.
 
 The native host calls the experimental Core directly in-process. This keeps the
 production Assistant daemon untouched while reusing the existing CalDAV,

@@ -17,6 +17,8 @@ def test_manifest_declares_native_messaging_and_stable_extension_id():
     manifest = json.loads((THUNDERBIRD / "manifest.json").read_text(encoding="utf-8"))
 
     assert manifest["manifest_version"] == 2
+    assert manifest["name"] == "CalDAV Assistant Experimental"
+    assert "CalDAV/Radicale task workspace" in manifest["description"]
     assert "nativeMessaging" in manifest["permissions"]
     gecko = manifest["browser_specific_settings"]["gecko"]
     assert gecko["id"] == "caldav-assistant-experimental@zhouandrew.local"
@@ -76,6 +78,9 @@ def test_experimental_installer_uses_its_own_venv_and_does_not_replace_cli():
     assert "command -v caldav-assistant" not in source
     assert "build_service_application()" not in source
     assert "Production caldav-assistant was not replaced." in source
+    assert "CALDAV-ASSISTANT-EXPERIMENTAL-" in source
+    assert "Thunderbird TaskFix Lab is a separate add-on" in source
+    assert "verify-xpi-identity.py" in source
 
 
 def test_space_uses_persistent_native_port_and_chunked_attachments():
@@ -173,6 +178,7 @@ def test_python_update_server_sources_compile():
         THUNDERBIRD / "update-server" / "verify.py",
         THUNDERBIRD / "update-server" / "selftest.py",
         THUNDERBIRD / "verify-installed-native-host.py",
+        THUNDERBIRD / "verify-xpi-identity.py",
     ):
         py_compile.compile(str(path), doraise=True)
 
@@ -379,3 +385,17 @@ def test_wordpress_notes_are_durable_before_network_upload():
     assert ".wordpress.log(" not in note_source
     assert '"command": "wordpress_sync"' in note_source
     assert "Saved to WordPress Outbox" in note_source
+
+
+def test_xpi_handoff_verifier_rejects_wrong_identity_and_checks_workspace():
+    verifier = (THUNDERBIRD / "verify-xpi-identity.py").read_text(encoding="utf-8")
+    bundle = (THUNDERBIRD / "build-experimental-bundle.py").read_text(encoding="utf-8")
+    installer = (THUNDERBIRD / "install-bundle.sh").read_text(encoding="utf-8")
+
+    assert 'EXPECTED_NAME = "CalDAV Assistant Experimental"' in verifier
+    assert 'EXPECTED_ID = "caldav-assistant-experimental@zhouandrew.local"' in verifier
+    assert '"messenger.spaces.create"' in verifier
+    assert 'data-tab="{tab}"' in verifier
+    assert 'id="action-{action}"' in verifier
+    assert '"verify-xpi-identity.py": "verify-xpi-identity.py"' in bundle
+    assert "CALDAV-ASSISTANT-EXPERIMENTAL-" in installer
