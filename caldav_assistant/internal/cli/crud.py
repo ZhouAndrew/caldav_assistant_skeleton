@@ -221,7 +221,7 @@ class CrudActions:
         if decision == "Modify settings":
             runner = getattr(getattr(self.ctx, "commands", None), "run", None)
             if callable(runner):
-                runner("settings", "caldav", "roles")
+                runner("settings", "tasks")
             else:
                 self._show("Open settings → CalDAV → Collection roles.")
             if not getter(CALDAV_TASK_COLLECTION_URL, None):
