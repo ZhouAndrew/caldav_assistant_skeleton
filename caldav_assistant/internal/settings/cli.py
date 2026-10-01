@@ -547,19 +547,9 @@ class SettingsActions:
         url = mapping.get(selected)
         if not url:
             raise ValidationError("Unknown collection selection")
-        previous = self.ctx.settings.get(key, None)
         value = self.ctx.settings.set(key, url)
         name = self._collection_name(next(item for item in compatible if self._collection_url(item) == url))
         self._show(f"✓ {title}: {name}")
-        if key == CALDAV_TASK_COLLECTION_URL and previous != value:
-            decision = self._choose(
-                "Default task collection saved. What next?",
-                ["Continue", "Undo"],
-            )
-            if decision == "Undo":
-                restored = self.ctx.settings.set(key, previous)
-                self._show(f"✓ Default task collection restored: {_display_value(restored)}")
-                return restored
         return value
 
     def _collection_roles_panel(self) -> None:
@@ -655,12 +645,27 @@ class SettingsActions:
                 if not items:
                     self._show("No CalDAV collections were found. Test the connection first.")
                     continue
-                self._choose_collection_role(
+                previous = self.ctx.settings.get(CALDAV_TASK_COLLECTION_URL, None)
+                changed = self._choose_collection_role(
                     "Default task collection",
                     CALDAV_TASK_COLLECTION_URL,
                     "VTODO",
                     items,
                 )
+                if changed != previous:
+                    decision = self._choose(
+                        "Default task collection saved. What next?",
+                        ["Continue", "Undo"],
+                    )
+                    if decision == "Undo":
+                        restored = self.ctx.settings.set(
+                            CALDAV_TASK_COLLECTION_URL,
+                            previous,
+                        )
+                        self._show(
+                            "✓ Default task collection restored: "
+                            + _display_value(restored)
+                        )
 
     def _category(self, category: str) -> None:
         if category == "CalDAV":
