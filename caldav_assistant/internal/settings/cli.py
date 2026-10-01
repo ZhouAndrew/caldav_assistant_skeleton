@@ -32,6 +32,7 @@ from .schema import DEFAULT_SETTINGS_SCHEMA, SettingSpec
 _CATEGORY_ORDER = (
     "Language",
     "CalDAV",
+    "Tasks",
     "Notifications",
     "Agenda",
     "WordPress",
