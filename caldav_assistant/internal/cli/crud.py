@@ -9,9 +9,12 @@ A visible number is therefore an actionable reference, not decorative output.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Callable
 
 from ...api.v1.errors import AmbiguousError, NotFoundError, ValidationError
+from ..prompts.pickers import task_is_overdue, task_matches_date
+from ..settings.keys import TASK_DEFAULT_VIEW
 
 
 _WORK_EVENT_CATEGORY = "caldav-assistant-work"
@@ -270,17 +273,63 @@ class CrudActions:
     # ------------------------------------------------------------------
     # Read
     # ------------------------------------------------------------------
-    def tasks(self, *parts: Any) -> None:
+    @staticmethod
+    def _task_is_completed(item: Any) -> bool:
+        return bool(getattr(item, "completed", False)) or str(
+            getattr(item, "status", "") or ""
+        ).strip().upper() == "COMPLETED"
+
+    def _task_view(self, parts: tuple[Any, ...]) -> str:
+        aliases = {"active": "incomplete", "unfinished": "incomplete", "done": "completed"}
+        allowed = {"incomplete", "today", "overdue", "completed", "all"}
+        if len(parts) > 1:
+            raise ValidationError("tasks takes at most one view: incomplete, today, overdue, completed, or all")
         if parts:
-            raise ValidationError("tasks does not take arguments")
-        items = list(self.ctx.tasks.list() or ())
+            view = aliases.get(str(parts[0]).strip().casefold(), str(parts[0]).strip().casefold())
+        else:
+            settings = getattr(self.ctx, "settings", None)
+            getter = getattr(settings, "get", None)
+            configured = getter(TASK_DEFAULT_VIEW, "incomplete") if callable(getter) else "incomplete"
+            view = aliases.get(str(configured).strip().casefold(), str(configured).strip().casefold())
+        if view not in allowed:
+            raise ValidationError("Unknown Task view. Use incomplete, today, overdue, completed, or all")
+        return view
+
+    def _tasks_for_view(self, view: str) -> list[Any]:
+        if view == "all":
+            return list(self.ctx.tasks.list() or ())
+        if view == "completed":
+            return [item for item in (self.ctx.tasks.list() or ()) if self._task_is_completed(item)]
+
+        items = list(self.ctx.tasks.list(actionable=True) or ())
+        today = datetime.now().astimezone().date()
+        if view == "today":
+            return [item for item in items if task_matches_date(item, today)]
+        if view == "overdue":
+            return [item for item in items if task_is_overdue(item, today)]
+        return items
+
+    def tasks(self, *parts: Any) -> None:
+        view = self._task_view(parts)
+        items = self._tasks_for_view(view)
         self._remember_numbered_items(items)
-        self._show(f"Tasks · {len(items)}")
+        self._show(f"Tasks · {view.title()} · {len(items)}")
         if not items:
             self._show("(none)")
+            if view == "incomplete":
+                history = [
+                    item
+                    for item in (self.ctx.tasks.list() or ())
+                    if self._task_is_completed(item)
+                    or str(getattr(item, "status", "") or "").strip().upper() == "CANCELLED"
+                ]
+                if history:
+                    self._show(f"{len(history)} completed/cancelled Task(s) remain available in history.")
+                self._show("Next: `tasks all` to inspect history, or `add task` to create a Task.")
             return None
         for index, item in enumerate(items, 1):
             self._show(f"{index:>3}. {self._summary(item)}")
+        self._show("Views: `tasks incomplete` · `tasks today` · `tasks overdue` · `tasks completed` · `tasks all`")
         self._show("Numbers are active references for Task commands, e.g. `edit 3`, `start 3`, `done 3`.")
         return None
 
