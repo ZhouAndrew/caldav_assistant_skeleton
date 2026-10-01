@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from caldav_assistant.internal.settings.keys import (
     WORDPRESS_APPLICATION_PASSWORD,
     WORDPRESS_APPLICATION_PASSWORD_FILE,
@@ -26,7 +28,7 @@ def test_auto_preserves_wp_cli_without_complete_rest_credentials():
         WORDPRESS_PATH: "/var/www/html/wordpress",
     }))
     assert isinstance(adapter, WPCLIAdapter)
-    assert adapter.wordpress_path == "/var/www/html/wordpress"
+    assert adapter.wordpress_path == str(Path("/var/www/html/wordpress"))
 
 
 def test_auto_uses_application_password_when_complete():
@@ -63,4 +65,4 @@ def test_explicit_wp_cli_wins_even_when_rest_credentials_exist():
         WORDPRESS_APPLICATION_PASSWORD: "secret",
     }))
     assert isinstance(adapter, WPCLIAdapter)
-    assert adapter.wordpress_path == "/srv/wordpress"
+    assert adapter.wordpress_path == str(Path("/srv/wordpress"))
