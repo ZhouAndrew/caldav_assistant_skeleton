@@ -161,7 +161,7 @@ def test_multiple_vtodo_collections_prompt_once_then_persist_choice():
 
     assert actions._ensure_default_task_collection() is True
     assert settings.get(CALDAV_TASK_COLLECTION_URL) == "https://dav.example/school/"
-    assert ui.choices[0][0] == "Where should new Tasks be saved by default?"
+    assert ui.choices[0][0] == "Choose the default Task collection"
 
     ui.choices.clear()
     assert actions._ensure_default_task_collection() is True
@@ -202,3 +202,16 @@ def test_tasks_settings_panel_reuses_existing_default_collection_setting():
     assert ui.choices[0][0] == "Tasks"
     assert "Default task view: incomplete" in ui.choices[0][1]
     assert "Default task collection: Not configured" in ui.choices[0][1]
+
+
+def test_missing_saved_task_collection_is_explained_and_repaired():
+    collections = [
+        {"name": "Replacement", "url": "https://dav.example/new/", "components": ["VTODO"]},
+    ]
+    ctx, _, settings, ui, _ = context(collections=collections)
+    settings.set(CALDAV_TASK_COLLECTION_URL, "https://dav.example/deleted/")
+
+    assert CrudActions(ctx)._ensure_default_task_collection() is True
+    assert settings.get(CALDAV_TASK_COLLECTION_URL) == "https://dav.example/new/"
+    assert any("no longer available" in line for line in ui.shown)
+    assert any("Replacement" in line for line in ui.shown)
