@@ -139,6 +139,7 @@ class RemoteWordPressAPI(_RemoteAPI):
     def pending(self): return self._call("pending")
     # CLI-only observability; intentionally outside the frozen public WordPressAPI.
     def _daily_log(self): return self._call("daily_log")
+    def _test_connection(self): return bool(self._call("test_connection"))
 
 class RemoteActivityAPI(_RemoteAPI):
     prefix="activity"
