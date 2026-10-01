@@ -51,6 +51,7 @@ jobs:
             --network caldav-wordpress-test \
             -p 8080:80 \
             -v caldav-wordpress-data:/var/www/html \
+            -v /tmp:/tmp \
             -e WORDPRESS_DB_HOST=caldav-wordpress-db:3306 \
             -e WORDPRESS_DB_USER=wordpress \
             -e WORDPRESS_DB_PASSWORD=wordpress \
@@ -90,6 +91,7 @@ jobs:
 
           APP_PASS="$($WPCLI --path=/var/www/html user application-password create wp_user "CalDAV Assistant CI" --porcelain)"
           test -n "$APP_PASS"
+          echo "::add-mask::$APP_PASS"
 
           # Facility gate: do not enter product acceptance unless real WordPress
           # itself accepts this Application Password on the canonical REST route.
