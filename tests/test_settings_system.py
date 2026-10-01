@@ -26,8 +26,8 @@ def test_credentials_are_write_only():
     with pytest.raises(ValidationError):public.get(CALDAV_CREDENTIALS)
 def test_extension_state_registered():
     public=make();assert public.get(EXTENSIONS_ENABLED)=={};assert public.set(EXTENSIONS_ENABLED,{"school":True})=={"school":True}
-def test_categories_shape():assert DEFAULT_SETTINGS_SCHEMA.categories()==("Language","CalDAV","Notifications","WordPress","Commands","Extensions","Agenda","Experimental")
-def test_upcoming_window_is_public_and_validated():
+def test_categories_shape():assert DEFAULT_SETTINGS_SCHEMA.categories()==("Language","CalDAV","Tasks","Notifications","WordPress","Commands","Extensions","Agenda","Experimental")
+def test_task_default_view_is_public_and_validated():\n    public=make();assert public.get(TASK_DEFAULT_VIEW)=="incomplete";assert public.set(TASK_DEFAULT_VIEW,"TODAY")=="today"\n    with pytest.raises(ValidationError):public.set(TASK_DEFAULT_VIEW,"everything")\n\ndef test_upcoming_window_is_public_and_validated():
     public=make();assert public.get(AGENDA_UPCOMING_HOURS)==24;assert public.set(AGENDA_UPCOMING_HOURS,"36")==36
     with pytest.raises(ValidationError):public.set(AGENDA_UPCOMING_HOURS,0)
 def test_wordpress_worklog_defaults_to_compact_and_is_user_customizable():
