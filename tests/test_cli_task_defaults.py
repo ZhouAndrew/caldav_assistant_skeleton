@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from caldav_assistant.api import Task
 from caldav_assistant.internal.cli.crud import CrudActions
+from caldav_assistant.internal.settings.cli import SettingsActions
 from caldav_assistant.internal.settings.keys import (
     CALDAV_TASK_COLLECTION_URL,
     TASK_DEFAULT_VIEW,
@@ -179,3 +180,25 @@ def test_first_collection_choice_can_be_undone_before_task_creation():
 
     assert CrudActions(ctx)._ensure_default_task_collection() is False
     assert settings.get(CALDAV_TASK_COLLECTION_URL) is None
+
+
+def test_tasks_settings_panel_reuses_existing_default_collection_setting():
+    collections = [
+        {"name": "Tasks", "url": "https://dav.example/tasks/", "components": ["VTODO"]},
+        {"name": "Events", "url": "https://dav.example/events/", "components": ["VEVENT"]},
+    ]
+    ctx, _, settings, ui, _ = context(
+        collections=collections,
+        selections=(
+            "Default task collection: Not configured",
+            "1. Tasks [VTODO]",
+            "Continue",
+        ),
+    )
+
+    SettingsActions(ctx)._tasks_panel()
+
+    assert settings.get(CALDAV_TASK_COLLECTION_URL) == "https://dav.example/tasks/"
+    assert ui.choices[0][0] == "Tasks"
+    assert "Default task view: incomplete" in ui.choices[0][1]
+    assert "Default task collection: Not configured" in ui.choices[0][1]
