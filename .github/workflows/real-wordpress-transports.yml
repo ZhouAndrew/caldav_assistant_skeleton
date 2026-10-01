@@ -55,6 +55,7 @@ jobs:
             -e WORDPRESS_DB_USER=wordpress \
             -e WORDPRESS_DB_PASSWORD=wordpress \
             -e WORDPRESS_DB_NAME=wordpress \
+            -e "WORDPRESS_CONFIG_EXTRA=define('WP_ENVIRONMENT_TYPE','local');" \
             wordpress:latest
 
           for i in $(seq 1 120); do
@@ -65,7 +66,7 @@ jobs:
           done
           docker exec caldav-wordpress-web test -f /var/www/html/wp-config.php
 
-          WPCLI='docker run --rm --network caldav-wordpress-test -v caldav-wordpress-data:/var/www/html wordpress:cli'
+          WPCLI='docker run --rm --network caldav-wordpress-test -v caldav-wordpress-data:/var/www/html -e WORDPRESS_DB_HOST=caldav-wordpress-db:3306 -e WORDPRESS_DB_USER=wordpress -e WORDPRESS_DB_PASSWORD=wordpress -e WORDPRESS_DB_NAME=wordpress wordpress:cli'
           $WPCLI --path=/var/www/html core install \
             --url=http://127.0.0.1:8080 \
             --title="CalDAV Assistant Acceptance" \
@@ -90,6 +91,10 @@ jobs:
           exec docker run --rm \
             --network caldav-wordpress-test \
             -v caldav-wordpress-data:/var/www/html \
+            -e WORDPRESS_DB_HOST=caldav-wordpress-db:3306 \
+            -e WORDPRESS_DB_USER=wordpress \
+            -e WORDPRESS_DB_PASSWORD=wordpress \
+            -e WORDPRESS_DB_NAME=wordpress \
             wordpress:cli "$@"
           SH
           chmod +x /tmp/caldav-wp-cli
