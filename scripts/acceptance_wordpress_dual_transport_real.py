@@ -64,6 +64,10 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="caldav-assistant-real-wordpress-") as raw:
         tmp = Path(raw)
+        # The WP-CLI acceptance transport runs in a container as www-data.  Make
+        # only this disposable fixture directory traversable/readable so the real
+        # media-import command can consume host-generated test attachments.
+        tmp.chmod(0o755)
         rest_service = service(rest, tmp / "rest.sqlite3")
         cli_service = service(cli, tmp / "cli.sqlite3")
 
@@ -101,6 +105,7 @@ def main() -> int:
 
         rest_file = tmp / "rest-attachment.txt"
         rest_file.write_text("attachment from REST", encoding="utf-8")
+        rest_file.chmod(0o644)
         attachment = rest_service._attach_file(str(rest_file))
         if not attachment.success:
             raise AssertionError(attachment.message)
@@ -116,6 +121,7 @@ def main() -> int:
 
         cli_file = tmp / "wpcli-attachment.txt"
         cli_file.write_text("attachment from WP-CLI", encoding="utf-8")
+        cli_file.chmod(0o644)
         attachment = cli_service._attach_file(str(cli_file))
         if not attachment.success:
             raise AssertionError(attachment.message)
