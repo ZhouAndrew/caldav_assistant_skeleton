@@ -10,7 +10,7 @@ from caldav_assistant.internal.settings.keys import (
     WORDPRESS_TRANSPORT,
     WORDPRESS_USERNAME,
 )
-from caldav_assistant.internal.wordpress.factory import build_wordpress_adapter
+from caldav_assistant.internal.wordpress.factory import (\n    ConfiguredWordPressAdapter,\n    build_wordpress_adapter,\n    select_wordpress_adapter,\n)
 from caldav_assistant.internal.wordpress.rest_transport import ApplicationPasswordRESTAdapter
 from caldav_assistant.internal.wordpress.transports import WPCLIAdapter
 
@@ -24,7 +24,7 @@ class Settings:
 
 
 def test_auto_preserves_wp_cli_without_complete_rest_credentials():
-    adapter = build_wordpress_adapter(Settings({
+    adapter = select_wordpress_adapter(Settings({
         WORDPRESS_PATH: "/var/www/html/wordpress",
     }))
     assert isinstance(adapter, WPCLIAdapter)
@@ -32,7 +32,7 @@ def test_auto_preserves_wp_cli_without_complete_rest_credentials():
 
 
 def test_auto_uses_application_password_when_complete():
-    adapter = build_wordpress_adapter(Settings({
+    adapter = select_wordpress_adapter(Settings({
         WORDPRESS_BASE_URL: "https://andrew.local",
         WORDPRESS_USERNAME: "wp_user",
         WORDPRESS_APPLICATION_PASSWORD: "abcd efgh",
@@ -46,7 +46,7 @@ def test_auto_uses_application_password_when_complete():
 def test_application_password_can_be_loaded_from_file(tmp_path):
     password_file = tmp_path / "application-password.txt"
     password_file.write_text("abcd efgh ijkl\n", encoding="utf-8")
-    adapter = build_wordpress_adapter(Settings({
+    adapter = select_wordpress_adapter(Settings({
         WORDPRESS_TRANSPORT: "application-password",
         WORDPRESS_BASE_URL: "https://andrew.local",
         WORDPRESS_USERNAME: "wp_user",
@@ -57,7 +57,7 @@ def test_application_password_can_be_loaded_from_file(tmp_path):
 
 
 def test_explicit_wp_cli_wins_even_when_rest_credentials_exist():
-    adapter = build_wordpress_adapter(Settings({
+    adapter = select_wordpress_adapter(Settings({
         WORDPRESS_TRANSPORT: "wp-cli",
         WORDPRESS_PATH: "/srv/wordpress",
         WORDPRESS_BASE_URL: "https://example.test",
@@ -66,3 +66,25 @@ def test_explicit_wp_cli_wins_even_when_rest_credentials_exist():
     }))
     assert isinstance(adapter, WPCLIAdapter)
     assert adapter.wordpress_path == str(Path("/srv/wordpress"))
+
+
+def test_production_adapter_applies_settings_changes_without_restart():
+    values = {
+        WORDPRESS_PATH: "/srv/wordpress",
+        WORDPRESS_TRANSPORT: "auto",
+    }
+    settings = Settings(values)
+    adapter = build_wordpress_adapter(settings)
+
+    assert isinstance(adapter, ConfiguredWordPressAdapter)
+    assert adapter.transport_name() == "wp-cli"
+
+    values.update({
+        WORDPRESS_BASE_URL: "https://andrew.local",
+        WORDPRESS_USERNAME: "wp_user",
+        WORDPRESS_APPLICATION_PASSWORD: "secret",
+    })
+    assert adapter.transport_name() == "application-password"
+
+    values[WORDPRESS_TRANSPORT] = "wp-cli"
+    assert adapter.transport_name() == "wp-cli"
