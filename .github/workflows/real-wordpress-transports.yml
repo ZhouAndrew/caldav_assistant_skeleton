@@ -83,8 +83,21 @@ jobs:
           done
           curl -fsS http://127.0.0.1:8080/wp-json/ >/dev/null
 
+          # Enable normal /wp-json/wp/v2/... routing in the disposable Apache site.
+          docker exec caldav-wordpress-web chown -R www-data:www-data /var/www/html
+          $WPCLI --path=/var/www/html rewrite structure '/%postname%/' --hard
+          $WPCLI --path=/var/www/html rewrite flush --hard
+
           APP_PASS="$($WPCLI --path=/var/www/html user application-password create wp_user "CalDAV Assistant CI" --porcelain)"
           test -n "$APP_PASS"
+
+          # Facility gate: do not enter product acceptance unless real WordPress
+          # itself accepts this Application Password on the canonical REST route.
+          WP_AUTH="$(printf 'wp_user:%s' "$APP_PASS" | base64 -w0)"
+          curl -fsS \
+            -H "Authorization: Basic $WP_AUTH" \
+            "http://127.0.0.1:8080/wp-json/wp/v2/users/me?context=edit" \
+            | python -c 'import json,sys; d=json.load(sys.stdin); assert d.get("id")==1 and d.get("slug")=="wp_user", d'
 
           cat >/tmp/caldav-wp-cli <<'SH'
           #!/usr/bin/env bash
