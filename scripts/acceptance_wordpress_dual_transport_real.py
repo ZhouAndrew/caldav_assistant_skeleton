@@ -104,6 +104,8 @@ def main() -> int:
         attachment = rest_service._attach_file(str(rest_file))
         if not attachment.success:
             raise AssertionError(attachment.message)
+        if rest_service.pending():
+            raise AssertionError("REST attachment left an Outbox item pending")
         cli_after_attachment = cli.read_daily_log()
         assert_contains(
             cli_after_attachment["content"],
@@ -117,6 +119,8 @@ def main() -> int:
         attachment = cli_service._attach_file(str(cli_file))
         if not attachment.success:
             raise AssertionError(attachment.message)
+        if cli_service.pending():
+            raise AssertionError("WP-CLI attachment left an Outbox item pending")
         rest_after_attachment = rest.read_daily_log()
         assert_contains(
             rest_after_attachment["content"],
