@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 from ...api.v1.errors import AmbiguousError, NotFoundError, ValidationError
 from ..prompts.pickers import task_is_overdue, task_matches_date
-from ..settings.keys import TASK_DEFAULT_VIEW
+from ..settings.keys import CALDAV_TASK_COLLECTION_URL, TASK_DEFAULT_VIEW
 
 
 _WORK_EVENT_CATEGORY = "caldav-assistant-work"
@@ -142,6 +142,93 @@ class CrudActions:
     # ------------------------------------------------------------------
     # Create
     # ------------------------------------------------------------------
+    @staticmethod
+    def _collection_value(item: Any, key: str) -> Any:
+        if isinstance(item, dict):
+            return item.get(key)
+        return getattr(item, key, None)
+
+    @classmethod
+    def _collection_components(cls, item: Any) -> tuple[str, ...]:
+        value = cls._collection_value(item, "components") or ()
+        if isinstance(value, str):
+            value = (value,)
+        return tuple(str(part).strip().upper() for part in value if str(part).strip())
+
+    @classmethod
+    def _collection_name(cls, item: Any) -> str:
+        value = cls._collection_value(item, "name")
+        return str(value).strip() if value else str(cls._collection_value(item, "url") or "Task collection")
+
+    @classmethod
+    def _collection_url(cls, item: Any) -> str | None:
+        value = cls._collection_value(item, "url")
+        clean = str(value).strip() if value is not None else ""
+        return clean or None
+
+    def _ensure_default_task_collection(self) -> bool:
+        """Guide first Task creation without inventing another collection system."""
+        settings = getattr(self.ctx, "settings", None)
+        getter = getattr(settings, "get", None)
+        setter = getattr(settings, "set", None)
+        collections = getattr(settings, "caldav_collections", None)
+        if not (callable(getter) and callable(setter) and callable(collections)):
+            return True
+        if getter(CALDAV_TASK_COLLECTION_URL, None):
+            return True
+
+        discovered = list(collections() or ())
+        compatible = [
+            item
+            for item in discovered
+            if "VTODO" in self._collection_components(item) and self._collection_url(item)
+        ]
+        if not compatible:
+            # Preserve the existing Core error path when discovery itself cannot
+            # identify a Task collection; this helper is guidance, not a new Core.
+            return True
+
+        if len(compatible) == 1:
+            selected = compatible[0]
+            setter(CALDAV_TASK_COLLECTION_URL, self._collection_url(selected))
+            self._show(
+                f"✓ Default task collection: {self._collection_name(selected)} "
+                "(the only compatible VTODO collection)."
+            )
+            self._show("Undo later with: settings reset caldav.task_collection_url")
+            return True
+
+        labels = [self._collection_name(item) for item in compatible]
+        selected_label = self._choose(
+            "Where should new Tasks be saved by default?",
+            labels + ["Not now"],
+        )
+        if selected_label is None or selected_label == "Not now":
+            self._show("Task creation cancelled; no default task collection was changed.")
+            return False
+        selected = compatible[labels.index(selected_label)]
+        setter(CALDAV_TASK_COLLECTION_URL, self._collection_url(selected))
+        self._show(f"✓ Default task collection: {self._collection_name(selected)}")
+
+        decision = self._choose(
+            "Default saved. What next?",
+            ["Continue", "Undo", "Modify settings"],
+        )
+        if decision == "Undo":
+            setter(CALDAV_TASK_COLLECTION_URL, None)
+            self._show("✓ Default task collection restored to Not configured.")
+            return False
+        if decision == "Modify settings":
+            runner = getattr(getattr(self.ctx, "commands", None), "run", None)
+            if callable(runner):
+                runner("settings", "caldav", "roles")
+            else:
+                self._show("Open settings → CalDAV → Collection roles.")
+            if not getter(CALDAV_TASK_COLLECTION_URL, None):
+                self._show("Task creation cancelled because no default task collection is configured.")
+                return False
+        return True
+
     def _task_create_fields(self) -> dict[str, Any] | None:
         fields: dict[str, Any] = {}
         timing = self._choose(
@@ -258,6 +345,8 @@ class CrudActions:
                 return None
 
         if kind == "Task":
+            if not self._ensure_default_task_collection():
+                return None
             fields = self._task_create_fields()
             if fields is None:
                 return None
