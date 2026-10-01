@@ -25,6 +25,7 @@ from .keys import (
     CALDAV_WORKLOG_COLLECTION_URL,
     EXPERIMENTAL_FAST_QUERY_CACHE,
     EXTENSIONS_ENABLED,
+    TASK_DEFAULT_VIEW,
 )
 from .schema import DEFAULT_SETTINGS_SCHEMA, SettingSpec
 
@@ -111,8 +112,17 @@ class SettingsActions:
             if value is None:
                 return
 
+        previous = self._get(spec) if spec.public_read else None
         normalized = self.ctx.settings.set(spec.key, value)
         self._show(f"✓ {spec.label}: {_display_value(normalized)}")
+        if spec.key == TASK_DEFAULT_VIEW and previous != normalized:
+            decision = self._choose(
+                "Default task view saved. What next?",
+                ["Continue", "Undo"],
+            )
+            if decision == "Undo":
+                restored = self.ctx.settings.set(spec.key, previous)
+                self._show(f"✓ {spec.label} restored: {_display_value(restored)}")
 
     def _run_command(self, name: str, *parts: str) -> Any:
         commands = getattr(self.ctx, "commands", None)
