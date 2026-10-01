@@ -94,7 +94,7 @@ def main() -> int:
                     ("Developer", "Developer tools are reachable from the root"),
                 ),
             )
-            child.sendline("3")
+            child.sendline("Notifications")
 
             _expect(child, "Notifications & sound", label="rich Notifications panel opened")
             _expect_menu_snapshot(
@@ -181,9 +181,9 @@ def main() -> int:
             _expect(child, "Settings", label="Back returns to Settings root")
             child.expect(r"> ")
 
-            # Extensions is item 7 in the richer Settings root. Create a real small
-            # Task template through the numbered wizard and enable it immediately.
-            child.sendline("7")
+            # Select by stable human label so adding a Settings category does not
+            # accidentally break unrelated extension acceptance.
+            child.sendline("Extensions")
             _expect(child, "Extensions", label="Extensions management panel opened")
             _expect_menu_snapshot(
                 child,
