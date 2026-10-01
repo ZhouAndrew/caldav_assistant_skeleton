@@ -390,7 +390,17 @@ class CrudActions:
         if view == "completed":
             return [item for item in (self.ctx.tasks.list() or ()) if self._task_is_completed(item)]
 
-        items = list(self.ctx.tasks.list(actionable=True) or ())
+        try:
+            items = list(self.ctx.tasks.list(actionable=True) or ())
+        except TypeError:
+            # Compatibility with older/lightweight TasksAPI doubles. Production v1
+            # accepts filters; keep the CLI graceful without changing list() defaults.
+            items = [
+                item
+                for item in (self.ctx.tasks.list() or ())
+                if not self._task_is_completed(item)
+                and str(getattr(item, "status", "") or "").strip().upper() != "CANCELLED"
+            ]
         today = datetime.now().astimezone().date()
         if view == "today":
             return [item for item in items if task_matches_date(item, today)]
