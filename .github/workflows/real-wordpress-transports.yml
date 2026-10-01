@@ -51,7 +51,6 @@ jobs:
             --network caldav-wordpress-test \
             -p 8080:80 \
             -v caldav-wordpress-data:/var/www/html \
-            -v /tmp:/tmp \
             -e WORDPRESS_DB_HOST=caldav-wordpress-db:3306 \
             -e WORDPRESS_DB_USER=wordpress \
             -e WORDPRESS_DB_PASSWORD=wordpress \
@@ -106,6 +105,7 @@ jobs:
           exec docker run --rm \
             --network caldav-wordpress-test \
             -v caldav-wordpress-data:/var/www/html \
+            -v /tmp:/tmp \
             -e WORDPRESS_DB_HOST=caldav-wordpress-db:3306 \
             -e WORDPRESS_DB_USER=wordpress \
             -e WORDPRESS_DB_PASSWORD=wordpress \
