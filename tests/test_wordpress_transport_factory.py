@@ -10,8 +10,14 @@ from caldav_assistant.internal.settings.keys import (
     WORDPRESS_TRANSPORT,
     WORDPRESS_USERNAME,
 )
-from caldav_assistant.internal.wordpress.factory import (\n    ConfiguredWordPressAdapter,\n    build_wordpress_adapter,\n    select_wordpress_adapter,\n)
-from caldav_assistant.internal.wordpress.rest_transport import ApplicationPasswordRESTAdapter
+from caldav_assistant.internal.wordpress.factory import (
+    ConfiguredWordPressAdapter,
+    build_wordpress_adapter,
+    select_wordpress_adapter,
+)
+from caldav_assistant.internal.wordpress.rest_transport import (
+    ApplicationPasswordRESTAdapter,
+)
 from caldav_assistant.internal.wordpress.transports import WPCLIAdapter
 
 
