@@ -89,7 +89,7 @@ from .tasks.work_period_task_service import WorkPeriodAwareTaskService
 from .temporal import TemporalParser, TemporalService
 from .undo import UndoManager
 from .wordpress import WordPressService
-from .wordpress.transports import WPCLIAdapter
+from .wordpress.factory import build_wordpress_adapter
 from .work_period import WorkPeriodService
 from .worklog import WorkLogService
 
@@ -299,7 +299,7 @@ def build_service_application() -> ServiceApplication:
     )
 
     wordpress = WordPressService(
-        WPCLIAdapter(settings_service.get(WORDPRESS_PATH, None)),
+        build_wordpress_adapter(settings_service),
         outbox_repo,
         activity,
     )

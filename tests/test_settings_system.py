@@ -42,3 +42,15 @@ def test_wordpress_worklog_defaults_to_compact_and_is_user_customizable():
     assert public.set(WORDPRESS_WORKLOG_TEMPLATE,"{task} {duration_minutes}m")=="{task} {duration_minutes}m"
     with pytest.raises(ValidationError):public.set(WORDPRESS_WORKLOG_STYLE,"noisy")
     with pytest.raises(ValidationError):public.set(WORDPRESS_WORKLOG_TEMPLATE,"{unknown}")
+
+def test_wordpress_transport_settings_are_validated_and_secret_is_write_only():
+    public=make()
+    assert public.get(WORDPRESS_TRANSPORT)=="auto"
+    assert public.set(WORDPRESS_TRANSPORT,"REST")=="application-password"
+    assert public.set(WORDPRESS_BASE_URL,"https://andrew.local/")=="https://andrew.local"
+    assert public.set(WORDPRESS_USERNAME,"wp_user")=="wp_user"
+    assert public.set(WORDPRESS_APPLICATION_PASSWORD_FILE,"/tmp/wp-pass")=="/tmp/wp-pass"
+    public.set(WORDPRESS_APPLICATION_PASSWORD,"abcd efgh")
+    with pytest.raises(ValidationError):public.get(WORDPRESS_APPLICATION_PASSWORD)
+    with pytest.raises(ValidationError):public.set(WORDPRESS_TRANSPORT,"magic")
+    with pytest.raises(ValidationError):public.set(WORDPRESS_BASE_URL,"andrew.local")

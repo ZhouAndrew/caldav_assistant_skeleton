@@ -72,6 +72,9 @@ class RuntimeDispatcher:
         daily_log = getattr(ctx.wordpress, "_daily_log", None)
         if callable(daily_log):
             self._routes["wordpress.daily_log"] = daily_log
+        wordpress_test = getattr(ctx.wordpress, "test_connection", None)
+        if callable(wordpress_test):
+            self._routes["wordpress.test_connection"] = wordpress_test
 
         # Session is part of the full v1 AssistantContext, but keeping these routes
         # conditional lets small unit/integration test contexts remain deliberately

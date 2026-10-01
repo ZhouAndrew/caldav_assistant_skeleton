@@ -1,0 +1,155 @@
+name: real-wordpress-transports
+
+on:
+  push:
+    branches:
+      - main
+      - "feat/wordpress-dual-transport-*"
+  pull_request:
+
+jobs:
+  real-wordpress:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install CalDAV Assistant
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+
+      - name: Start isolated real WordPress
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker network create caldav-wordpress-test
+          docker volume create caldav-wordpress-data
+
+          docker run -d --name caldav-wordpress-db \
+            --network caldav-wordpress-test \
+            -e MARIADB_DATABASE=wordpress \
+            -e MARIADB_USER=wordpress \
+            -e MARIADB_PASSWORD=wordpress \
+            -e MARIADB_ROOT_PASSWORD=root \
+            mariadb:11.4
+
+          for i in $(seq 1 120); do
+            if docker exec caldav-wordpress-db mariadb-admin ping -uroot -proot --silent >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec caldav-wordpress-db mariadb-admin ping -uroot -proot --silent
+
+          docker run -d --name caldav-wordpress-web \
+            --network caldav-wordpress-test \
+            -p 8080:80 \
+            -v caldav-wordpress-data:/var/www/html \
+            -e WORDPRESS_DB_HOST=caldav-wordpress-db:3306 \
+            -e WORDPRESS_DB_USER=wordpress \
+            -e WORDPRESS_DB_PASSWORD=wordpress \
+            -e WORDPRESS_DB_NAME=wordpress \
+            -e "WORDPRESS_CONFIG_EXTRA=define('WP_ENVIRONMENT_TYPE','local');" \
+            wordpress:latest
+
+          for i in $(seq 1 120); do
+            if docker exec caldav-wordpress-web test -f /var/www/html/wp-config.php; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec caldav-wordpress-web test -f /var/www/html/wp-config.php
+
+          WPCLI='docker run --rm --network caldav-wordpress-test -v caldav-wordpress-data:/var/www/html -e WORDPRESS_DB_HOST=caldav-wordpress-db:3306 -e WORDPRESS_DB_USER=wordpress -e WORDPRESS_DB_PASSWORD=wordpress -e WORDPRESS_DB_NAME=wordpress wordpress:cli'
+          $WPCLI --path=/var/www/html core install \
+            --url=http://127.0.0.1:8080 \
+            --title="CalDAV Assistant Acceptance" \
+            --admin_user=wp_user \
+            --admin_password=admin-test-only \
+            --admin_email=acceptance@example.test \
+            --skip-email
+
+          for i in $(seq 1 120); do
+            if curl -fsS http://127.0.0.1:8080/wp-json/ >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/wp-json/ >/dev/null
+
+          # Enable normal /wp-json/wp/v2/... routing in the disposable Apache site.
+          docker exec caldav-wordpress-web chown -R www-data:www-data /var/www/html
+          $WPCLI --path=/var/www/html rewrite structure '/%postname%/' --hard
+          $WPCLI --path=/var/www/html rewrite flush --hard
+
+          APP_PASS="$($WPCLI --path=/var/www/html user application-password create wp_user "CalDAV Assistant CI" --porcelain)"
+          test -n "$APP_PASS"
+          echo "::add-mask::$APP_PASS"
+
+          # Facility gate: do not enter product acceptance unless real WordPress
+          # itself accepts this Application Password on the canonical REST route.
+          WP_AUTH="$(printf 'wp_user:%s' "$APP_PASS" | base64 -w0)"
+          curl -fsS \
+            -H "Authorization: Basic $WP_AUTH" \
+            "http://127.0.0.1:8080/wp-json/wp/v2/users/me?context=edit" \
+            | python -c 'import json,sys; d=json.load(sys.stdin); assert d.get("id")==1 and d.get("slug")=="wp_user", d'
+
+          cat >/tmp/caldav-wp-cli <<'SH'
+          #!/usr/bin/env bash
+          exec docker run --rm \
+            --user 0:0 \
+            --network caldav-wordpress-test \
+            -v caldav-wordpress-data:/var/www/html \
+            -v /tmp:/tmp \
+            -e WP_CLI_ALLOW_ROOT=1 \
+            -e WORDPRESS_DB_HOST=caldav-wordpress-db:3306 \
+            -e WORDPRESS_DB_USER=wordpress \
+            -e WORDPRESS_DB_PASSWORD=wordpress \
+            -e WORDPRESS_DB_NAME=wordpress \
+            wordpress:cli "$@"
+          SH
+          chmod +x /tmp/caldav-wp-cli
+
+          echo "WP_TEST_BASE_URL=http://127.0.0.1:8080" >>"$GITHUB_ENV"
+          echo "WP_TEST_USERNAME=wp_user" >>"$GITHUB_ENV"
+          echo "WP_TEST_APPLICATION_PASSWORD=$APP_PASS" >>"$GITHUB_ENV"
+          echo "WP_TEST_WPCLI=/tmp/caldav-wp-cli" >>"$GITHUB_ENV"
+          echo "WP_TEST_PATH=/var/www/html" >>"$GITHUB_ENV"
+
+          echo "WordPress version:"
+          $WPCLI --path=/var/www/html core version
+
+      - name: Real REST + WP-CLI cross-transport acceptance
+        shell: bash
+        run: |
+          set -o pipefail
+          python scripts/acceptance_wordpress_dual_transport_real.py 2>&1 | tee real-wordpress-dual-transport.log
+
+      - name: Archive real WordPress acceptance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-wordpress-dual-transport
+          path: real-wordpress-dual-transport.log
+          if-no-files-found: warn
+
+      - name: Show WordPress container logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          docker logs caldav-wordpress-web || true
+          docker logs caldav-wordpress-db || true
+
+      - name: Cleanup WordPress facility
+        if: always()
+        shell: bash
+        run: |
+          docker rm -f caldav-wordpress-web caldav-wordpress-db 2>/dev/null || true
+          docker volume rm caldav-wordpress-data 2>/dev/null || true
+          docker network rm caldav-wordpress-test 2>/dev/null || true

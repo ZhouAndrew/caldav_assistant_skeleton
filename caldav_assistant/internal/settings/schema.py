@@ -80,6 +80,34 @@ def _optional_path(value: Any) -> str | None:
     return _optional_text(value, label="WordPress path")
 
 
+def _wordpress_url(value: Any) -> str | None:
+    if value is None:
+        return None
+    clean = _text(value, label="WordPress base URL")
+    if not (clean.startswith("http://") or clean.startswith("https://")):
+        raise ValidationError("WordPress base URL must use http:// or https://")
+    return clean.rstrip("/")
+
+
+def _wordpress_transport(value: Any) -> str:
+    clean = _text(value, label="WordPress transport").casefold()
+    aliases = {
+        "rest": "application-password",
+        "application_password": "application-password",
+        "wpcli": "wp-cli",
+    }
+    clean = aliases.get(clean, clean)
+    if clean not in {"auto", "wp-cli", "application-password"}:
+        raise ValidationError(
+            "WordPress transport must be auto, wp-cli, or application-password"
+        )
+    return clean
+
+
+def _wordpress_secret(value: Any) -> str | None:
+    return _optional_text(value, label="WordPress Application Password")
+
+
 def _collection_url(value: Any) -> str | None:
     return _optional_text(value, label="CalDAV collection")
 
@@ -261,6 +289,11 @@ DEFAULT_SETTINGS_SCHEMA = SettingsSchema([
     ),
     SettingSpec(WORDPRESS_ENABLED, "WordPress", "WordPress", "bool", True, validator=lambda v: _boolean(v, label="WordPress")),
     SettingSpec(WORDPRESS_PATH, "WordPress path", "WordPress", "text", None, validator=_optional_path),
+    SettingSpec(WORDPRESS_TRANSPORT, "WordPress transport", "WordPress", "choice", "auto", choices=("auto", "wp-cli", "application-password"), validator=_wordpress_transport),
+    SettingSpec(WORDPRESS_BASE_URL, "WordPress base URL", "WordPress", "text", None, validator=_wordpress_url),
+    SettingSpec(WORDPRESS_USERNAME, "WordPress username", "WordPress", "text", None, validator=lambda v: _optional_text(v, label="WordPress username")),
+    SettingSpec(WORDPRESS_APPLICATION_PASSWORD, "WordPress Application Password", "WordPress", "secret", None, public_read=False, public_write=True, secret=True, validator=_wordpress_secret),
+    SettingSpec(WORDPRESS_APPLICATION_PASSWORD_FILE, "Application Password file", "WordPress", "text", None, validator=_optional_path),
     SettingSpec(WORDPRESS_WORKLOG_STYLE, "Work-log style", "WordPress", "choice", "compact", choices=("off", "compact", "detailed", "custom"), validator=_worklog_style),
     SettingSpec(WORDPRESS_WORKLOG_TEMPLATE, "Custom work-log template", "WordPress", "text", "{start}-{end} {task}", validator=_worklog_template),
     SettingSpec(COMMAND_LANGUAGE, "Command language", "Commands", "choice", "en", choices=("en",), validator=_command_language),

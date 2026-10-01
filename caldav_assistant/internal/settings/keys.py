@@ -13,6 +13,11 @@ TERMINAL_BELL_REPEAT_COUNT = "notifications.terminal_bell_repeat_count"
 TERMINAL_BELL_INTERVAL_MS = "notifications.terminal_bell_interval_ms"
 WORDPRESS_ENABLED = "wordpress.enabled"
 WORDPRESS_PATH = "wordpress.path"
+WORDPRESS_TRANSPORT = "wordpress.transport"
+WORDPRESS_BASE_URL = "wordpress.base_url"
+WORDPRESS_USERNAME = "wordpress.username"
+WORDPRESS_APPLICATION_PASSWORD = "wordpress.application_password"
+WORDPRESS_APPLICATION_PASSWORD_FILE = "wordpress.application_password_file"
 WORDPRESS_WORKLOG_STYLE = "wordpress.worklog.style"
 WORDPRESS_WORKLOG_TEMPLATE = "wordpress.worklog.template"
 EXTENSIONS_ENABLED = "extensions.enabled"
@@ -35,6 +40,11 @@ __all__ = [
     "TERMINAL_BELL_INTERVAL_MS",
     "WORDPRESS_ENABLED",
     "WORDPRESS_PATH",
+    "WORDPRESS_TRANSPORT",
+    "WORDPRESS_BASE_URL",
+    "WORDPRESS_USERNAME",
+    "WORDPRESS_APPLICATION_PASSWORD",
+    "WORDPRESS_APPLICATION_PASSWORD_FILE",
     "WORDPRESS_WORKLOG_STYLE",
     "WORDPRESS_WORKLOG_TEMPLATE",
     "EXTENSIONS_ENABLED",
