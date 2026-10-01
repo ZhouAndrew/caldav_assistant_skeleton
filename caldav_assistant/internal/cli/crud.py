@@ -174,19 +174,38 @@ class CrudActions:
         collections = getattr(settings, "caldav_collections", None)
         if not (callable(getter) and callable(setter) and callable(collections)):
             return True
-        if getter(CALDAV_TASK_COLLECTION_URL, None):
-            return True
 
-        discovered = list(collections() or ())
+        current = getter(CALDAV_TASK_COLLECTION_URL, None)
+        try:
+            discovered = list(collections() or ())
+        except Exception:
+            # Discovery availability must not replace the existing authoritative
+            # create path. If it is temporarily unavailable, let Core report the
+            # real CalDAV result instead of inventing a local failure.
+            return True
         compatible = [
             item
             for item in discovered
             if "VTODO" in self._collection_components(item) and self._collection_url(item)
         ]
-        if not compatible:
-            # Preserve the existing Core error path when discovery itself cannot
-            # identify a Task collection; this helper is guidance, not a new Core.
+        compatible_urls = {
+            self._collection_url(item)
+            for item in compatible
+            if self._collection_url(item)
+        }
+        if current and str(current).strip() in compatible_urls:
             return True
+        if current:
+            self._show(
+                "The saved default task collection is no longer available. "
+                "Choose a replacement before creating this Task."
+            )
+        if not compatible:
+            self._show(
+                "No compatible VTODO collection is currently available. "
+                "Open settings → CalDAV to check the connection."
+            )
+            return False
 
         if len(compatible) == 1:
             selected = compatible[0]
@@ -200,7 +219,7 @@ class CrudActions:
 
         labels = [self._collection_name(item) for item in compatible]
         selected_label = self._choose(
-            "Where should new Tasks be saved by default?",
+            "Choose the default Task collection",
             labels + ["Not now"],
         )
         if selected_label is None or selected_label == "Not now":
