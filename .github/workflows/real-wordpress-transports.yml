@@ -103,9 +103,11 @@ jobs:
           cat >/tmp/caldav-wp-cli <<'SH'
           #!/usr/bin/env bash
           exec docker run --rm \
+            --user 0:0 \
             --network caldav-wordpress-test \
             -v caldav-wordpress-data:/var/www/html \
             -v /tmp:/tmp \
+            -e WP_CLI_ALLOW_ROOT=1 \
             -e WORDPRESS_DB_HOST=caldav-wordpress-db:3306 \
             -e WORDPRESS_DB_USER=wordpress \
             -e WORDPRESS_DB_PASSWORD=wordpress \
