@@ -25,6 +25,7 @@ from .keys import (
     CALDAV_WORKLOG_COLLECTION_URL,
     EXPERIMENTAL_FAST_QUERY_CACHE,
     EXTENSIONS_ENABLED,
+    TASK_DEFAULT_VIEW,
 )
 from .schema import DEFAULT_SETTINGS_SCHEMA, SettingSpec
 
@@ -32,6 +33,7 @@ from .schema import DEFAULT_SETTINGS_SCHEMA, SettingSpec
 _CATEGORY_ORDER = (
     "Language",
     "CalDAV",
+    "Tasks",
     "Notifications",
     "Agenda",
     "WordPress",
@@ -110,8 +112,17 @@ class SettingsActions:
             if value is None:
                 return
 
+        previous = self._get(spec) if spec.public_read else None
         normalized = self.ctx.settings.set(spec.key, value)
         self._show(f"✓ {spec.label}: {_display_value(normalized)}")
+        if spec.key == TASK_DEFAULT_VIEW and previous != normalized:
+            decision = self._choose(
+                "Default task view saved. What next?",
+                ["Continue", "Undo"],
+            )
+            if decision == "Undo":
+                restored = self.ctx.settings.set(spec.key, previous)
+                self._show(f"✓ {spec.label} restored: {_display_value(restored)}")
 
     def _run_command(self, name: str, *parts: str) -> Any:
         commands = getattr(self.ctx, "commands", None)
@@ -606,9 +617,61 @@ class SettingsActions:
             elif selected == "Clear credentials":
                 self._clear_caldav_credentials()
 
+    def _tasks_panel(self) -> None:
+        """Small Task-default surface reusing the existing collection-role setting."""
+        view_spec = self.schema.get(TASK_DEFAULT_VIEW)
+        while True:
+            view = self.ctx.settings.get(TASK_DEFAULT_VIEW, view_spec.default_value())
+            task_url = self.ctx.settings.get(CALDAV_TASK_COLLECTION_URL, None)
+            try:
+                items = self._caldav_collections()
+            except Exception:
+                items = []
+            collection = (
+                self._role_name(task_url, items)
+                if items
+                else ("Configured" if task_url else "Not configured")
+            )
+            view_label = f"Default task view: {_display_value(view)}"
+            collection_label = f"Default task collection: {collection}"
+            selected = self._choose("Tasks", [view_label, collection_label])
+            if selected is None:
+                return
+            if selected == view_label:
+                self._edit_spec(view_spec)
+            elif selected == collection_label:
+                if not items:
+                    items = self._caldav_collections()
+                if not items:
+                    self._show("No CalDAV collections were found. Test the connection first.")
+                    continue
+                previous = self.ctx.settings.get(CALDAV_TASK_COLLECTION_URL, None)
+                changed = self._choose_collection_role(
+                    "Default task collection",
+                    CALDAV_TASK_COLLECTION_URL,
+                    "VTODO",
+                    items,
+                )
+                if changed != previous:
+                    decision = self._choose(
+                        "Default task collection saved. What next?",
+                        ["Continue", "Undo"],
+                    )
+                    if decision == "Undo":
+                        restored = self.ctx.settings.set(
+                            CALDAV_TASK_COLLECTION_URL,
+                            previous,
+                        )
+                        self._show(
+                            "✓ Default task collection restored: "
+                            + _display_value(restored)
+                        )
+
     def _category(self, category: str) -> None:
         if category == "CalDAV":
             self._caldav_panel(); return
+        if category == "Tasks":
+            self._tasks_panel(); return
         if category == "Notifications":
             self._notifications_panel(); return
         if category == "Commands":
@@ -648,7 +711,7 @@ class SettingsActions:
 
     @staticmethod
     def _usage() -> str:
-        return ("settings\nsettings categories\nsettings list [CATEGORY]\nsettings get KEY\nsettings set KEY VALUE\nsettings reset KEY\nsettings caldav status|test|collections|roles\nsettings caldav server URL\nsettings caldav credentials\nsettings caldav clear-credentials\nsettings cache status|refresh\nsettings extensions [list|enable|disable|reload|errors|new|guide|path|dev] [NAME] [TEMPLATE]\nsettings commands [COMMAND]")
+        return ("settings\nsettings tasks\nsettings categories\nsettings list [CATEGORY]\nsettings get KEY\nsettings set KEY VALUE\nsettings reset KEY\nsettings caldav status|test|collections|roles\nsettings caldav server URL\nsettings caldav credentials\nsettings caldav clear-credentials\nsettings cache status|refresh\nsettings extensions [list|enable|disable|reload|errors|new|guide|path|dev] [NAME] [TEMPLATE]\nsettings commands [COMMAND]")
 
     def list_settings(self, category: str | None = None) -> str:
         items = self.ctx.settings.list(category)
@@ -731,6 +794,9 @@ class SettingsActions:
         action = parts[0].strip().casefold()
         if action in {"help", "?"}: return self._usage()
         if action == "caldav": return self._caldav_command(*parts[1:])
+        if action == "tasks":
+            if len(parts) != 1: raise ValidationError("settings tasks takes no arguments")
+            return self._tasks_panel()
         if action == "cache": return self._cache_command(*parts[1:])
         if action in {"extensions", "extension"}: return self._extensions_command(*parts[1:])
         if action in {"commands", "command"}: return self._commands_command(*parts[1:])

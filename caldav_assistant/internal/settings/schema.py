@@ -147,6 +147,18 @@ def _worklog_template(value: Any) -> str:
     return clean
 
 
+_TASK_VIEWS = frozenset({"incomplete", "today", "overdue", "completed", "all"})
+
+
+def _task_view(value: Any) -> str:
+    clean = _text(value, label="Default task view").casefold()
+    if clean not in _TASK_VIEWS:
+        raise ValidationError(
+            "Default task view must be incomplete, today, overdue, completed, or all"
+        )
+    return clean
+
+
 @dataclass(frozen=True, slots=True)
 class SettingSpec:
     key: str
@@ -215,6 +227,7 @@ DEFAULT_SETTINGS_SCHEMA = SettingsSchema([
     SettingSpec(CALDAV_TASK_COLLECTION_URL, "Default task collection", "CalDAV", "text", None, validator=_collection_url),
     SettingSpec(CALDAV_EVENT_COLLECTION_URL, "Default event collection", "CalDAV", "text", None, validator=_collection_url),
     SettingSpec(CALDAV_WORKLOG_COLLECTION_URL, "Work log collection", "CalDAV", "text", None, validator=_collection_url),
+    SettingSpec(TASK_DEFAULT_VIEW, "Default task view", "Tasks", "choice", "incomplete", choices=("incomplete", "today", "overdue", "completed", "all"), validator=_task_view),
     SettingSpec(NOTIFICATIONS_ENABLED, "Notifications", "Notifications", "bool", False, validator=lambda v: _boolean(v, label="Notifications")),
     SettingSpec(NOTIFICATION_SOUND_ENABLED, "Reminder sound", "Notifications", "bool", True, validator=lambda v: _boolean(v, label="Reminder sound")),
     SettingSpec(TERMINAL_BELL_ENABLED, "Terminal bell", "Notifications", "bool", True, validator=lambda v: _boolean(v, label="Terminal bell")),

@@ -18,6 +18,7 @@ WORDPRESS_WORKLOG_TEMPLATE = "wordpress.worklog.template"
 EXTENSIONS_ENABLED = "extensions.enabled"
 EXPERIMENTAL_FAST_QUERY_CACHE = "experimental.fast_query_cache"
 AGENDA_UPCOMING_HOURS = "agenda.upcoming_hours"
+TASK_DEFAULT_VIEW = "tasks.default_view"
 
 __all__ = [
     "CALDAV_BASE_URL",
@@ -39,4 +40,5 @@ __all__ = [
     "EXTENSIONS_ENABLED",
     "EXPERIMENTAL_FAST_QUERY_CACHE",
     "AGENDA_UPCOMING_HOURS",
+    "TASK_DEFAULT_VIEW",
 ]

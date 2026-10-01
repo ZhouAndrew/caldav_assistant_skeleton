@@ -382,7 +382,7 @@ def _choose_task_for_work(
             items=task_choices,
         )
 
-    return chooser(title="Choose a Task to work on")
+    return chooser(title="Choose a Task to work on", actionable=True)
 
 
 def _guided_start(

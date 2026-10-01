@@ -9,9 +9,12 @@ A visible number is therefore an actionable reference, not decorative output.
 """
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Callable
 
 from ...api.v1.errors import AmbiguousError, NotFoundError, ValidationError
+from ..prompts.pickers import task_is_overdue, task_matches_date
+from ..settings.keys import CALDAV_TASK_COLLECTION_URL, TASK_DEFAULT_VIEW
 
 
 _WORK_EVENT_CATEGORY = "caldav-assistant-work"
@@ -139,6 +142,112 @@ class CrudActions:
     # ------------------------------------------------------------------
     # Create
     # ------------------------------------------------------------------
+    @staticmethod
+    def _collection_value(item: Any, key: str) -> Any:
+        if isinstance(item, dict):
+            return item.get(key)
+        return getattr(item, key, None)
+
+    @classmethod
+    def _collection_components(cls, item: Any) -> tuple[str, ...]:
+        value = cls._collection_value(item, "components") or ()
+        if isinstance(value, str):
+            value = (value,)
+        return tuple(str(part).strip().upper() for part in value if str(part).strip())
+
+    @classmethod
+    def _collection_name(cls, item: Any) -> str:
+        value = cls._collection_value(item, "name")
+        return str(value).strip() if value else str(cls._collection_value(item, "url") or "Task collection")
+
+    @classmethod
+    def _collection_url(cls, item: Any) -> str | None:
+        value = cls._collection_value(item, "url")
+        clean = str(value).strip() if value is not None else ""
+        return clean or None
+
+    def _ensure_default_task_collection(self) -> bool:
+        """Guide first Task creation without inventing another collection system."""
+        settings = getattr(self.ctx, "settings", None)
+        getter = getattr(settings, "get", None)
+        setter = getattr(settings, "set", None)
+        collections = getattr(settings, "caldav_collections", None)
+        if not (callable(getter) and callable(setter) and callable(collections)):
+            return True
+
+        current = getter(CALDAV_TASK_COLLECTION_URL, None)
+        try:
+            discovered = list(collections() or ())
+        except Exception:
+            # Discovery availability must not replace the existing authoritative
+            # create path. If it is temporarily unavailable, let Core report the
+            # real CalDAV result instead of inventing a local failure.
+            return True
+        compatible = [
+            item
+            for item in discovered
+            if "VTODO" in self._collection_components(item) and self._collection_url(item)
+        ]
+        compatible_urls = {
+            self._collection_url(item)
+            for item in compatible
+            if self._collection_url(item)
+        }
+        if current and str(current).strip() in compatible_urls:
+            return True
+        if current:
+            self._show(
+                "The saved default task collection is no longer available. "
+                "Choose a replacement before creating this Task."
+            )
+        if not compatible:
+            self._show(
+                "No compatible VTODO collection is currently available. "
+                "Open settings → CalDAV to check the connection."
+            )
+            return False
+
+        if len(compatible) == 1:
+            selected = compatible[0]
+            setter(CALDAV_TASK_COLLECTION_URL, self._collection_url(selected))
+            self._show(
+                f"✓ Default task collection: {self._collection_name(selected)} "
+                "(the only compatible VTODO collection)."
+            )
+            self._show("Undo later with: settings reset caldav.task_collection_url")
+            return True
+
+        labels = [self._collection_name(item) for item in compatible]
+        selected_label = self._choose(
+            "Choose the default Task collection",
+            labels + ["Not now"],
+        )
+        if selected_label is None or selected_label == "Not now":
+            self._show("Task creation cancelled; no default task collection was changed.")
+            return False
+        selected = compatible[labels.index(selected_label)]
+        setter(CALDAV_TASK_COLLECTION_URL, self._collection_url(selected))
+        self._show(f"✓ Default task collection: {self._collection_name(selected)}")
+
+        decision = self._choose(
+            "Default saved. What next?",
+            ["Continue", "Undo", "Modify settings"],
+        )
+        if decision == "Undo":
+            setter(CALDAV_TASK_COLLECTION_URL, None)
+            self._show("✓ Default task collection restored to Not configured.")
+            return False
+        if decision == "Modify settings":
+            runner = getattr(getattr(self.ctx, "commands", None), "run", None)
+            if callable(runner):
+                runner("settings", "tasks")
+            else:
+                self._show("Open settings → CalDAV → Collection roles.")
+            if not getter(CALDAV_TASK_COLLECTION_URL, None):
+                self._show("Task creation cancelled because no default task collection is configured.")
+                return False
+        return True
+
     def _task_create_fields(self) -> dict[str, Any] | None:
         fields: dict[str, Any] = {}
         timing = self._choose(
@@ -255,6 +364,8 @@ class CrudActions:
                 return None
 
         if kind == "Task":
+            if not self._ensure_default_task_collection():
+                return None
             fields = self._task_create_fields()
             if fields is None:
                 return None
@@ -270,17 +381,73 @@ class CrudActions:
     # ------------------------------------------------------------------
     # Read
     # ------------------------------------------------------------------
-    def tasks(self, *parts: Any) -> None:
+    @staticmethod
+    def _task_is_completed(item: Any) -> bool:
+        return bool(getattr(item, "completed", False)) or str(
+            getattr(item, "status", "") or ""
+        ).strip().upper() == "COMPLETED"
+
+    def _task_view(self, parts: tuple[Any, ...]) -> str:
+        aliases = {"active": "incomplete", "unfinished": "incomplete", "done": "completed"}
+        allowed = {"incomplete", "today", "overdue", "completed", "all"}
+        if len(parts) > 1:
+            raise ValidationError("tasks takes at most one view: incomplete, today, overdue, completed, or all")
         if parts:
-            raise ValidationError("tasks does not take arguments")
-        items = list(self.ctx.tasks.list() or ())
+            view = aliases.get(str(parts[0]).strip().casefold(), str(parts[0]).strip().casefold())
+        else:
+            settings = getattr(self.ctx, "settings", None)
+            getter = getattr(settings, "get", None)
+            configured = getter(TASK_DEFAULT_VIEW, "incomplete") if callable(getter) else "incomplete"
+            view = aliases.get(str(configured).strip().casefold(), str(configured).strip().casefold())
+        if view not in allowed:
+            raise ValidationError("Unknown Task view. Use incomplete, today, overdue, completed, or all")
+        return view
+
+    def _tasks_for_view(self, view: str) -> list[Any]:
+        if view == "all":
+            return list(self.ctx.tasks.list() or ())
+        if view == "completed":
+            return [item for item in (self.ctx.tasks.list() or ()) if self._task_is_completed(item)]
+
+        try:
+            items = list(self.ctx.tasks.list(actionable=True) or ())
+        except TypeError:
+            # Compatibility with older/lightweight TasksAPI doubles. Production v1
+            # accepts filters; keep the CLI graceful without changing list() defaults.
+            items = [
+                item
+                for item in (self.ctx.tasks.list() or ())
+                if not self._task_is_completed(item)
+                and str(getattr(item, "status", "") or "").strip().upper() != "CANCELLED"
+            ]
+        today = datetime.now().astimezone().date()
+        if view == "today":
+            return [item for item in items if task_matches_date(item, today)]
+        if view == "overdue":
+            return [item for item in items if task_is_overdue(item, today)]
+        return items
+
+    def tasks(self, *parts: Any) -> None:
+        view = self._task_view(parts)
+        items = self._tasks_for_view(view)
         self._remember_numbered_items(items)
-        self._show(f"Tasks · {len(items)}")
+        self._show(f"Tasks · {view.title()} · {len(items)}")
         if not items:
             self._show("(none)")
+            if view == "incomplete":
+                history = [
+                    item
+                    for item in (self.ctx.tasks.list() or ())
+                    if self._task_is_completed(item)
+                    or str(getattr(item, "status", "") or "").strip().upper() == "CANCELLED"
+                ]
+                if history:
+                    self._show(f"{len(history)} completed/cancelled Task(s) remain available in history.")
+                self._show("Next: `tasks all` to inspect history, or `add task` to create a Task.")
             return None
         for index, item in enumerate(items, 1):
             self._show(f"{index:>3}. {self._summary(item)}")
+        self._show("Views: `tasks incomplete` · `tasks today` · `tasks overdue` · `tasks completed` · `tasks all`")
         self._show("Numbers are active references for Task commands, e.g. `edit 3`, `start 3`, `done 3`.")
         return None
 
