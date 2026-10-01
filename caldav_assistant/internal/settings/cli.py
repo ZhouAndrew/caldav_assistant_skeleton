@@ -26,6 +26,12 @@ from .keys import (
     EXPERIMENTAL_FAST_QUERY_CACHE,
     EXTENSIONS_ENABLED,
     TASK_DEFAULT_VIEW,
+    WORDPRESS_APPLICATION_PASSWORD,
+    WORDPRESS_APPLICATION_PASSWORD_FILE,
+    WORDPRESS_BASE_URL,
+    WORDPRESS_PATH,
+    WORDPRESS_TRANSPORT,
+    WORDPRESS_USERNAME,
 )
 from .schema import DEFAULT_SETTINGS_SCHEMA, SettingSpec
 
@@ -80,7 +86,7 @@ class SettingsActions:
         ask = getattr(self.ctx.ui, "ask_secret", None)
         if not callable(ask):
             raise ValidationError(
-                "Interactive CalDAV credentials require ctx.ui.ask_secret()"
+                "Interactive secret setup requires ctx.ui.ask_secret()"
             )
         return ask(prompt)
 
@@ -617,6 +623,83 @@ class SettingsActions:
             elif selected == "Clear credentials":
                 self._clear_caldav_credentials()
 
+
+    def _set_wordpress_application_password(self) -> Any:
+        password = self._ask_secret("WordPress Application Password")
+        if password is None:
+            return None
+        clean = str(password).strip()
+        if not clean:
+            raise ValidationError("WordPress Application Password must not be empty")
+        # Never display or return the normalized secret from the CLI surface.
+        self.ctx.settings.set(WORDPRESS_APPLICATION_PASSWORD, clean)
+        self._show("✓ WordPress Application Password configured.")
+        return True
+
+    def _clear_wordpress_application_password(self) -> Any:
+        reset = getattr(self.ctx.settings, "reset", None)
+        if callable(reset):
+            reset(WORDPRESS_APPLICATION_PASSWORD)
+        else:
+            self.ctx.settings.set(WORDPRESS_APPLICATION_PASSWORD, None)
+        self._show("✓ WordPress Application Password cleared.")
+        return True
+
+    def _test_wordpress_connection(self) -> bool:
+        tester = getattr(self.ctx.wordpress, "_test_connection", None)
+        if not callable(tester):
+            raise ValidationError(
+                "WordPress connection test requires the production Runtime bridge"
+            )
+        ok = bool(tester())
+        if not ok:
+            raise ValidationError(
+                "WordPress connection failed with the currently selected transport"
+            )
+        self._show("✓ WordPress connection succeeded.")
+        return True
+
+    def _wordpress_panel(self) -> None:
+        editable_keys = (
+            WORDPRESS_TRANSPORT,
+            WORDPRESS_PATH,
+            WORDPRESS_BASE_URL,
+            WORDPRESS_USERNAME,
+            WORDPRESS_APPLICATION_PASSWORD_FILE,
+        )
+        specs = [self.schema.get(key) for key in editable_keys]
+        while True:
+            labels: list[str] = []
+            mapping: dict[str, SettingSpec] = {}
+            for spec in specs:
+                current = self._get(spec) if spec.public_read else "Hidden"
+                label = f"{spec.label}: {_display_value(current)}"
+                labels.append(label)
+                mapping[label] = spec
+
+            labels.extend(
+                [
+                    "Set/replace Application Password securely",
+                    "Clear stored Application Password",
+                    "Test connection",
+                ]
+            )
+            selected = self._choose("WordPress", labels)
+            if selected is None:
+                return
+            spec = mapping.get(selected)
+            if spec is not None:
+                self._edit_spec(spec)
+                continue
+            if selected == "Set/replace Application Password securely":
+                self._set_wordpress_application_password()
+            elif selected == "Clear stored Application Password":
+                self._clear_wordpress_application_password()
+            elif selected == "Test connection":
+                self._test_wordpress_connection()
+            else:
+                raise ValidationError("Unknown WordPress menu selection")
+
     def _tasks_panel(self) -> None:
         """Small Task-default surface reusing the existing collection-role setting."""
         view_spec = self.schema.get(TASK_DEFAULT_VIEW)
@@ -674,6 +757,8 @@ class SettingsActions:
             self._tasks_panel(); return
         if category == "Notifications":
             self._notifications_panel(); return
+        if category == "WordPress":
+            self._wordpress_panel(); return
         if category == "Commands":
             self._commands_panel(); return
         if category == "Extensions":
@@ -711,7 +796,7 @@ class SettingsActions:
 
     @staticmethod
     def _usage() -> str:
-        return ("settings\nsettings tasks\nsettings categories\nsettings list [CATEGORY]\nsettings get KEY\nsettings set KEY VALUE\nsettings reset KEY\nsettings caldav status|test|collections|roles\nsettings caldav server URL\nsettings caldav credentials\nsettings caldav clear-credentials\nsettings cache status|refresh\nsettings extensions [list|enable|disable|reload|errors|new|guide|path|dev] [NAME] [TEMPLATE]\nsettings commands [COMMAND]")
+        return ("settings\nsettings tasks\nsettings categories\nsettings list [CATEGORY]\nsettings get KEY\nsettings set KEY VALUE\nsettings reset KEY\nsettings caldav status|test|collections|roles\nsettings caldav server URL\nsettings caldav credentials\nsettings caldav clear-credentials\nsettings wordpress [test|application-password|clear-application-password]\nsettings cache status|refresh\nsettings extensions [list|enable|disable|reload|errors|new|guide|path|dev] [NAME] [TEMPLATE]\nsettings commands [COMMAND]")
 
     def list_settings(self, category: str | None = None) -> str:
         items = self.ctx.settings.list(category)
@@ -726,7 +811,7 @@ class SettingsActions:
     def set_setting(self, key: str, value: Any) -> str:
         spec = self.schema.get(key)
         if spec.secret:
-            raise ValidationError("Do not put secrets on the command line; use `settings caldav credentials` interactively.")
+            raise ValidationError("Do not put secrets on the command line; use the dedicated interactive setup flow.")
         normalized = self.ctx.settings.set(spec.key, value)
         return f"✓ {spec.key} = {_display_value(normalized)}"
 
@@ -757,6 +842,23 @@ class SettingsActions:
             return self._set_caldav_credentials()
         if action in {"clear-credentials", "clear-auth"}: return self._clear_caldav_credentials()
         raise ValidationError(f"Unknown CalDAV settings action: {parts[0]}")
+
+
+    def _wordpress_command(self, *parts: Any) -> Any:
+        if not parts:
+            return self._wordpress_panel()
+        if len(parts) != 1:
+            raise ValidationError(
+                "settings wordpress accepts test, application-password, or clear-application-password"
+            )
+        action = str(parts[0]).strip().casefold()
+        if action == "test":
+            return self._test_wordpress_connection()
+        if action in {"application-password", "auth", "credentials"}:
+            return self._set_wordpress_application_password()
+        if action in {"clear-application-password", "clear-auth", "clear-credentials"}:
+            return self._clear_wordpress_application_password()
+        raise ValidationError(f"Unknown WordPress settings action: {parts[0]}")
 
     def _cache_command(self, *parts: Any) -> str:
         if not parts: return self.cache_status_text()
@@ -794,6 +896,7 @@ class SettingsActions:
         action = parts[0].strip().casefold()
         if action in {"help", "?"}: return self._usage()
         if action == "caldav": return self._caldav_command(*parts[1:])
+        if action == "wordpress": return self._wordpress_command(*parts[1:])
         if action == "tasks":
             if len(parts) != 1: raise ValidationError("settings tasks takes no arguments")
             return self._tasks_panel()
