@@ -23,6 +23,11 @@ jobs:
           python -m pip install -e . pytest "radicale==3.5.4" pexpect
       - name: Test
         run: python -m pytest -q
+      - name: CLI Task defaults human-path acceptance
+        shell: bash
+        run: |
+          set -o pipefail
+          python scripts/acceptance_cli_task_defaults.py 2>&1 | tee cli-task-defaults-acceptance-${{ matrix.python-version }}.log
       - name: Real RFC 6578 sync-token acceptance
         shell: bash
         run: |
@@ -123,6 +128,7 @@ jobs:
         with:
           name: conversation-acceptance-${{ matrix.python-version }}
           path: |
+            cli-task-defaults-acceptance-${{ matrix.python-version }}.log
             sync-token-acceptance-${{ matrix.python-version }}.log
             conditional-write-acceptance-${{ matrix.python-version }}.log
             worklog-query-acceptance-${{ matrix.python-version }}.log
