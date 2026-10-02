@@ -174,6 +174,7 @@ def test_python_update_server_sources_compile():
 
 def test_thunderbird_fast_path_uses_local_task_and_work_collections():
     source = (THUNDERBIRD / "assistant.js").read_text(encoding="utf-8")
+    refresh = (THUNDERBIRD / "refresh_core.js").read_text(encoding="utf-8")
     host = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
     experiment = (
         THUNDERBIRD / "experiments" / "assistantCalendar" / "parent.js"
@@ -182,8 +183,9 @@ def test_thunderbird_fast_path_uses_local_task_and_work_collections():
         THUNDERBIRD / "experiments" / "assistantCalendar" / "schema.json"
     ).read_text(encoding="utf-8")
 
-    assert "messenger.assistantCalendar.listTasks()" in source
-    assert "messenger.assistantCalendar.workState()" in source
+    assert "bridge.refreshSnapshot()" in refresh
+    assert "bridge.listTasks()" in refresh
+    assert "bridge.workState()" in refresh
     assert 'host({command: "state"})' not in source
     assert 'host({command: "activity_today"}, 5000)' in source
     assert "onTasksChanged.addListener(scheduleTaskRefresh)" in source
@@ -264,7 +266,7 @@ def test_log_panel_never_remains_indefinitely_loading():
     assert "Promise.allSettled" in source
     assert 'command == "logs_open"' in host
     assert "open_log_folder" in host
-    assert 'command not in {"logs", "logs_clear", "logs_open"}' in host
+    assert 'command not in {"logs", "logs_clear", "logs_open", "client_event"}' in host
 
 
 
@@ -316,7 +318,8 @@ def test_refresh_runtime_has_structured_thunderbird_fallback_contract():
 
     assert '<script src="refresh_core.js"></script>' in html
     assert html.index("refresh_core.js") < html.index("assistant.js")
-    assert "CalDAVAssistantRefresh.resilientRefresh" in source
+    assert "globalThis.CalDAVAssistantRefresh" in source
+    assert "refreshBridge.resilientRefresh" in source
     assert 'fallback: () => host({command: "snapshot"}, 30000)' in source
     assert "刷新失败 · 保留上次数据" in source
     assert "refresh_fallback" in source
