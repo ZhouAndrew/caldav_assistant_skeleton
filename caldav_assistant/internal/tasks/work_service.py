@@ -241,6 +241,64 @@ class CalDAVWorkTaskService(TaskService):
         )
         return ActionResult(True, affected=obj, undo_available=False)
 
+    def _switch_away(self, task: Task | str, *, at: Any = None) -> ActionResult:
+        if not self._worklog_configured():
+            return self._call_with_optional_time(super()._switch_away, task, at)
+
+        obj = self.get(task)
+        task_id = self._require_id(obj)
+        if obj.status != "IN-PROCESS":
+            raise ValidationError(
+                "Only the Task you are working on now can be switched away from"
+            )
+
+        open_snapshot = self._open_work_snapshot()
+        current_id = self._work_call(
+            "current_task_id",
+            snapshot=open_snapshot,
+        )
+        if current_id != task_id:
+            raise ValidationError(
+                "Only the Task you are working on now can be switched away from"
+            )
+
+        closed = self._work_call(
+            "close_segment",
+            obj,
+            at=at,
+            required=True,
+            snapshot=open_snapshot,
+        )
+        try:
+            result = self._update(
+                obj,
+                {
+                    "status": "NEEDS-ACTION",
+                    "completed": False,
+                    "completed_at": None,
+                },
+                activity_action=None,
+                undo=False,
+            )
+        except Exception:
+            try:
+                self.worklog.reopen_segment(closed)
+            except Exception:
+                pass
+            raise
+
+        self._record(
+            "task_switched_away",
+            result.affected,
+            at=at,
+            task_summary=str(getattr(result.affected, "summary", "") or ""),
+            work_segment=self._closed_segment_metadata(closed),
+            work_session_before="current",
+            work_session_after="none",
+            **self._plan_context(obj),
+        )
+        return result
+
     def _resume(self, task: Task | str, *, at: Any = None) -> ActionResult:
         if not self._worklog_configured():
             return self._call_with_optional_time(super()._resume, task, at)

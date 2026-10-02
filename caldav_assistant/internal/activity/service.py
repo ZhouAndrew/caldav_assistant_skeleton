@@ -29,6 +29,7 @@ _TASK_LIFECYCLE_HOOKS = {
     "task_started": "task.started",
     "task_paused": "task.paused",
     "task_resumed": "task.resumed",
+    "task_switched_away": "task.switched_away",
     "task_cancelled": "task.cancelled",
 }
 

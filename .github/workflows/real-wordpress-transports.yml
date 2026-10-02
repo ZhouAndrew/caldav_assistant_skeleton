@@ -39,13 +39,28 @@ jobs:
             -e MARIADB_ROOT_PASSWORD=root \
             mariadb:11.4
 
+          # MariaDB's entrypoint briefly starts a temporary initialization
+          # server and then shuts it down before launching the final server. A
+          # single successful ping can therefore be a false-ready signal. Require
+          # the real wordpress database/user to answer three consecutive probes.
+          stable_db_probes=0
           for i in $(seq 1 120); do
-            if docker exec caldav-wordpress-db mariadb-admin ping -uroot -proot --silent >/dev/null 2>&1; then
-              break
+            if docker exec caldav-wordpress-db \
+              mariadb -uwordpress -pwordpress -D wordpress -e 'SELECT 1' \
+              >/dev/null 2>&1; then
+              stable_db_probes=$((stable_db_probes + 1))
+              if [ "$stable_db_probes" -ge 3 ]; then
+                break
+              fi
+            else
+              stable_db_probes=0
             fi
             sleep 1
           done
-          docker exec caldav-wordpress-db mariadb-admin ping -uroot -proot --silent
+          test "$stable_db_probes" -ge 3
+          docker exec caldav-wordpress-db \
+            mariadb -uwordpress -pwordpress -D wordpress -e 'SELECT 1' \
+            >/dev/null
 
           docker run -d --name caldav-wordpress-web \
             --network caldav-wordpress-test \

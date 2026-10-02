@@ -431,6 +431,74 @@ def _guided_start(
     return "wait" if code == 0 else "console"
 
 
+def _guided_switch(
+    app: Any,
+    current: Any,
+    *,
+    task_choices: Sequence[Task] | None = None,
+) -> str:
+    """Choose and start a different Task without creating paused/resumable state."""
+    current_id = str(getattr(current, "id", "") or "").strip()
+    choices = task_choices
+    if choices is not None:
+        choices = tuple(
+            item
+            for item in choices
+            if str(getattr(item, "id", "") or "").strip() != current_id
+        )
+
+    task = _choose_task_for_work(app, choices)
+    if task is None:
+        return "wait"
+    if str(getattr(task, "id", "") or "").strip() == current_id:
+        _show(app, "That is already the current Task. Choose a different Task to switch.")
+        return "wait"
+
+    seconds = _duration_choice(app)
+    if seconds is False:
+        return "wait"
+
+    _show(app, "")
+    _show(app, "Ready to switch")
+    _show(app, f"Current Task returns to incomplete: {_summary(current)}")
+    _show(app, _period_plan_text(task, seconds))
+    confirm = getattr(app.ctx.ui, "confirm", None)
+    if callable(confirm) and not confirm(
+        "Switch now? The current Task will return to incomplete, not paused.",
+        default=True,
+    ):
+        return "wait"
+
+    switcher = getattr(app.ctx.tasks, "_switch_away", None)
+    if not callable(switcher):
+        raise ValidationError("This client does not support safe Task switching")
+    try:
+        _visible_call(
+            app,
+            "Closing current work and restoring the Task to incomplete…",
+            lambda: switcher(current),
+        )
+    except Exception:
+        # The Core action is authoritative and already prints the concrete failure.
+        # Keep the current screen usable instead of pretending a new Task started.
+        return "console"
+
+    args: tuple[Any, ...]
+    if seconds is None:
+        args = (task,)
+    else:
+        args = (task, f"{int(seconds)}s")
+    parsed = base.ParsedCommand(
+        raw=f"start {_summary(task)}" + (f" {seconds}s" if seconds else ""),
+        name="start",
+        args=args,
+    )
+    code, should_exit = _execute_user(app, parsed, paginate=False)
+    if should_exit:
+        return "exit"
+    return "wait" if code == 0 else "console"
+
+
 def _configure_upcoming(app: Any) -> int | None:
     choose = getattr(app.ctx.ui, "choose", None)
     if not callable(choose):
@@ -625,6 +693,7 @@ def _home_menu(app: Any, snapshot: StartupSnapshot | None) -> str:
     labels: list[str] = []
     if verified and current is not None:
         labels.append(f"Return to Waiting Mode — {_summary(current)}")
+        labels.append("Start another Task")
     else:
         # Human choice is the primary path. Even while a newly restarted background
         # generation is verifying Current Work, selecting a Task is read-only and may
@@ -678,6 +747,12 @@ def _home_menu(app: Any, snapshot: StartupSnapshot | None) -> str:
         return "console"
     if text.startswith("Return to Waiting Mode"):
         return "wait"
+    if text == "Start another Task":
+        return _guided_switch(
+            app,
+            snapshot.current_task,
+            task_choices=snapshot.tasks,
+        )
     if text.startswith("Start recommended Task"):
         return _guided_start(
             app,
@@ -822,6 +897,7 @@ def _wait_interrupt(app: Any, target: legacy.MonitorTarget) -> str:
         (
             "Continue waiting",
             "Pause current Task",
+            "Start another Task",
             "Complete current Task",
             "Open console",
             "Exit client (Task keeps running)",
@@ -829,6 +905,8 @@ def _wait_interrupt(app: Any, target: legacy.MonitorTarget) -> str:
     )
     if selected is None or selected == "Continue waiting":
         return "wait"
+    if selected == "Start another Task":
+        return _guided_switch(app, target.value)
     if selected == "Pause current Task":
         _execute_user(app, base.ParsedCommand(raw="pause", name="pause", args=()), paginate=False)
         return "console"

@@ -101,6 +101,8 @@ class RemoteTasksAPI(_RemoteAPI):
     def start(self, task): return self._call("start", task=task)
     def pause(self, task): return self._call("pause", task=task)
     def resume(self, task): return self._call("resume", task=task)
+    # CLI-internal lifecycle helper: switch is not part of the frozen public TasksAPI.
+    def _switch_away(self, task): return self._call("switch_away", task=task)
     def delete(self, task): return self._call("delete", task=task)
 
 class RemoteEventsAPI(_RemoteAPI):

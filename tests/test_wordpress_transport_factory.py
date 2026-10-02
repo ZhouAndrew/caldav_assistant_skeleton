@@ -37,6 +37,17 @@ def test_auto_preserves_wp_cli_without_complete_rest_credentials():
     assert adapter.wordpress_path == str(Path("/var/www/html/wordpress"))
 
 
+def test_auto_keeps_configured_wp_cli_even_when_rest_credentials_are_complete():
+    adapter = select_wordpress_adapter(Settings({
+        WORDPRESS_PATH: "/var/www/html/wordpress",
+        WORDPRESS_BASE_URL: "https://andrew.local",
+        WORDPRESS_USERNAME: "wp_user",
+        WORDPRESS_APPLICATION_PASSWORD: "wrong-or-unverified-secret",
+    }))
+    assert isinstance(adapter, WPCLIAdapter)
+    assert adapter.wordpress_path == str(Path("/var/www/html/wordpress"))
+
+
 def test_auto_uses_application_password_when_complete():
     adapter = select_wordpress_adapter(Settings({
         WORDPRESS_BASE_URL: "https://andrew.local",
@@ -90,6 +101,10 @@ def test_production_adapter_applies_settings_changes_without_restart():
         WORDPRESS_USERNAME: "wp_user",
         WORDPRESS_APPLICATION_PASSWORD: "secret",
     })
+    # Auto mode must not silently displace an already configured WP-CLI path.
+    assert adapter.transport_name() == "wp-cli"
+
+    values[WORDPRESS_TRANSPORT] = "application-password"
     assert adapter.transport_name() == "application-password"
 
     values[WORDPRESS_TRANSPORT] = "wp-cli"
