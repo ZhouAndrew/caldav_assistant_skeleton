@@ -54,3 +54,19 @@ Remote*API Proxy
 `LibraryCalDAVAdapter`、平台通知 Adapter、IPC Adapter、WordPress transport 都只是实现插槽。
 
 只有上层接口被冻结。若某个库无法满足冻结行为，应替换库，而不是修改 Service/CLI/Public API。
+
+
+## 4. Thunderbird 主力插件版本与仓库归属
+
+Thunderbird 插件有专门的仓库级维护说明：
+
+```text
+THUNDERBIRD_PLUGIN_NOTES.md
+```
+
+必须遵守其中两条硬约束：
+
+- `integrations/thunderbird/manifest.json = 0.1.7` 属于 legacy integration 版本线，
+  **不能据此判断当前 `caldav_assistant_thunderbird` 主力插件版本**；
+- `caldav_assistant_thunderbird` 的 canonical 源码、测试、构建和版本记录必须归属于
+  `ZhouAndrew/caldav_assistant_skeleton` 仓库内部，不能让插件与 Core 分裂成互相漂移的主仓库。
