@@ -896,8 +896,8 @@ def _wait_interrupt(app: Any, target: legacy.MonitorTarget) -> str:
         f"Current Task — {target.summary}",
         (
             "Continue waiting",
-            "Start another Task",
             "Pause current Task",
+            "Start another Task",
             "Complete current Task",
             "Open console",
             "Exit client (Task keeps running)",
