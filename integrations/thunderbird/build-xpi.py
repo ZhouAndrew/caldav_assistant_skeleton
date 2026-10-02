@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
+import sys
 import zipfile
 
 
@@ -29,4 +31,8 @@ with zipfile.ZipFile(TARGET, "w", zipfile.ZIP_DEFLATED) as archive:
     for name in FILES:
         archive.write(ROOT / name, name)
 
+subprocess.run(
+    [sys.executable, str(ROOT / "verify-xpi-identity.py"), str(TARGET)],
+    check=True,
+)
 print(TARGET)
