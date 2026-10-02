@@ -28,7 +28,6 @@ class RuntimeDispatcher:
             "tasks.start": ctx.tasks.start,
             "tasks.pause": ctx.tasks.pause,
             "tasks.resume": ctx.tasks.resume,
-            "tasks.switch_away": ctx.tasks.switch_away,
             "tasks.delete": ctx.tasks.delete,
             "events.list": ctx.events.list,
             "events.find": ctx.events.find,
@@ -58,6 +57,12 @@ class RuntimeDispatcher:
             "settings.describe": ctx.settings.describe,
             "settings.list": ctx.settings.list,
         }
+
+        # Task switching is a CLI-internal lifecycle helper, not a frozen public
+        # TasksAPI requirement. Keep partial test/plugin contexts compatible.
+        switch_away = getattr(ctx.tasks, "switch_away", None)
+        if callable(switch_away):
+            self._routes["tasks.switch_away"] = switch_away
 
         # Startup needs Upcoming + Recommended from the same source read. Keep this
         # as an internal runtime route rather than widening the frozen Public API.
