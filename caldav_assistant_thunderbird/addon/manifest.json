@@ -1,0 +1,58 @@
+{
+  "manifest_version": 2,
+  "name": "CalDAV Assistant Experimental",
+  "description": "Thunderbird-native Task selection and filtering, switch-to-another-Task state restoration, recurring Task-safe actions, visible WordPress settings, detailed connection traces, and verified daily Work Session logging.",
+  "version": "0.3.15",
+  "author": "ZhouAndrew",
+  "background": {
+    "scripts": [
+      "core/storage.js",
+      "core/wordpress.js",
+      "core/daily-log.js",
+      "background.js"
+    ]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "ZhouAndrew.thunderbird-taskfix-lab@addons.thunderbird.net",
+      "strict_min_version": "153.0.2",
+      "strict_max_version": "153.1.*"
+    }
+  },
+  "experiment_apis": {
+    "TaskFix": {
+      "schema": "api/TaskFix/schema.json",
+      "parent": {
+        "scopes": [
+          "addon_parent"
+        ],
+        "paths": [
+          [
+            "TaskFix"
+          ]
+        ],
+        "script": "api/TaskFix/implementation.js",
+        "events": [
+          "startup"
+        ]
+      }
+    },
+    "ThunderbirdCalDAV": {
+      "schema": "api/ThunderbirdCalDAV/schema.json",
+      "parent": {
+        "scopes": [
+          "addon_parent"
+        ],
+        "paths": [
+          [
+            "ThunderbirdCalDAV"
+          ]
+        ],
+        "script": "api/ThunderbirdCalDAV/implementation.js"
+      }
+    }
+  },
+  "permissions": [
+    "storage"
+  ]
+}

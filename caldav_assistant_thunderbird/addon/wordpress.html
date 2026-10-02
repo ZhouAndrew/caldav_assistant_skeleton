@@ -1,0 +1,83 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>CalDAV Assistant · WordPress</title>
+  <link rel="stylesheet" href="workspace.css">
+</head>
+<body>
+<main>
+  <header class="app-header"><h1>WordPress</h1></header>
+  <nav class="tool-nav">
+    <a href="workspace.html">工作</a>
+    <a href="today.html">今天</a>
+    <a href="record.html">记录</a>
+    <a href="logs.html">日志</a>
+    <a class="active" href="wordpress.html">WordPress</a>
+    <a href="tools.html">工具</a>
+  </nav>
+
+  <div class="tool-grid">
+    <section class="card">
+      <h2>WordPress 设置</h2>
+      <div class="form-grid">
+        <label class="checkbox-row">
+          <input id="wp-daily-work-log" type="checkbox">
+          自动把已关闭的 Work Session 写入当天 WordPress 日志
+        </label>
+        <label>连接方式
+          <select id="wp-transport">
+            <option value="auto">自动（优先 REST；网络失败时回退 WP-CLI）</option>
+            <option value="application-password">Application Password / REST</option>
+            <option value="wp-cli">WP-CLI（兼容旧脚本）</option>
+          </select>
+        </label>
+        <label>WordPress URL<input id="wp-url" placeholder="https://andrew.local"></label>
+        <label>WordPress 用户名<input id="wp-user"></label>
+        <label>Application Password<input id="wp-password" type="password"></label>
+        <label class="checkbox-row">
+          <input id="wp-allow-untrusted-tls" type="checkbox">
+          允许本地 HTTPS 忽略证书校验（仅 .local / localhost / 私有 IP）
+        </label>
+        <label>WordPress 本地路径<input id="wp-path" placeholder="/var/www/html/wordpress"></label>
+        <label>WP-CLI 命令 / 包装脚本<input id="wp-cli" placeholder="wp 或 /usr/local/bin/wp"></label>
+        <label>旧 WP-CLI helper 目录<input id="wp-helper-dir" placeholder="~/bin"></label>
+      </div>
+      <div class="tool-actions">
+        <button id="save">保存 WordPress 设置</button>
+        <button id="copy-config">复制当前设置摘要</button>
+      </div>
+      <div id="save-result" class="result-box"></div>
+    </section>
+
+    <section class="card">
+      <h2>当前状态</h2>
+      <pre id="status">正在读取……</pre>
+    </section>
+
+    <section class="card">
+      <h2>连接测试</h2>
+      <p class="muted">不隐藏 fallback：REST 正常尝试、保守重试、WP-CLI 命令、耗时和错误都会直接显示。完整测试会创建临时 Draft Post / Media、回读验证并删除。</p>
+      <div class="tool-actions">
+        <button id="quick">快速测试</button>
+        <button id="full">完整读写测试</button>
+        <button id="copy-result">复制完整结果</button>
+      </div>
+      <div id="test-result" class="result-box">尚未测试。</div>
+    </section>
+
+    <section class="card">
+      <h2>待补写 Outbox</h2>
+      <p id="outbox-status">正在读取……</p>
+      <div class="tool-actions">
+        <button id="retry-outbox">立即重试</button>
+      </div>
+    </section>
+  </div>
+</main>
+<script src="core/storage.js"></script>
+<script src="core/wordpress.js"></script>
+<script src="core/daily-log.js"></script>
+<script src="wordpress.js"></script>
+</body>
+</html>

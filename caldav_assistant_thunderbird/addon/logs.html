@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>CalDAV Assistant · 日志</title>
+  <link rel="stylesheet" href="workspace.css">
+</head>
+<body>
+<main>
+  <header class="app-header"><h1>日志</h1></header>
+  <nav class="tool-nav">
+    <a href="workspace.html">工作</a>
+    <a href="today.html">今天</a>
+    <a href="record.html">记录</a>
+    <a class="active" href="logs.html">日志</a>
+    <a href="wordpress.html">WordPress</a>
+    <a href="tools.html">工具</a>
+  </nav>
+
+  <section class="card">
+    <div class="section-title">
+      <h2>操作日志</h2>
+      <div class="tool-actions">
+        <select id="scope">
+          <option value="">全部类型</option>
+          <option value="workflow">工作</option>
+          <option value="connection">连接</option>
+          <option value="wordpress">WordPress</option>
+          <option value="system">系统</option>
+        </select>
+        <input id="date" type="date" title="留空显示全部日期">
+        <input id="search" type="search" placeholder="搜索">
+        <button id="reload">刷新</button>
+        <button id="copy-visible">复制可见日志</button>
+        <button id="copy-json">复制 JSON</button>
+        <button id="clear">清空当前日期</button>
+      </div>
+    </div>
+    <p class="muted">操作日志在存储层按本地日期分开保存。每个日期都可以单独复制、查看和清空。</p>
+    <div id="clear-confirm" class="inline-confirm" hidden>
+      <strong id="clear-confirm-text">确认清空？</strong>
+      <button id="clear-yes" class="danger">确认清空</button>
+      <button id="clear-no">返回</button>
+    </div>
+    <p id="log-status" class="muted" hidden></p>
+    <div id="logs"></div>
+  </section>
+
+  <section class="card result-box">
+    <div class="section-title">
+      <h2>技术诊断</h2>
+      <div class="tool-actions">
+        <input id="diag-date" type="date">
+        <button id="diag-reload">刷新</button>
+        <button id="diag-copy">复制当天诊断</button>
+        <button id="diag-clear">清空当天诊断</button>
+      </div>
+    </div>
+    <p id="diag-path" class="muted"></p>
+    <pre id="diagnostics">尚无诊断日志。</pre>
+  </section>
+</main>
+<script src="core/storage.js"></script>
+<script src="logs.js"></script>
+</body>
+</html>

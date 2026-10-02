@@ -1,0 +1,24 @@
+[
+  {
+    "namespace": "TaskFix",
+    "description": "Internal bridge for Thunderbird native Tasks integration used by CalDAV Assistant.",
+    "functions": [
+      {
+        "name": "activate",
+        "type": "function",
+        "description": "Activate TaskFix window integration.",
+        "parameters": []
+      },
+      {
+        "name": "getSelectedTasks",
+        "type": "function",
+        "async": true,
+        "description": "Return lightweight references for the Tasks currently selected in Thunderbird's native Tasks UI.",
+        "parameters": [],
+        "returns": {
+          "type": "any"
+        }
+      }
+    ]
+  }
+]

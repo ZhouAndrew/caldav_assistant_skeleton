@@ -1,0 +1,62 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>CalDAV Assistant Experimental</title>
+  <link rel="stylesheet" href="workspace.css">
+</head>
+<body>
+  <main>
+    <header class="app-header">
+      <h1>CalDAV Assistant</h1>
+    </header>
+
+    <nav class="tool-nav" aria-label="CalDAV Assistant">
+      <a class="active" href="workspace.html">工作</a>
+      <a href="today.html">今天</a>
+      <a href="record.html">记录</a>
+      <a href="logs.html">日志</a>
+      <a href="wordpress.html">WordPress</a>
+    <a href="tools.html">工具</a>
+    </nav>
+
+    <div id="notice" class="notice" hidden></div>
+
+    <section class="card current-work-card">
+      <div class="section-title">
+        <h2>当前工作</h2>
+        <a id="task-picker-link" class="button-link" href="task-picker.html">选择 Task</a>
+      </div>
+
+      <div id="no-current" class="empty-state">
+        当前没有正在工作的 Task。
+      </div>
+
+      <div id="current-work" hidden>
+        <h2 id="current-title"></h2>
+        <div id="current-state" class="task-state"></div>
+        <div id="current-due" class="task-secondary"></div>
+
+        <div class="elapsed-block">
+          <span>累计</span>
+          <strong id="current-elapsed">00:00:00</strong>
+        </div>
+
+        <div id="actions" class="action-row"></div>
+
+        <div id="cancel-confirm" class="inline-confirm" hidden>
+          <strong>确定取消这个 Task？</strong>
+          <button id="cancel-confirm-yes" class="danger">确认取消</button>
+          <button id="cancel-confirm-no">返回</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="core/storage.js"></script>
+  <script src="core/wordpress.js"></script>
+  <script src="core/daily-log.js"></script>
+  <script src="core/executor.js"></script>
+  <script src="workspace.js"></script>
+</body>
+</html>
