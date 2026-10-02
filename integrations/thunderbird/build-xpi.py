@@ -18,7 +18,8 @@ FILES = [
     "background.js",
     "assistant.html",
     "assistant.css",
-    "assistant.js",\n    "refresh_core.js",
+    "assistant.js",
+    "refresh_core.js",
     "experiments/assistantCalendar/schema.json",
     "experiments/assistantCalendar/parent.js",
 ]
