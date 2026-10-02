@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from datetime import date, datetime
-from typing import Any, Callable, Protocol
+from typing import Any, Callable
 
 from ...api import Event, Task
 from ...api.v1.errors import (
@@ -22,13 +22,7 @@ from ...api.v1.errors import (
     UnavailableError,
     ValidationError,
 )
-
-
-class BaseURLProvider(Protocol):
-    """Minimal dependency supplied by bootstrap."""
-
-    def get_base_url(self) -> str:
-        ...
+from .transport import BaseURLProvider, CalDAVTransportSession
 
 
 def _credentials(value: Any) -> dict[str, str]:
@@ -333,80 +327,52 @@ class LibraryCalDAVAdapter:
         timeout: float = 10.0,
     ) -> None:
         self._base_url_provider = base_url_provider
-        self.credentials = credentials
-
-        self._client_factory = (
-            client_factory
-            or _default_client_factory
-        )
-
+        self._client_factory = client_factory or _default_client_factory
         self._timeout = timeout
-
-        self._client: Any | None = None
-        self._client_base_url: str | None = None
+        self._transport = CalDAVTransportSession(
+            base_url_provider,
+            credentials,
+            client_factory=self._client_factory,
+            credential_encoder=_credentials,
+            timeout=timeout,
+        )
 
     @property
     def base_url(self) -> str:
         """Always obtain the current URL from ServerDiscovery."""
 
-        return self._base_url_provider.get_base_url()
+        return self._transport.base_url
+
+    @property
+    def credentials(self) -> Any:
+        """Expose the existing credential shape for setup compatibility."""
+
+        return self._transport.credentials
+
+    @credentials.setter
+    def credentials(self, value: Any) -> None:
+        """Apply changed credentials immediately to the transport session."""
+
+        self._transport.credentials = value
 
     def close(self) -> None:
         """Close the cached HTTP session."""
 
-        client = self._client
-
-        self._client = None
-        self._client_base_url = None
-
-        if client is not None:
-            close = getattr(client, "close", None)
-
-            if callable(close):
-                close()
+        self._transport.close()
 
     def _new_client(
         self,
         base_url: str,
         credentials: Any,
     ) -> Any:
-        kwargs: dict[str, Any] = {
-            "url": base_url,
-            "timeout": self._timeout,
+        """Create an explicit one-shot client without disturbing the session."""
 
-            # ServerDiscovery already owns RFC6764/mDNS discovery.
-            "enable_rfc6764": False,
-
-            # Local/legacy CalDAV may legitimately use plain HTTP.
-            # This does NOT disable HTTPS certificate verification.
-            "require_tls": False,
-        }
-
-        kwargs.update(
-            _credentials(credentials)
-        )
-
-        return self._client_factory(**kwargs)
+        return self._transport.new_client(base_url, credentials)
 
     def _client_now(self) -> Any:
-        """Build/rebuild client when resolved Base URL changes."""
+        """Return the reusable client for current URL and credentials."""
 
-        url = self.base_url
-
-        if (
-            self._client is None
-            or self._client_base_url != url
-        ):
-            self.close()
-
-            self._client = self._new_client(
-                url,
-                self.credentials,
-            )
-
-            self._client_base_url = url
-
-        return self._client
+        return self._transport.client()
 
     @staticmethod
     def _collection_info(
