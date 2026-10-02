@@ -20,6 +20,7 @@ fi
 
 VERSION="$("$python3_bin" -c 'import json, pathlib; print(json.loads(pathlib.Path("'"$ROOT"'/integrations/thunderbird/manifest.json").read_text())["version"])')"
 XPI_NAME="caldav-assistant-thunderbird-$VERSION.xpi"
+HANDOFF_XPI_NAME="CALDAV-ASSISTANT-EXPERIMENTAL-$VERSION.xpi"
 
 mkdir -p "$BASE_DIR" "$LIB_DIR" "$BIN_DIR" "$MANIFEST_DIR" "$DESKTOP_DIR" "$LOG_DIR"
 touch "$LOG_PATH"
@@ -101,7 +102,11 @@ cat >"$manifest" <<EOF
 EOF
 
 "$VENV_DIR/bin/python" "$ROOT/integrations/thunderbird/build-xpi.py"
-cp -f "$ROOT/integrations/thunderbird/dist/$XPI_NAME" "$DESKTOP_DIR/$XPI_NAME"
+DIST_XPI="$ROOT/integrations/thunderbird/dist/$XPI_NAME"
+"$VENV_DIR/bin/python" "$ROOT/integrations/thunderbird/verify-xpi-identity.py" "$DIST_XPI"
+rm -f "$DESKTOP_DIR"/CALDAV-ASSISTANT-EXPERIMENTAL-*.xpi
+cp -f "$DIST_XPI" "$DESKTOP_DIR/$HANDOFF_XPI_NAME"
+"$VENV_DIR/bin/python" "$ROOT/integrations/thunderbird/verify-xpi-identity.py" "$DESKTOP_DIR/$HANDOFF_XPI_NAME"
 
 "$VENV_DIR/bin/python" -m py_compile "$LIB_DIR/native_host.py"
 "$VENV_DIR/bin/python" - <<'PY'
@@ -122,7 +127,12 @@ echo "Native Host log:"
 echo "  $LOG_PATH"
 echo "  $BASE_DIR/native-host.log -> $LOG_PATH"
 echo
-echo "XPI ready on Desktop:"
-echo "  $DESKTOP_DIR/$XPI_NAME"
+echo "Correct CalDAV Assistant XPI ready on Desktop:"
+echo "  $DESKTOP_DIR/$HANDOFF_XPI_NAME"
+echo
+echo "The add-on MUST appear as: CalDAV Assistant Experimental"
+echo "Thunderbird TaskFix Lab is a separate add-on; it does not provide the CalDAV Assistant workspace."
+echo "TaskFix may remain installed side-by-side because it uses a different add-on ID."
 echo
 echo "Next: Thunderbird -> Add-ons and Themes -> gear -> Install Add-on From File..."
+echo "Choose exactly: $HANDOFF_XPI_NAME"
