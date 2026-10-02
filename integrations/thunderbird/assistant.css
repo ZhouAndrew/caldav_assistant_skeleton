@@ -286,6 +286,62 @@ textarea { resize: vertical; }
 }
 pre { white-space: pre-wrap; }
 
+.operation-monitor {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+  background: Canvas;
+}
+.operation-monitor-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.operation-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 7px;
+  margin: 0;
+}
+.operation-grid > div {
+  display: grid;
+  grid-template-columns: 7.5em minmax(0, 1fr);
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+}
+.operation-grid dt {
+  font-weight: 650;
+  opacity: .72;
+}
+.operation-grid dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: .92em;
+}
+.operation-history {
+  margin-top: 10px;
+}
+.operation-history summary {
+  cursor: pointer;
+}
+.operation-trace {
+  margin: 9px 0 0;
+  padding-left: 1.5em;
+  max-height: 160px;
+  overflow: auto;
+}
+.operation-trace li {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+.operation-trace .trace-started::marker { content: "→ "; }
+.operation-trace .trace-done::marker { content: "✓ "; }
+.operation-trace .trace-failed::marker { content: "! "; }
+
 #message {
   position: fixed;
   left: 50%;
