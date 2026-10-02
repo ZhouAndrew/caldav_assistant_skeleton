@@ -28,6 +28,7 @@ class RuntimeDispatcher:
             "tasks.start": ctx.tasks.start,
             "tasks.pause": ctx.tasks.pause,
             "tasks.resume": ctx.tasks.resume,
+            "tasks.switch_away": ctx.tasks.switch_away,
             "tasks.delete": ctx.tasks.delete,
             "events.list": ctx.events.list,
             "events.find": ctx.events.find,
