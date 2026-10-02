@@ -32,6 +32,9 @@ jobs:
             tests/test_public_api_freeze_guard.py
           python -m py_compile integrations/thunderbird/native_host.py
           node --version
+          node --check integrations/thunderbird/assistant.js
+          node --check integrations/thunderbird/background.js
+          node --check integrations/thunderbird/experiments/assistantCalendar/parent.js
           for round in 1 2 3; do
             echo "=== Thunderbird refresh simulation round $round ==="
             node integrations/thunderbird/selftest_refresh_core.cjs
