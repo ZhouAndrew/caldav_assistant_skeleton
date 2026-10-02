@@ -33,6 +33,10 @@ if [[ ${#xpis[@]} -ne 1 || ! -f "$ROOT/native_host.py" ]]; then
   exit 1
 fi
 XPI_NAME="$(basename "${xpis[0]}")"
+VERSION="${XPI_NAME#caldav-assistant-thunderbird-}"
+VERSION="${VERSION%.xpi}"
+HANDOFF_XPI_NAME="CALDAV-ASSISTANT-EXPERIMENTAL-$VERSION.xpi"
+"$python3_bin" "$ROOT/verify-xpi-identity.py" "${xpis[0]}"
 
 mkdir -p "$BASE_DIR" "$LIB_DIR" "$BIN_DIR" "$MANIFEST_DIR" "$desktop_dir"
 
@@ -71,7 +75,9 @@ cat >"$manifest" <<EOF
 }
 EOF
 
-cp -f "$ROOT/$XPI_NAME" "$desktop_dir/$XPI_NAME"
+rm -f "$desktop_dir"/CALDAV-ASSISTANT-EXPERIMENTAL-*.xpi
+cp -f "$ROOT/$XPI_NAME" "$desktop_dir/$HANDOFF_XPI_NAME"
+"$python3_bin" "$ROOT/verify-xpi-identity.py" "$desktop_dir/$HANDOFF_XPI_NAME"
 "$VENV_DIR/bin/python" -m py_compile "$LIB_DIR/native_host.py"
 "$VENV_DIR/bin/python" - <<'PY'
 from caldav_assistant.internal.bootstrap import build_service_application
@@ -80,11 +86,15 @@ print("Experimental Core import: OK")
 PY
 
 echo
-echo "Experimental Thunderbird integration installed side-by-side."
+echo "Experimental Native Host installed side-by-side."
 echo "Production caldav-assistant was not replaced."
 echo
-echo "XPI:"
-echo "  $desktop_dir/$XPI_NAME"
+echo "Correct CalDAV Assistant XPI:"
+echo "  $desktop_dir/$HANDOFF_XPI_NAME"
+echo
+echo "The add-on MUST appear as: CalDAV Assistant Experimental"
+echo "Thunderbird TaskFix Lab is a separate add-on and may remain installed side-by-side."
 echo
 echo "Install it in Thunderbird:"
 echo "  Add-ons and Themes -> gear -> Install Add-on From File..."
+echo "  Choose exactly: $HANDOFF_XPI_NAME"

@@ -1,8 +1,8 @@
 {
   "manifest_version": 2,
   "name": "CalDAV Assistant Experimental",
-  "version": "0.1.6",
-  "description": "Thunderbird workspace for CalDAV Assistant work sessions and WordPress logs.",
+  "version": "0.1.7",
+  "description": "CalDAV/Radicale task workspace for Start, Pause, Cancel, Complete, work sessions, diagnostics and WordPress logging.",
   "background": {
     "scripts": [
       "background.js"

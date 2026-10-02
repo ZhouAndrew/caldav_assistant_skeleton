@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import threading
 
 from caldav_assistant.api import Event, Task
 from caldav_assistant.internal.activity import ActivityService
 from caldav_assistant.internal.tasks.service import TaskService
+from caldav_assistant.internal.tasks.work_service import CalDAVWorkTaskService
 from caldav_assistant.internal.worklog import WorkLogService
 
 
@@ -197,3 +199,64 @@ def test_references_are_read_and_written_in_the_work_history_collection():
             ],
         }
     ]
+
+
+class _ParallelReadTaskAdapter(TaskAdapter):
+    def __init__(self, task, task_started, work_started):
+        super().__init__(task)
+        self.task_started = task_started
+        self.work_started = work_started
+
+    def get_task(self, task_id):
+        self.task_started.set()
+        if not self.work_started.wait(timeout=1.0):
+            raise AssertionError("Work preflight did not start concurrently with Task read")
+        return super().get_task(task_id)
+
+
+class _ParallelReadWorkLog:
+    def __init__(self, task_id, task_started, work_started):
+        self.task_id = task_id
+        self.task_started = task_started
+        self.work_started = work_started
+        self.closed = Event(
+            id="work-event-1",
+            summary="Work",
+            start=datetime(2026, 9, 27, 9, 0, tzinfo=timezone.utc),
+            end=None,
+            categories=[WorkLogService.CATEGORY, WorkLogService.OPEN_CATEGORY],
+        )
+
+    def configured(self):
+        return True
+
+    def open_snapshot(self):
+        self.work_started.set()
+        if not self.task_started.wait(timeout=1.0):
+            raise AssertionError("Task read did not start concurrently with Work preflight")
+        return (self.closed,)
+
+    def current_task_id(self, *, snapshot=None):
+        return self.task_id
+
+    def close_segment(self, task, *, at=None, required=True, snapshot=None):
+        self.closed.end = at
+        self.closed.categories = [WorkLogService.CATEGORY]
+        return self.closed
+
+
+def test_pause_reads_task_and_open_work_state_concurrently():
+    task_started = threading.Event()
+    work_started = threading.Event()
+    task = Task(id="task-1", summary="Parallel preflight", status="IN-PROCESS")
+    adapter = _ParallelReadTaskAdapter(task, task_started, work_started)
+    worklog = _ParallelReadWorkLog(task.id, task_started, work_started)
+    service = CalDAVWorkTaskService(adapter, worklog=worklog)
+    at = datetime(2026, 9, 27, 12, 0, tzinfo=timezone.utc)
+
+    result = service._pause(task.id, at=at)
+
+    assert result.success is True
+    assert worklog.closed.end == at
+    assert task_started.is_set()
+    assert work_started.is_set()

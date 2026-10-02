@@ -43,9 +43,10 @@ HOME="$home" XDG_DESKTOP_DIR="$home/Desktop" bash "$bundle_dir/install.sh"
 cmp "$tmp/original-manifest.json"   "$home/.local/share/caldav-assistant-thunderbird-experimental/native-host-manifest.backup.json"
 
 launcher="$home/.local/bin/caldav-assistant-thunderbird-host-experimental"
-xpi="$home/Desktop/caldav-assistant-thunderbird-$VERSION.xpi"
+xpi="$home/Desktop/CALDAV-ASSISTANT-EXPERIMENTAL-$VERSION.xpi"
 [[ -x "$launcher" ]]
 [[ -f "$xpi" ]]
+python3 "$bundle_dir/verify-xpi-identity.py" "$xpi"
 grep -Fq '"path": "'"$launcher"'"' "$manifest"
 
 HOME="$home" "$home/.local/share/caldav-assistant-thunderbird-experimental/venv/bin/python" - "$launcher" <<'PY'

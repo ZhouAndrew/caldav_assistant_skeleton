@@ -17,6 +17,8 @@ def test_manifest_declares_native_messaging_and_stable_extension_id():
     manifest = json.loads((THUNDERBIRD / "manifest.json").read_text(encoding="utf-8"))
 
     assert manifest["manifest_version"] == 2
+    assert manifest["name"] == "CalDAV Assistant Experimental"
+    assert "CalDAV/Radicale task workspace" in manifest["description"]
     assert "nativeMessaging" in manifest["permissions"]
     gecko = manifest["browser_specific_settings"]["gecko"]
     assert gecko["id"] == "caldav-assistant-experimental@zhouandrew.local"
@@ -77,6 +79,9 @@ def test_experimental_installer_uses_its_own_venv_and_does_not_replace_cli():
     assert "command -v caldav-assistant" not in source
     assert "build_service_application()" not in source
     assert "Production caldav-assistant was not replaced." in source
+    assert "CALDAV-ASSISTANT-EXPERIMENTAL-" in source
+    assert "Thunderbird TaskFix Lab is a separate add-on" in source
+    assert "verify-xpi-identity.py" in source
 
 
 def test_space_uses_persistent_native_port_and_chunked_attachments():
@@ -89,8 +94,11 @@ def test_space_uses_persistent_native_port_and_chunked_attachments():
     assert 'command: "attachment_finish"' in source
 
 
-def test_native_host_has_chunk_lifecycle_and_retries_outbox_on_open():
+def test_native_host_has_chunk_lifecycle_and_leaves_outbox_delivery_to_background():
     source = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
+    service = (
+        ROOT / "caldav_assistant" / "internal" / "runtime" / "service.py"
+    ).read_text(encoding="utf-8")
     for name in (
         "attachment_begin",
         "attachment_chunk",
@@ -98,7 +106,9 @@ def test_native_host_has_chunk_lifecycle_and_retries_outbox_on_open():
         "attachment_abort",
     ):
         assert f"def {name}(" in source
-    assert 'core_call("wordpress.flush")' in source
+    assert 'core_call("wordpress.flush")' not in source
+    assert '"delivery_owner": "background-service"' in source
+    assert 'getattr(self.wordpress, "flush", None)' in service
 
 
 def test_thunderbird_picker_reuses_core_actionable_semantics_and_state_actions():
@@ -169,6 +179,7 @@ def test_python_update_server_sources_compile():
         THUNDERBIRD / "update-server" / "verify.py",
         THUNDERBIRD / "update-server" / "selftest.py",
         THUNDERBIRD / "verify-installed-native-host.py",
+        THUNDERBIRD / "verify-xpi-identity.py",
     ):
         py_compile.compile(str(path), doraise=True)
 
@@ -221,8 +232,9 @@ def test_thunderbird_visible_logs_are_copyable_and_record_request_timings():
     assert 'command: "logs_clear"' in source
     assert "native-host.log" in host
     assert '"task_action_ms"' in host
-    assert '"wordpress_flush_ms"' in host
+    assert '"history_guard_ms"' in host
     assert '"calendar_link_ms"' in host
+    assert '"wordpress_flush_ms"' not in host
 
 
 def test_update_feed_prunes_stale_generated_xpis():
@@ -304,6 +316,92 @@ def test_explicit_resume_avoids_paused_state_network_probe():
     action_source = host[action_start:note_start]
     assert 'action_name == "resume"' in action_source
     assert "session.paused_task_ids()" not in action_source
+
+
+def test_task_action_does_not_wait_for_wordpress_transport_or_calendar_backlink():
+    host = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
+    action_start = host.index("def action(")
+    sync_start = host.index("def wordpress_sync(", action_start)
+    action_source = host[action_start:sync_start]
+
+    assert 'core_call("wordpress.flush")' not in action_source
+    assert "link_event(" not in action_source
+    assert '"command": "wordpress_sync"' in action_source
+    assert "latest_activity_work_event_id(task_id)" in action_source
+    assert "Work log saved to the durable WordPress Outbox" in action_source
+
+
+def test_wordpress_follow_up_uses_a_separate_native_host_lane():
+    source = (THUNDERBIRD / "assistant.js").read_text(encoding="utf-8")
+    host = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
+
+    assert "let integrationPort = null;" in source
+    assert "function integrationHost(" in source
+    assert "runWordpressFollowUp(response.follow_up, operationId)" in source
+    assert "wordpress_sync" in host
+    assert '"delivery_owner": "background-service"' in host
+    assert 'core_call("wordpress.flush")' not in host
+
+
+def test_native_host_request_latency_excludes_idle_time_between_messages():
+    host = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
+    main_start = host.index("def main()")
+    main_source = host[main_start:]
+    read_pos = main_source.index("message = read_message()")
+    timer_pos = main_source.index("started = time.perf_counter()", read_pos)
+    assert read_pos < timer_pos
+    assert "Idle time between requests is not request latency." in main_source
+
+
+def test_thunderbird_streams_real_core_progress_and_exposes_wait_reason():
+    html = (THUNDERBIRD / "assistant.html").read_text(encoding="utf-8")
+    source = (THUNDERBIRD / "assistant.js").read_text(encoding="utf-8")
+    host = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
+
+    for element_id in (
+        "operation-doing",
+        "operation-peer",
+        "operation-sent",
+        "operation-waiting",
+        "operation-received",
+        "operation-next",
+        "operation-trace",
+    ):
+        assert f'id="{element_id}"' in html
+
+    assert 'result?.kind === "progress"' in source
+    assert "renderCoreProgress(progress, operationId)" in source
+    assert "等待 Radicale 返回 VTODO 更新确认" in source
+    assert "后台 Assistant Service 负责发送与重试" in source
+    assert "bind_progress_sink(progress_sink)" in host
+    assert "with operation_scope(operation_id):" in host
+    assert '"kind": "progress"' in host
+
+
+def test_wordpress_notes_are_durable_before_network_upload():
+    host = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
+    note_start = host.index("def note(")
+    next_start = host.index("def _attachment_store(", note_start)
+    note_source = host[note_start:next_start]
+
+    assert ".queue_log(" in note_source
+    assert ".wordpress.log(" not in note_source
+    assert '"command": "wordpress_sync"' in note_source
+    assert "Saved to WordPress Outbox" in note_source
+
+
+def test_xpi_handoff_verifier_rejects_wrong_identity_and_checks_workspace():
+    verifier = (THUNDERBIRD / "verify-xpi-identity.py").read_text(encoding="utf-8")
+    bundle = (THUNDERBIRD / "build-experimental-bundle.py").read_text(encoding="utf-8")
+    installer = (THUNDERBIRD / "install-bundle.sh").read_text(encoding="utf-8")
+
+    assert 'EXPECTED_NAME = "CalDAV Assistant Experimental"' in verifier
+    assert 'EXPECTED_ID = "caldav-assistant-experimental@zhouandrew.local"' in verifier
+    assert '"messenger.spaces.create"' in verifier
+    assert 'data-tab="{tab}"' in verifier
+    assert 'id="action-{action}"' in verifier
+    assert '"verify-xpi-identity.py": "verify-xpi-identity.py"' in bundle
+    assert "CALDAV-ASSISTANT-EXPERIMENTAL-" in installer
 
 
 def test_refresh_runtime_has_structured_thunderbird_fallback_contract():
