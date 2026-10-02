@@ -50,6 +50,7 @@ def test_xpi_contains_only_extension_runtime_files(tmp_path, monkeypatch):
         "assistant.html",
         "assistant.css",
         "assistant.js",
+        "refresh_core.js",
         "experiments/assistantCalendar/schema.json",
         "experiments/assistantCalendar/parent.js",
     }
