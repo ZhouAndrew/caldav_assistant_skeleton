@@ -1,0 +1,37 @@
+name: caldav-assistant-thunderbird-real-wordpress
+
+on:
+  pull_request:
+    paths:
+      - "caldav_assistant_thunderbird/**"
+  push:
+    branches: [main]
+    paths:
+      - "caldav_assistant_thunderbird/**"
+
+jobs:
+  real-wordpress:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: caldav_assistant_thunderbird
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install acceptance dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xdotool openbox libnss3-tools
+      - name: Real Thunderbird + real WordPress acceptance
+        env:
+          ACCEPTANCE_ARTIFACT_DIR: ${{ github.workspace }}/caldav_assistant_thunderbird/acceptance-artifacts/wordpress
+        run: |
+          chmod +x tests/real-thunderbird-wordpress.sh
+          tests/real-thunderbird-wordpress.sh 153.1.0esr
+      - name: Upload acceptance artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: caldav-assistant-thunderbird-wordpress
+          path: caldav_assistant_thunderbird/acceptance-artifacts/wordpress
+          if-no-files-found: warn

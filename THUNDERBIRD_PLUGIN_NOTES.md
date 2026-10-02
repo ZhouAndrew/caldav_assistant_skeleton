@@ -93,3 +93,21 @@ CLI 不是判断 Thunderbird 插件版本的来源，也不应重新成为普通
 - 插件与 Core 的 human-path / interactive acceptance 是否一起通过。
 
 这条规则的目的不是冻结具体实现，而是防止**版本线和产品线识别错误**。
+
+
+## 5. Canonical source 已归位
+
+截至 2026-10-02，当前主力插件 **CalDAV Assistant Experimental 0.3.15**
+已经归位到本仓库：
+
+```text
+caldav_assistant_thunderbird/
+```
+
+迁移来源是先前开发仓库 `ZhouAndrew/thunderbird-taskfix` 的
+`fix/caldav-assistant-switch-restore-incomplete-0.3.15`，
+已测试 head 为 `81ba6042271e31857c46a50aadeec67bf82267cd`。
+
+从此以后，Thunderbird 主力插件的新版本应从
+`caldav_assistant_skeleton/caldav_assistant_thunderbird/addon/manifest.json`
+判断和发布。旧 `integrations/thunderbird/` 继续视为 legacy。

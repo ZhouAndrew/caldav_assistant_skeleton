@@ -1,0 +1,44 @@
+name: caldav-assistant-thunderbird-real-caldav
+
+on:
+  pull_request:
+    paths:
+      - "caldav_assistant_thunderbird/**"
+  push:
+    branches: [main]
+    paths:
+      - "caldav_assistant_thunderbird/**"
+
+jobs:
+  real-thunderbird:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        thunderbird: ["153.0.2esr", "153.1.0esr", "153.1.1esr"]
+        timezone: ["UTC", "Asia/Shanghai"]
+    defaults:
+      run:
+        working-directory: caldav_assistant_thunderbird
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install acceptance dependencies
+        run: |
+          python3 -m pip install --user "radicale==3.5.4"
+          if ! command -v xvfb-run >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y xvfb
+          fi
+      - name: Real Thunderbird + real Radicale acceptance
+        env:
+          ACCEPTANCE_ARTIFACT_DIR: ${{ github.workspace }}/caldav_assistant_thunderbird/acceptance-artifacts/${{ matrix.thunderbird }}-${{ matrix.timezone == 'Asia/Shanghai' && 'Asia-Shanghai' || matrix.timezone }}
+        run: |
+          chmod +x tests/real-thunderbird-caldav.sh
+          tests/real-thunderbird-caldav.sh "${{ matrix.thunderbird }}" "${{ matrix.timezone }}"
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: caldav-assistant-thunderbird-diagnostics-${{ matrix.thunderbird }}-${{ matrix.timezone == 'Asia/Shanghai' && 'Asia-Shanghai' || matrix.timezone }}
+          path: caldav_assistant_thunderbird/acceptance-artifacts/${{ matrix.thunderbird }}-${{ matrix.timezone == 'Asia/Shanghai' && 'Asia-Shanghai' || matrix.timezone }}
+          if-no-files-found: warn

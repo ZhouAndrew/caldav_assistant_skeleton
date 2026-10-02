@@ -1,0 +1,56 @@
+name: caldav-assistant-thunderbird-selftest
+
+on:
+  push:
+    paths:
+      - "caldav_assistant_thunderbird/**"
+      - ".github/workflows/caldav-assistant-thunderbird-selftest.yml"
+  pull_request:
+    paths:
+      - "caldav_assistant_thunderbird/**"
+      - ".github/workflows/caldav-assistant-thunderbird-selftest.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: caldav_assistant_thunderbird
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax and behavior
+        run: |
+          node --check addon/content/taskfix-window.js
+          node --check addon/api/TaskFix/implementation.js
+          node --check addon/api/ThunderbirdCalDAV/implementation.js
+          node --check addon/background.js
+          node --check addon/core/storage.js
+          node --check addon/core/executor.js
+          node --check addon/core/connection.js
+          node --check addon/core/wordpress.js
+          node --check addon/core/daily-log.js
+          node --check addon/workspace.js
+          node --check addon/task-picker.js
+          node --check addon/logs.js
+          node --check addon/tools.js
+          node --check addon/wordpress.js
+          node --check addon/record.js
+          node --check addon/today.js
+          node tests/taskfix-addon-harness.js
+          node tests/direct-caldav-api-harness.js
+          node tests/workflow-harness.js
+          node tests/connection-harness.js
+          node tests/wordpress-connector-harness.js
+          node tests/daily-log-harness.js
+          bash -n tests/real-thunderbird-caldav.sh
+          bash -n tests/real-thunderbird-wordpress.sh
+      - name: Build and verify XPI
+        run: |
+          chmod +x packaging/build-xpi.sh
+          packaging/build-xpi.sh /tmp/caldav-assistant-experimental-0.3.15.xpi
+          python3 tests/check-xpi.py /tmp/caldav-assistant-experimental-0.3.15.xpi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: caldav-assistant-experimental-0.3.15
+          path: /tmp/caldav-assistant-experimental-0.3.15.xpi
+          if-no-files-found: error
