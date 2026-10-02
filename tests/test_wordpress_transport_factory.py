@@ -101,6 +101,10 @@ def test_production_adapter_applies_settings_changes_without_restart():
         WORDPRESS_USERNAME: "wp_user",
         WORDPRESS_APPLICATION_PASSWORD: "secret",
     })
+    # Auto mode must not silently displace an already configured WP-CLI path.
+    assert adapter.transport_name() == "wp-cli"
+
+    values[WORDPRESS_TRANSPORT] = "application-password"
     assert adapter.transport_name() == "application-password"
 
     values[WORDPRESS_TRANSPORT] = "wp-cli"
