@@ -49,6 +49,15 @@ def select_wordpress_adapter(settings: Any):
     if mode == "wp-cli":
         return WPCLIAdapter(settings.get(WORDPRESS_PATH, None))
 
+    wordpress_path = settings.get(WORDPRESS_PATH, None)
+
+    # Compatibility rule for auto mode: a configured local WordPress path means
+    # this installation already has an intentional WP-CLI route. Merely saving
+    # REST credentials must not silently replace that known-good transport.
+    # Users can still opt into REST explicitly with application-password.
+    if isinstance(wordpress_path, str) and wordpress_path.strip():
+        return WPCLIAdapter(wordpress_path)
+
     if (
         isinstance(base_url, str)
         and base_url.strip()
@@ -62,7 +71,7 @@ def select_wordpress_adapter(settings: Any):
             application_password,
         )
 
-    return WPCLIAdapter(settings.get(WORDPRESS_PATH, None))
+    return WPCLIAdapter(wordpress_path)
 
 
 class ConfiguredWordPressAdapter:
@@ -112,8 +121,10 @@ class ConfiguredWordPressAdapter:
 def build_wordpress_adapter(settings: Any) -> ConfiguredWordPressAdapter:
     """Build the production settings-backed adapter.
 
-    Auto mode preserves existing installations: REST is selected only when a complete
-    Application Password configuration is present; otherwise WP-CLI remains active.
+    Auto mode preserves existing installations: a configured WordPress path keeps
+    WP-CLI active even if REST credentials are later saved. REST is auto-selected only
+    when no configured WP-CLI path exists and complete Application Password settings
+    are present. Explicit transport selection always wins.
     """
     return ConfiguredWordPressAdapter(settings)
 
