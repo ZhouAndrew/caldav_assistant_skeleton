@@ -301,3 +301,45 @@ def test_explicit_resume_avoids_paused_state_network_probe():
     action_source = host[action_start:note_start]
     assert 'action_name == "resume"' in action_source
     assert "session.paused_task_ids()" not in action_source
+
+
+def test_refresh_runtime_has_structured_thunderbird_fallback_contract():
+    html = (THUNDERBIRD / "assistant.html").read_text(encoding="utf-8")
+    source = (THUNDERBIRD / "assistant.js").read_text(encoding="utf-8")
+    refresh = (THUNDERBIRD / "refresh_core.js").read_text(encoding="utf-8")
+    experiment = (
+        THUNDERBIRD / "experiments" / "assistantCalendar" / "parent.js"
+    ).read_text(encoding="utf-8")
+    schema = (
+        THUNDERBIRD / "experiments" / "assistantCalendar" / "schema.json"
+    ).read_text(encoding="utf-8")
+
+    assert '<script src="refresh_core.js"></script>' in html
+    assert html.index("refresh_core.js") < html.index("assistant.js")
+    assert "CalDAVAssistantRefresh.resilientRefresh" in source
+    assert 'fallback: () => host({command: "snapshot"}, 30000)' in source
+    assert "刷新失败 · 保留上次数据" in source
+    assert "refresh_fallback" in source
+    assert "refresh_failed" in source
+    assert "Thunderbird local refresh call failed" in refresh
+    assert "timed out after" in refresh
+    assert "Refresh failed. Thunderbird local:" in refresh
+    assert '"name": "refreshSnapshot"' in schema
+    assert "async refreshSnapshot()" in experiment
+    assert "buildRefreshSnapshot" in experiment
+    assert "getItemsAsArray" in experiment
+    assert "getReader" in experiment
+    assert "manual refresh remains usable" in experiment
+
+
+def test_refresh_diagnostics_are_saved_without_becoming_a_dependency():
+    source = (THUNDERBIRD / "assistant.js").read_text(encoding="utf-8")
+    host = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
+
+    assert "async function recordClientEvent" in source
+    assert 'command: "client_event"' in source
+    assert "Diagnostics must never become a dependency" in source
+    assert "def client_event(" in host
+    assert 'if command == "client_event":' in host
+    assert '"client_event"' in host
+    assert '{"logs", "logs_clear", "logs_open", "client_event"}' in host
