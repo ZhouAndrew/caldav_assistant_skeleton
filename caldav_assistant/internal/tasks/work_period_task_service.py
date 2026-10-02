@@ -101,6 +101,12 @@ class WorkPeriodAwareTaskService(CompletionLoggingTaskService):
         self._cancel_work_period(result.affected, reason="task_paused")
         return result
 
+    def _switch_away(self, task: Any, *, at: Any = None):
+        result = super()._switch_away(task, at=at)
+        self._update_session_snapshot("forget", result.affected)
+        self._cancel_work_period(result.affected, reason="task_switched_away")
+        return result
+
     def _resume(self, task: Any, *, at: Any = None):
         result = super()._resume(task, at=at)
         self._update_session_snapshot("set_current", result.affected)
