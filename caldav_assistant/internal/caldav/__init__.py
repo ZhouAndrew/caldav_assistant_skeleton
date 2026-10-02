@@ -1,10 +1,11 @@
 from .adapter import CalDAVAdapter
-from .library_adapter import BaseURLProvider, LibraryCalDAVAdapter
+from .library_adapter import LibraryCalDAVAdapter
 from .optimized_cache import ExperimentalCacheCalDAVAdapter
 from .optimized_routing import CollectionRoutingCalDAVAdapter
 from .ready_fallback import OfflineFallbackCalDAVAdapter
 from .ready_sync import SyncEngine
 from .setup import CalDAVSetupService
+from .transport import BaseURLProvider, CalDAVTransportSession
 
 __all__ = [
     "CalDAVAdapter",
@@ -13,6 +14,7 @@ __all__ = [
     "ExperimentalCacheCalDAVAdapter",
     "OfflineFallbackCalDAVAdapter",
     "BaseURLProvider",
+    "CalDAVTransportSession",
     "SyncEngine",
     "CalDAVSetupService",
 ]
