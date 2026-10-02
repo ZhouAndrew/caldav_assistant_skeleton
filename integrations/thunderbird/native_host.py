@@ -529,6 +529,32 @@ def attachment(message: dict[str, Any]) -> dict[str, Any]:
         raise
 
 
+
+def client_event(message: dict[str, Any]) -> dict[str, Any]:
+    """Persist a small WebExtension-side diagnostic without touching Core state."""
+    name = str(message.get("name") or "client").strip()[:80]
+    detail = str(message.get("detail") or "").strip()[:4000]
+    source = str(message.get("source") or "").strip()[:120]
+    try:
+        elapsed_ms = round(float(message.get("elapsed_ms") or 0), 1)
+    except (TypeError, ValueError):
+        elapsed_ms = 0.0
+    diagnostics = message.get("diagnostics")
+    if diagnostics is not None and not isinstance(
+        diagnostics, (dict, list, str, int, float, bool)
+    ):
+        diagnostics = str(diagnostics)
+    log_event(
+        "client_event",
+        name=name,
+        detail=detail,
+        source=source,
+        elapsed_ms=elapsed_ms,
+        diagnostics=diagnostics,
+    )
+    return {"ok": True, "logged": True}
+
+
 def dispatch(message: dict[str, Any]) -> dict[str, Any]:
     command = str(message.get("command") or "")
     if command == "state":
@@ -551,6 +577,8 @@ def dispatch(message: dict[str, Any]) -> dict[str, Any]:
         return attachment_abort(message)
     if command == "attachment":
         return attachment(message)
+    if command == "client_event":
+        return client_event(message)
     if command == "logs":
         return {
             "ok": True,
@@ -592,7 +620,7 @@ def main() -> int:
                 if isinstance(timings, dict):
                     timings.setdefault("host_total_ms", total_ms)
 
-            if command not in {"logs", "logs_clear", "logs_open"}:
+            if command not in {"logs", "logs_clear", "logs_open", "client_event"}:
                 log_event(
                     "request",
                     command=command,

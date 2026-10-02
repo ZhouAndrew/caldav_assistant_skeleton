@@ -3,6 +3,13 @@
     "namespace": "assistantCalendar",
     "functions": [
       {
+        "name": "refreshSnapshot",
+        "type": "function",
+        "async": true,
+        "description": "Read Tasks and CalDAV Assistant work-session facts in one structured Thunderbird-local snapshot with diagnostic fallback information.",
+        "parameters": []
+      },
+      {
         "name": "listTasks",
         "type": "function",
         "async": true,

@@ -50,6 +50,7 @@ def test_xpi_contains_only_extension_runtime_files(tmp_path, monkeypatch):
         "assistant.html",
         "assistant.css",
         "assistant.js",
+        "refresh_core.js",
         "experiments/assistantCalendar/schema.json",
         "experiments/assistantCalendar/parent.js",
     }
@@ -174,6 +175,7 @@ def test_python_update_server_sources_compile():
 
 def test_thunderbird_fast_path_uses_local_task_and_work_collections():
     source = (THUNDERBIRD / "assistant.js").read_text(encoding="utf-8")
+    refresh = (THUNDERBIRD / "refresh_core.js").read_text(encoding="utf-8")
     host = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
     experiment = (
         THUNDERBIRD / "experiments" / "assistantCalendar" / "parent.js"
@@ -182,8 +184,9 @@ def test_thunderbird_fast_path_uses_local_task_and_work_collections():
         THUNDERBIRD / "experiments" / "assistantCalendar" / "schema.json"
     ).read_text(encoding="utf-8")
 
-    assert "messenger.assistantCalendar.listTasks()" in source
-    assert "messenger.assistantCalendar.workState()" in source
+    assert "bridge.refreshSnapshot()" in refresh
+    assert "bridge.listTasks()" in refresh
+    assert "bridge.workState()" in refresh
     assert 'host({command: "state"})' not in source
     assert 'host({command: "activity_today"}, 5000)' in source
     assert "onTasksChanged.addListener(scheduleTaskRefresh)" in source
@@ -264,7 +267,7 @@ def test_log_panel_never_remains_indefinitely_loading():
     assert "Promise.allSettled" in source
     assert 'command == "logs_open"' in host
     assert "open_log_folder" in host
-    assert 'command not in {"logs", "logs_clear", "logs_open"}' in host
+    assert 'command not in {"logs", "logs_clear", "logs_open", "client_event"}' in host
 
 
 
@@ -301,3 +304,46 @@ def test_explicit_resume_avoids_paused_state_network_probe():
     action_source = host[action_start:note_start]
     assert 'action_name == "resume"' in action_source
     assert "session.paused_task_ids()" not in action_source
+
+
+def test_refresh_runtime_has_structured_thunderbird_fallback_contract():
+    html = (THUNDERBIRD / "assistant.html").read_text(encoding="utf-8")
+    source = (THUNDERBIRD / "assistant.js").read_text(encoding="utf-8")
+    refresh = (THUNDERBIRD / "refresh_core.js").read_text(encoding="utf-8")
+    experiment = (
+        THUNDERBIRD / "experiments" / "assistantCalendar" / "parent.js"
+    ).read_text(encoding="utf-8")
+    schema = (
+        THUNDERBIRD / "experiments" / "assistantCalendar" / "schema.json"
+    ).read_text(encoding="utf-8")
+
+    assert '<script src="refresh_core.js"></script>' in html
+    assert html.index("refresh_core.js") < html.index("assistant.js")
+    assert "globalThis.CalDAVAssistantRefresh" in source
+    assert "refreshBridge.resilientRefresh" in source
+    assert 'fallback: () => host({command: "snapshot"}, 30000)' in source
+    assert "刷新失败 · 保留上次数据" in source
+    assert "refresh_fallback" in source
+    assert "refresh_failed" in source
+    assert "Thunderbird local refresh call failed" in refresh
+    assert "timed out after" in refresh
+    assert "Refresh failed. Thunderbird local:" in refresh
+    assert '"name": "refreshSnapshot"' in schema
+    assert "async refreshSnapshot()" in experiment
+    assert "buildRefreshSnapshot" in experiment
+    assert "getItemsAsArray" in experiment
+    assert "getReader" in experiment
+    assert "manual refresh remains usable" in experiment
+
+
+def test_refresh_diagnostics_are_saved_without_becoming_a_dependency():
+    source = (THUNDERBIRD / "assistant.js").read_text(encoding="utf-8")
+    host = (THUNDERBIRD / "native_host.py").read_text(encoding="utf-8")
+
+    assert "async function recordClientEvent" in source
+    assert 'command: "client_event"' in source
+    assert "Diagnostics must never become a dependency" in source
+    assert "def client_event(" in host
+    assert 'if command == "client_event":' in host
+    assert '"client_event"' in host
+    assert '{"logs", "logs_clear", "logs_open", "client_event"}' in host
