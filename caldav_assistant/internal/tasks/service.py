@@ -359,6 +359,10 @@ class TaskService:
     def resume(self, task: Task | str) -> ActionResult:
         return self._resume(task)
 
+    def switch_away(self, task: Task | str) -> ActionResult:
+        """Stop current work without turning the Task into resumable paused work."""
+        return self._switch_away(task)
+
     def _complete(self, task: Task | str, *, at: datetime | None = None) -> ActionResult:
         obj = self.get(task)
         task_id = self._require_id(obj)
@@ -451,6 +455,53 @@ class TaskService:
             **self._plan_context(obj),
         )
         return ActionResult(True, affected=obj, undo_available=False)
+
+    def _switch_away(
+        self,
+        task: Task | str,
+        *,
+        at: datetime | None = None,
+    ) -> ActionResult:
+        """Release the current Task back to ordinary incomplete/planned state.
+
+        This is intentionally different from pause(): switching work should not
+        manufacture a resumable paused Task. The Task remains unfinished in CalDAV
+        and can later be started normally.
+        """
+        obj = self.get(task)
+        task_id = self._require_id(obj)
+        if obj.status != "IN-PROCESS":
+            raise ValidationError(
+                "Only the Task you are working on now can be switched away from"
+            )
+        if self._session_current_id() != task_id:
+            raise ValidationError(
+                "Only the Task you are working on now can be switched away from"
+            )
+
+        result = self._update(
+            obj,
+            {
+                "status": "NEEDS-ACTION",
+                "completed": False,
+                "completed_at": None,
+            },
+            activity_action=None,
+            undo=False,
+        )
+        if self.session is not None:
+            forget = getattr(self.session, "forget", None)
+            if callable(forget):
+                forget(result.affected)
+        self._record(
+            "task_switched_away",
+            result.affected,
+            at=at,
+            work_session_before="current",
+            work_session_after="none",
+            **self._plan_context(obj),
+        )
+        return result
 
     def _resume(self, task: Task | str, *, at: datetime | None = None) -> ActionResult:
         obj = self.get(task)
