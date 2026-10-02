@@ -140,6 +140,24 @@ function diagnosticHost(message, timeoutMs = 5000) {
   });
 }
 
+async function recordClientEvent(name, fields = {}) {
+  try {
+    await diagnosticHost(
+      {
+        command: "client_event",
+        name,
+        detail: String(fields.detail || ""),
+        source: String(fields.source || ""),
+        elapsed_ms: Number(fields.elapsed_ms || 0),
+        diagnostics: fields.diagnostics || null,
+      },
+      1500
+    );
+  } catch (_error) {
+    // Diagnostics must never become a dependency of the user workflow.
+  }
+}
+
 function selectedTaskId() {
   const value = selectedTaskIdValue || $("task").value;
   if (!value) throw new Error("Choose a task first.");
@@ -293,29 +311,7 @@ function renderSnapshot(data) {
   }
 }
 
-async function localTasks() {
-  if (!messenger.assistantCalendar?.listTasks) {
-    throw new Error("Thunderbird local Calendar/Tasks bridge is unavailable.");
-  }
-  const started = performance.now();
-  const tasks = await messenger.assistantCalendar.listTasks();
-  const actionable = (tasks || []).filter(task => {
-    const status = String(task.status || "").toUpperCase();
-    return !task.completed && status !== "COMPLETED" && status !== "CANCELLED";
-  });
-  return {tasks: actionable, elapsedMs: performance.now() - started};
-}
-
-async function localWorkState() {
-  if (!messenger.assistantCalendar?.workState) {
-    throw new Error("Thunderbird local work-session bridge is unavailable.");
-  }
-  const started = performance.now();
-  const work = await messenger.assistantCalendar.workState();
-  return {work, elapsedMs: performance.now() - started};
-}
-
-function deriveState(tasks, work) {
+function deriveState(tasks, work = {}) {
   const currentId = work.currentTaskId || null;
   const worked = new Set(work.workedTaskIds || []);
   const paused = tasks
@@ -336,46 +332,79 @@ function deriveState(tasks, work) {
 
 async function refreshFast() {
   const started = performance.now();
-  const [tasksResult, workResult] = await Promise.allSettled([
-    localTasks(),
-    localWorkState(),
-  ]);
+  const refreshBridge = globalThis.CalDAVAssistantRefresh;
+  if (!refreshBridge?.resilientRefresh) {
+    throw new Error("CalDAV Assistant refresh helper did not load.");
+  }
 
-  if (tasksResult.status === "fulfilled" && workResult.status === "fulfilled") {
-    const elapsed = performance.now() - started;
-    const localMs = Math.max(tasksResult.value.elapsedMs, workResult.value.elapsedMs);
-    $("bridge-status").textContent = `Thunderbird 本地 · ${elapsed.toFixed(0)} ms`;
-    $("bridge-status").className = "status-chip ok";
-    $("metric-local").textContent = `${localMs.toFixed(0)} ms`;
-
-    renderSnapshot({
-      tasks: tasksResult.value.tasks,
-      state: deriveState(tasksResult.value.tasks, workResult.value.work),
-      today: currentSnapshot.today || [],
+  try {
+    const result = await refreshBridge.resilientRefresh({
+      messenger,
+      timeoutMs: 4000,
+      fallback: () => host({command: "snapshot"}, 30000),
     });
+    const elapsed = performance.now() - started;
+
+    if (result.source === "local") {
+      const tasks = result.data.tasks || [];
+      const work = result.data.work || {};
+      $("bridge-status").textContent = `Thunderbird 本地 · ${elapsed.toFixed(0)} ms`;
+      $("bridge-status").className = "status-chip ok";
+      $("metric-local").textContent = `${elapsed.toFixed(0)} ms`;
+      $("work-warning").hidden = true;
+      $("work-warning").textContent = "";
+
+      renderSnapshot({
+        tasks,
+        state: deriveState(tasks, work),
+        today: currentSnapshot.today || [],
+      });
+    } else {
+      const fallback = result.data || {};
+      $("bridge-status").textContent = `CalDAV fallback · ${elapsed.toFixed(0)} ms`;
+      $("bridge-status").className = "status-chip warn";
+      $("metric-local").textContent = "fallback";
+      $("work-warning").hidden = false;
+      $("work-warning").textContent =
+        "Thunderbird 本地 Calendar/Tasks 读取失败；已自动改用 CalDAV Core，当前画面仍可使用。\n" +
+        "本地错误：" + (result.localError || "unknown");
+
+      renderSnapshot({
+        tasks: fallback.tasks || [],
+        state: fallback.state || {current_task_id: null, paused_task_ids: []},
+        today: fallback.today || currentSnapshot.today || [],
+      });
+      renderToday(
+        fallback.today || currentSnapshot.today || [],
+        fallback.history_calendar?.name
+      );
+      recordClientEvent("refresh_fallback", {
+        detail: result.localError,
+        source: "caldav-fallback",
+        elapsed_ms: elapsed,
+        diagnostics: result.localDiagnostics,
+      });
+    }
+
     refreshToday().catch(error => {
       $("today").textContent = "Today unavailable: " + error.message;
     });
-    return;
+    return result;
+  } catch (error) {
+    const elapsed = performance.now() - started;
+    $("bridge-status").textContent = "刷新失败 · 保留上次数据";
+    $("bridge-status").className = "status-chip warn";
+    $("work-warning").hidden = false;
+    $("work-warning").textContent =
+      "刷新失败，但不会清空当前画面。\n" + (error?.message || String(error));
+    recordClientEvent("refresh_failed", {
+      detail: error?.message || String(error),
+      source: "local+caldav-fallback",
+      elapsed_ms: elapsed,
+      diagnostics: error?.localDiagnostics || null,
+    });
+    throw error;
   }
-
-  const reason = tasksResult.status === "rejected"
-    ? tasksResult.reason
-    : workResult.reason;
-  $("bridge-status").textContent = "本地桥接失败 · CalDAV fallback";
-  $("bridge-status").className = "status-chip warn";
-  $("work-warning").hidden = false;
-  $("work-warning").textContent =
-    "Thunderbird 本地 Calendar/Tasks 读取不可用，正在使用较慢的兼容路径：" +
-    (reason?.message || reason);
-
-  const fallback = await host({command: "snapshot"}, 30000);
-  renderSnapshot({
-    tasks: fallback.tasks || [],
-    state: fallback.state || {current_task_id: null, paused_task_ids: []},
-    today: fallback.today || [],
-  });
-  renderToday(fallback.today || [], fallback.history_calendar?.name);
 }
 
 async function refreshToday() {
@@ -780,8 +809,15 @@ $("attachment-link").addEventListener("change", () =>
   messenger.storage.local.set({attachmentLink: $("attachment-link").checked})
 );
 
-if (messenger.assistantCalendar?.onTasksChanged) {
-  messenger.assistantCalendar.onTasksChanged.addListener(scheduleTaskRefresh);
+try {
+  if (messenger.assistantCalendar?.onTasksChanged) {
+    messenger.assistantCalendar.onTasksChanged.addListener(scheduleTaskRefresh);
+  }
+} catch (error) {
+  recordClientEvent("calendar_observer_unavailable", {
+    detail: error?.message || String(error),
+    source: "thunderbird-experiment",
+  });
 }
 
 window.addEventListener("pagehide", () => {
