@@ -1,11 +1,11 @@
-import {TaskSnapshot} from "../src/domain";
+import {TaskSnapshot} from "../src/domain.js";
 import {
   getOpenSession,
   parseWorkDescription,
   serializeWorkDescription,
-} from "../src/work-description";
-import {makeTaskId, parseTaskId} from "../src/task-id";
-import {planTaskAction} from "../src/workflow";
+} from "../src/work-description.js";
+import {makeTaskId, parseTaskId} from "../src/task-id.js";
+import {planTaskAction} from "../src/workflow.js";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
