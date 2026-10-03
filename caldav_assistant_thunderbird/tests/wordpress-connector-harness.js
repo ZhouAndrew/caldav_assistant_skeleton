@@ -245,8 +245,6 @@ for (const path of ["addon/core/storage.js", "addon/core/wordpress.js"]) {
     httpRequestCalls === restCallsAfterAutoWpCli,
     "second auto WP-CLI test unexpectedly tried REST"
   );
-  forceRestNetworkFailure = false;
-
   await AssistantWordPress.saveConfig({
     transport: "application-password",
     baseUrl: "https://andrew.local",
