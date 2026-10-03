@@ -1,3 +1,5 @@
+import {MESSAGE_KEYS, MessageKey} from "../i18n";
+
 export type ThunderbirdTaskFilter =
   | "all"
   | "notstarted"
@@ -30,7 +32,7 @@ export interface TaskPickerItem {
 export interface TaskPickerView {
   readonly filter: ThunderbirdTaskFilter;
   readonly items: readonly TaskPickerItem[];
-  readonly emptyMessage: string | null;
+  readonly emptyMessageKey: MessageKey | null;
 }
 
 function searchable(item: TaskPickerItem): string {
@@ -65,6 +67,6 @@ export function deriveTaskPickerView(
   return Object.freeze({
     filter: settings.filter,
     items: Object.freeze(items),
-    emptyMessage: items.length ? null : "No matching Tasks.",
+    emptyMessageKey: items.length ? null : MESSAGE_KEYS.noMatchingTasks,
   });
 }
