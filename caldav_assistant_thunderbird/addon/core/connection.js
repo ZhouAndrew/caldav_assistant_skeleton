@@ -5,6 +5,18 @@
     return String(error?.message || error || "Unknown error");
   }
 
+  function toLocalInput(date = new Date()) {
+    const pad = value => String(value).padStart(2, "0");
+    return (
+      date.getFullYear() + "-" +
+      pad(date.getMonth() + 1) + "-" +
+      pad(date.getDate()) + "T" +
+      pad(date.getHours()) + ":" +
+      pad(date.getMinutes()) + ":" +
+      pad(date.getSeconds())
+    );
+  }
+
   async function diagnosticTraceSince(startedAt) {
     try {
       if (typeof browser.ThunderbirdCalDAV?.readDiagnostics !== "function") return [];
@@ -88,8 +100,8 @@
     let created = null;
     try {
       const marker = `CALDAV-ASSISTANT-TEST-${Date.now()}`;
-      const start = AssistantExecutor.toLocalInput(new Date());
-      const end = AssistantExecutor.toLocalInput(new Date(Date.now() + 60_000));
+      const start = toLocalInput(new Date());
+      const end = toLocalInput(new Date(Date.now() + 60_000));
 
       created = await browser.ThunderbirdCalDAV.createEvent(calendarId, {
         title: marker,
