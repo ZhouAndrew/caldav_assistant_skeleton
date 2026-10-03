@@ -223,22 +223,29 @@ for (const path of ["addon/core/storage.js", "addon/core/wordpress.js"]) {
     wpCliCommand: "wp",
   });
   forceRestNetworkFailure = true;
-  const restCallsBeforeFallback = httpRequestCalls;
-  const wpCliCallsBeforeFallback = wpCliCalls;
-  const fallbackQuick = await AssistantWordPress.quickTest();
-  assert(fallbackQuick.success, "auto transport did not recover from REST network reset");
-  assert(fallbackQuick.transport === "wp-cli", "auto transport did not report WP-CLI fallback");
-  assert(httpRequestCalls === restCallsBeforeFallback + 1, "REST fallback did not start with one REST attempt");
-  assert(wpCliCalls > wpCliCallsBeforeFallback, "REST network reset did not invoke WP-CLI fallback");
-
-  const restCallsAfterFallback = httpRequestCalls;
-  const secondFallbackQuick = await AssistantWordPress.quickTest();
-  assert(secondFallbackQuick.success, "cached WP-CLI fallback quick test failed");
-  assert(secondFallbackQuick.transport === "wp-cli", "cached fallback stopped reporting WP-CLI");
+  const restCallsBeforeAutoWpCli = httpRequestCalls;
+  const wpCliCallsBeforeAutoWpCli = wpCliCalls;
+  const autoWpCliQuick = await AssistantWordPress.quickTest();
+  assert(autoWpCliQuick.success, "auto WP-CLI quick test failed");
+  assert(autoWpCliQuick.transport === "wp-cli", "saved local path did not select WP-CLI");
   assert(
-    httpRequestCalls === restCallsAfterFallback,
-    "cached WP-CLI fallback retried the broken REST transport"
+    httpRequestCalls === restCallsBeforeAutoWpCli,
+    "auto transport tried REST despite an explicitly saved local WordPress path"
   );
+  assert(
+    wpCliCalls > wpCliCallsBeforeAutoWpCli,
+    "auto transport did not use WP-CLI for the saved local path"
+  );
+
+  const restCallsAfterAutoWpCli = httpRequestCalls;
+  const secondAutoWpCliQuick = await AssistantWordPress.quickTest();
+  assert(secondAutoWpCliQuick.success, "second deterministic WP-CLI quick test failed");
+  assert(secondAutoWpCliQuick.transport === "wp-cli", "deterministic auto transport changed identity");
+  assert(
+    httpRequestCalls === restCallsAfterAutoWpCli,
+    "second auto WP-CLI test unexpectedly tried REST"
+  );
+  forceRestNetworkFailure = false;
 
   await AssistantWordPress.saveConfig({
     transport: "application-password",
