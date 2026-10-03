@@ -27,9 +27,23 @@ export interface TaskQuery {
   readonly rangeEnd?: string;
 }
 
+export interface TaskPrecondition {
+  readonly status: TaskSnapshot["status"];
+  readonly percentComplete: number;
+  readonly description: string;
+}
+
+export type TaskWriteResult =
+  | Readonly<{ok: true; task: TaskRecord}>
+  | Readonly<{ok: false; reason: "changed" | "not-writable"}>;
+
 export interface TaskPort {
   listCalendars(): Promise<readonly CalendarSummary[]>;
   listTasks(query?: TaskQuery): Promise<readonly TaskRecord[]>;
   getTask(ref: TaskRef): Promise<TaskRecord>;
-  updateTask(ref: TaskRef, patch: Readonly<TaskPatch>): Promise<TaskRecord>;
+  updateTask(
+    ref: TaskRef,
+    patch: Readonly<TaskPatch>,
+    expected: TaskPrecondition,
+  ): Promise<TaskWriteResult>;
 }
