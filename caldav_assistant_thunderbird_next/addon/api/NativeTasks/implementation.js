@@ -114,6 +114,20 @@ async function resolveTask(calendarId, uid, recurrenceId) {
   return occurrence;
 }
 
+function assertExpectedTaskState(item, calendarId, expected) {
+  if (!expected || typeof expected !== "object") {
+    throw new Error("Missing expected VTODO state.");
+  }
+  const current = view(item, calendarId);
+  if (
+    current.description !== String(expected.description ?? "") ||
+    current.status !== String(expected.status ?? "") ||
+    current.percentComplete !== Number(expected.percentComplete)
+  ) {
+    throw new Error("VTODO changed since it was read.");
+  }
+}
+
 function applyPatch(item, patch) {
   const status = String(patch?.status || "").trim().toUpperCase();
   const percent = Number(patch?.percentComplete);
@@ -201,12 +215,13 @@ var NativeTasks = class extends ExtensionCommon.ExtensionAPI {
           return item ? view(item, calendarId) : null;
         },
 
-        async updateTask(calendarId, uid, recurrenceId, patch) {
+        async updateTask(calendarId, uid, recurrenceId, patch, expected) {
           const oldItem = await resolveTask(calendarId, uid, recurrenceId);
           if (!oldItem) {
             throw new Error("VTODO not found.");
           }
 
+          assertExpectedTaskState(oldItem, calendarId, expected);
           const nextItem = oldItem.clone();
           applyPatch(nextItem, patch);
           const stored = await oldItem.calendar.modifyItem(nextItem, oldItem);
