@@ -27,6 +27,7 @@ function record(
     calendarName: "Tasks",
     title: "Task " + ref.uid,
     status: "NEEDS-ACTION",
+    completed: false,
     percentComplete: 0,
     description: "",
     writable: true,
@@ -43,6 +44,7 @@ function record(
 function matches(task: TaskRecord, expected: TaskPrecondition): boolean {
   return (
     task.status === expected.status &&
+    task.completed === expected.completed &&
     task.percentComplete === expected.percentComplete &&
     task.description === expected.description
   );
