@@ -176,6 +176,10 @@ with zipfile.ZipFile(path) as z:
     assert "recurrenceId" in executor
     assert "taskBeforeStart" in executor
     assert "switchAway" in executor
+    assert "AssistantStorage.getCurrentWorkId" in executor
+    assert "AssistantStorage.makeWorkTaskId" in executor
+    assert "sameTask(" not in executor
+    assert "runtime.currentTask.id ===" not in executor
     assert '@mozilla.org/network/io-service;1' in direct
     assert '@mozilla.org/appshell/window-mediator;1' in direct
     assert "new URL(url)" not in direct
