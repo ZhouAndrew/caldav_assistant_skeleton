@@ -58,6 +58,20 @@
         "returns": {
           "type": "any"
         }
+      },
+      {
+        "name": "queryTasks",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {
+            "name": "options",
+            "type": "any"
+          }
+        ],
+        "returns": {
+          "type": "any"
+        }
       }
     ]
   }
