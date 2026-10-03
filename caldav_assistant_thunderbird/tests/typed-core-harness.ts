@@ -22,6 +22,7 @@ import {
   deriveWorkTiming,
   elapsedWorkMs,
 } from "../src/work-timing";
+import {planWorkAction} from "../src/action-plan";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -46,6 +47,13 @@ const task: TaskSnapshot = Object.freeze({
 const idle: AssistantRuntime = Object.freeze({currentWorkId: null});
 assert(actionAllowed("start", idle, task), "idle task should be startable");
 
+const startPlan = planWorkAction("start", idle, task);
+assert(startPlan.ok, "start plan was rejected");
+assert(startPlan.taskChanges.status === "IN-PROCESS", "start plan status is wrong");
+assert(startPlan.taskChanges.paused === false, "start plan pause flag is wrong");
+assert(startPlan.nextCurrentWorkId === workTaskId, "start plan pointer is wrong");
+assert(startPlan.historyEffect === "open", "start plan history effect is wrong");
+
 const started = nextRuntime("start", idle, task);
 assert(started.currentWorkId === workTaskId, "start must set only currentWorkId");
 
@@ -62,8 +70,36 @@ const paused: TaskSnapshot = Object.freeze({
 assert(deriveWorkState(started, paused) === "paused", "pause state should come from VTODO");
 assert(actionAllowed("resume", started, paused), "paused current task should be resumable");
 
+const pausePlan = planWorkAction("pause", started, inProcess);
+assert(pausePlan.ok, "pause plan was rejected");
+assert(pausePlan.taskChanges.paused === true, "pause plan did not set paused");
+assert(pausePlan.nextCurrentWorkId === workTaskId, "pause plan changed pointer");
+assert(pausePlan.historyEffect === "close", "pause plan should close history");
+
+const resumePlan = planWorkAction("resume", started, paused);
+assert(resumePlan.ok, "resume plan was rejected");
+assert(resumePlan.taskChanges.paused === false, "resume plan did not clear paused");
+assert(resumePlan.nextCurrentWorkId === workTaskId, "resume plan changed pointer");
+assert(resumePlan.historyEffect === "open", "resume plan should open history");
+
+const impossiblePause = planWorkAction("pause", started, task);
+assert(!impossiblePause.ok, "pause plan accepted a non-IN-PROCESS task");
+assert(impossiblePause.reason === "not-working", "pause rejection reason is wrong");
+
 const completedRuntime = nextRuntime("complete", started, inProcess);
 assert(completedRuntime.currentWorkId === null, "complete must clear currentWorkId");
+
+const completePlan = planWorkAction("complete", started, inProcess);
+assert(completePlan.ok, "complete plan was rejected");
+assert(completePlan.taskChanges.status === "COMPLETED", "complete plan status is wrong");
+assert(completePlan.taskChanges.percentComplete === 100, "complete plan lost 100 percent");
+assert(completePlan.nextCurrentWorkId === null, "complete plan did not clear pointer");
+assert(completePlan.historyEffect === "close", "complete plan should close history");
+
+const cancelPlan = planWorkAction("cancel", started, inProcess);
+assert(cancelPlan.ok, "cancel plan was rejected");
+assert(cancelPlan.taskChanges.status === "CANCELLED", "cancel plan status is wrong");
+assert(cancelPlan.nextCurrentWorkId === null, "cancel plan did not clear pointer");
 
 const finished: TaskSnapshot = Object.freeze({
   ...inProcess,
@@ -123,6 +159,17 @@ const restored = restoreSnapshotFromStartReceipt(inProcess, {
 assert(restored?.status === "NEEDS-ACTION", "history restore lost original status");
 assert(restored?.paused === false, "history restore invented pause state");
 assert(restored?.percentComplete === 35, "history restore lost original progress");
+
+const switchPlan = planWorkAction("switch-away", started, inProcess, restored);
+assert(switchPlan.ok, "switch-away plan was rejected");
+assert(switchPlan.taskChanges.status === "NEEDS-ACTION", "switch plan lost restore status");
+assert(switchPlan.taskChanges.percentComplete === 35, "switch plan lost restore progress");
+assert(switchPlan.nextCurrentWorkId === null, "switch plan did not clear pointer");
+assert(switchPlan.historyEffect === "close", "switch plan should close history");
+
+const missingRestorePlan = planWorkAction("switch-away", started, inProcess);
+assert(!missingRestorePlan.ok, "switch-away accepted without a restore snapshot");
+assert(missingRestorePlan.reason === "restore-required", "missing restore reason is wrong");
 
 const wrongHistory = restoreSnapshotFromStartReceipt(inProcess, {
   workTaskId: makeWorkTaskId(taskRef("tasks", "different", "")),
