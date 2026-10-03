@@ -56,6 +56,7 @@ export interface WorkflowDependencies {
 function precondition(task: TaskRecord): TaskPrecondition {
   return Object.freeze({
     status: task.status,
+    completed: task.completed,
     percentComplete: task.percentComplete,
     description: task.description,
   });
