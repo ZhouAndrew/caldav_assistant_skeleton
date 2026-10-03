@@ -152,32 +152,113 @@ export function planTaskAction(args: {
   );
 }
 
+export type TaskPageMode =
+  | "ready"
+  | "active"
+  | "other-task-active"
+  | "recovering"
+  | "orphan-session"
+  | "description-invalid"
+  | "multiple-open-sessions"
+  | "finished";
+
 export function deriveTaskPage(args: {
   readonly task: TaskSnapshot;
   readonly currentWorkId: string | null;
 }): Readonly<{
   taskId: string;
+  mode: TaskPageMode;
   isCurrent: boolean;
   anotherTaskIsCurrent: boolean;
   actions: readonly WorkIntent[];
 }> {
   const id = taskId(args.task);
   const isCurrent = args.currentWorkId === id;
-  let actions: readonly WorkIntent[] = Object.freeze([]);
+  const anotherTaskIsCurrent =
+    args.currentWorkId !== null && args.currentWorkId !== id;
 
-  if (!isFinished(args.task)) {
-    if (isCurrent) {
-      actions = Object.freeze(["stop", "complete", "cancel"] as const);
-    } else if (args.currentWorkId === null) {
-      actions = Object.freeze(["start"] as const);
+  const parsed = parseWorkDescription(args.task.description);
+  if (!parsed.ok) {
+    return Object.freeze({
+      taskId: id,
+      mode: "description-invalid",
+      isCurrent,
+      anotherTaskIsCurrent,
+      actions: Object.freeze([]),
+    });
+  }
+
+  const open = openSessions(parsed.value);
+  if (open.length > 1) {
+    return Object.freeze({
+      taskId: id,
+      mode: "multiple-open-sessions",
+      isCurrent,
+      anotherTaskIsCurrent,
+      actions: Object.freeze([]),
+    });
+  }
+
+  if (isCurrent) {
+    if (open.length === 0) {
+      return Object.freeze({
+        taskId: id,
+        mode: "recovering",
+        isCurrent: true,
+        anotherTaskIsCurrent: false,
+        actions: Object.freeze([]),
+      });
     }
+
+    const actions: readonly WorkIntent[] = isFinished(args.task)
+      ? Object.freeze(["stop"] as const)
+      : Object.freeze(["stop", "complete", "cancel"] as const);
+
+    return Object.freeze({
+      taskId: id,
+      mode: "active",
+      isCurrent: true,
+      anotherTaskIsCurrent: false,
+      actions,
+    });
+  }
+
+  if (open.length === 1) {
+    return Object.freeze({
+      taskId: id,
+      mode: "orphan-session",
+      isCurrent: false,
+      anotherTaskIsCurrent,
+      actions: Object.freeze([]),
+    });
+  }
+
+  if (anotherTaskIsCurrent) {
+    return Object.freeze({
+      taskId: id,
+      mode: "other-task-active",
+      isCurrent: false,
+      anotherTaskIsCurrent: true,
+      actions: Object.freeze([]),
+    });
+  }
+
+  if (isFinished(args.task)) {
+    return Object.freeze({
+      taskId: id,
+      mode: "finished",
+      isCurrent: false,
+      anotherTaskIsCurrent: false,
+      actions: Object.freeze([]),
+    });
   }
 
   return Object.freeze({
     taskId: id,
-    isCurrent,
-    anotherTaskIsCurrent:
-      args.currentWorkId !== null && args.currentWorkId !== id,
-    actions,
+    mode: "ready",
+    isCurrent: false,
+    anotherTaskIsCurrent: false,
+    actions: Object.freeze(["start"] as const),
   });
 }
+
