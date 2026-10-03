@@ -53,7 +53,9 @@ export function planTaskAction(
   const open = openWorkSession(parsed.value);
   const isCurrent = currentWorkId === task.taskId;
   const finished =
-    task.status === "COMPLETED" || task.status === "CANCELLED";
+    task.status === "COMPLETED" ||
+    task.status === "CANCELLED" ||
+    task.percentComplete === 100;
 
   if (intent === "start") {
     if (finished) return reject(intent, "finished");
