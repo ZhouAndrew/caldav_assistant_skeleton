@@ -19,6 +19,8 @@ class FakeTasks implements ThunderbirdTaskPort {
   task: TaskSnapshot;
   failWrite = false;
   failRead = false;
+  failReadAfterWrite = false;
+  writeAttempted = false;
   mismatch = false;
   calls: string[] = [];
   trace: string[];
@@ -31,13 +33,19 @@ class FakeTasks implements ThunderbirdTaskPort {
   async getTask(_ref: TaskRef): Promise<TaskSnapshot> {
     this.calls.push("task.get");
     this.trace.push("task.get");
-    if (this.failRead) throw new Error("read failed");
+    if (
+      this.failRead ||
+      (this.failReadAfterWrite && this.writeAttempted)
+    ) {
+      throw new Error("read failed");
+    }
     return cloneTask(this.task);
   }
 
   async updateTask(_ref: TaskRef, patch: TaskPatch): Promise<TaskSnapshot> {
     this.calls.push("task.update");
     this.trace.push("task.update");
+    this.writeAttempted = true;
     if (this.failWrite) throw new Error("write failed");
     if (!this.mismatch) {
       this.task = Object.freeze({
@@ -151,7 +159,7 @@ let started: TaskSnapshot;
 {
   const tasks = new FakeTasks(base);
   tasks.failWrite = true;
-  tasks.failRead = true;
+  tasks.failReadAfterWrite = true;
   const pointer = new FakeCurrentWork();
   const result = await executeTaskCommand("start", taskId, {
     tasks,
