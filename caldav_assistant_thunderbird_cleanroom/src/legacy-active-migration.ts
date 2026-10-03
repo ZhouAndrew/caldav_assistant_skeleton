@@ -75,7 +75,8 @@ function legacyTaskId(value: unknown): string | null {
 }
 
 function status(value: unknown): TaskStatus | null {
-  const text = typeof value === "string" ? value.toUpperCase() : "";
+  if (typeof value !== "string") return null;
+  const text = value.toUpperCase();
   return text === "" ||
     text === "NEEDS-ACTION" ||
     text === "IN-PROCESS" ||
@@ -113,7 +114,7 @@ function startEvidence(
 ): LegacyStartEvidence | null {
   const receipt = receiptFromRecord(value);
   if (!receipt) return null;
-  if (receipt.action !== "start" || receipt.success === false) return null;
+  if (receipt.action !== "start" || receipt.success !== true) return null;
 
   const task = object(receipt.task);
   if (!task || legacyTaskId(task) !== targetTaskId) return null;
@@ -235,8 +236,13 @@ function pointerFromLegacy(
   storedPointer: unknown,
   runtimeValue: unknown
 ): string | null {
-  if (typeof storedPointer === "string" && parseTaskId(storedPointer)) {
-    return storedPointer;
+  // 0.3.16 treats an explicit null pointer as authoritative idle state. Only
+  // profiles that never wrote the pointer key may fall back to older runtime.
+  if (storedPointer === null) return null;
+  if (storedPointer !== undefined) {
+    return typeof storedPointer === "string" && parseTaskId(storedPointer)
+      ? storedPointer
+      : null;
   }
   const runtime = object(runtimeValue);
   return legacyTaskId(runtime?.currentTask);
