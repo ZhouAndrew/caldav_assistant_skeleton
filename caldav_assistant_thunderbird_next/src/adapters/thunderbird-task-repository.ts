@@ -1,5 +1,5 @@
 import {TaskPatch, TaskSnapshot, TaskStatus} from "../domain";
-import {TaskRepository} from "../ports";
+import {TaskCatalog, TaskRepository, TaskScanResult} from "../ports";
 import {decodeTaskId, encodeTaskId} from "../task-id";
 
 export interface NativeTaskView {
@@ -10,6 +10,15 @@ export interface NativeTaskView {
   readonly description: string;
   readonly status: TaskStatus;
   readonly percentComplete: number;
+}
+
+export interface NativeTaskScanResult {
+  readonly tasks: readonly NativeTaskView[];
+  readonly complete: boolean;
+  readonly failures: readonly {
+    readonly calendarId: string;
+    readonly message: string;
+  }[];
 }
 
 export interface NativeTasksApi {
@@ -25,6 +34,8 @@ export interface NativeTasksApi {
     recurrenceId: string,
     patch: TaskPatch
   ): Promise<NativeTaskView>;
+
+  scanStoredTasks(): Promise<NativeTaskScanResult>;
 }
 
 function snapshot(native: NativeTaskView): TaskSnapshot {
@@ -43,7 +54,7 @@ function snapshot(native: NativeTaskView): TaskSnapshot {
   });
 }
 
-export class ThunderbirdTaskRepository implements TaskRepository {
+export class ThunderbirdTaskRepository implements TaskRepository, TaskCatalog {
   constructor(private readonly api: NativeTasksApi) {}
 
   async get(taskId: string): Promise<TaskSnapshot | null> {
@@ -66,5 +77,14 @@ export class ThunderbirdTaskRepository implements TaskRepository {
       ref.recurrenceId,
       patch
     );
+  }
+
+  async scanStored(): Promise<TaskScanResult> {
+    const result = await this.api.scanStoredTasks();
+    return Object.freeze({
+      tasks: Object.freeze(result.tasks.map(snapshot)),
+      complete: result.complete,
+      failures: Object.freeze(result.failures.map(item => Object.freeze({...item}))),
+    });
   }
 }
