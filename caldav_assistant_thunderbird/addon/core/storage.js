@@ -3,7 +3,8 @@
 (() => {
   const KEY_SETTINGS = "caldavAssistant.settings";
   const KEY_SETTINGS_UNDO = "caldavAssistant.settingsUndo";
-  const KEY_RUNTIME = "caldavAssistant.runtime";
+  const KEY_CURRENT_WORK_ID = "caldavAssistant.currentWorkId";
+  const KEY_RUNTIME_LEGACY = "caldavAssistant.runtime";
   const KEY_AUDIT_LEGACY = "caldavAssistant.audit";
   const KEY_AUDIT_DATES = "caldavAssistant.auditDates";
   const KEY_AUDIT_PREFIX = "caldavAssistant.audit.";
@@ -109,28 +110,42 @@
     return restored;
   }
 
-  async function getRuntime() {
-    return getValue(KEY_RUNTIME, {
-      state: "idle",
-      currentTask: null,
-      currentWorkEvent: null,
-      segmentStartedAtMs: null,
-      accumulatedMs: 0,
-    });
+  function normalizeCurrentWorkId(value) {
+    const text = String(value ?? "").trim();
+    return text || null;
   }
 
-  async function setRuntime(runtime) {
-    return setValue(KEY_RUNTIME, runtime);
+  async function getCurrentWorkId() {
+    const values = await browser.storage.local.get([
+      KEY_CURRENT_WORK_ID,
+      KEY_RUNTIME_LEGACY,
+    ]);
+
+    if (values[KEY_CURRENT_WORK_ID] !== undefined) {
+      return normalizeCurrentWorkId(values[KEY_CURRENT_WORK_ID]);
+    }
+
+    const legacy = values[KEY_RUNTIME_LEGACY];
+    const migrated = normalizeCurrentWorkId(
+      legacy?.currentWorkId ??
+      legacy?.current_work_id ??
+      legacy?.currentTask?.instanceKey ??
+      legacy?.currentTask?.id
+    );
+
+    await setValue(KEY_CURRENT_WORK_ID, migrated);
+    if (legacy !== undefined) {
+      await browser.storage.local.remove(KEY_RUNTIME_LEGACY);
+    }
+    return migrated;
   }
 
-  async function clearRuntime() {
-    return setRuntime({
-      state: "idle",
-      currentTask: null,
-      currentWorkEvent: null,
-      segmentStartedAtMs: null,
-      accumulatedMs: 0,
-    });
+  async function setCurrentWorkId(value) {
+    return setValue(KEY_CURRENT_WORK_ID, normalizeCurrentWorkId(value));
+  }
+
+  async function clearCurrentWorkId() {
+    return setCurrentWorkId(null);
   }
 
   async function getAuditDatesRaw() {
@@ -335,9 +350,9 @@
     saveSettingsWithUndo,
     getSettingsUndo,
     undoSettings,
-    getRuntime,
-    setRuntime,
-    clearRuntime,
+    getCurrentWorkId,
+    setCurrentWorkId,
+    clearCurrentWorkId,
     appendAudit,
     listAudit,
     listAuditDates,
