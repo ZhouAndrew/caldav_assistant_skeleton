@@ -13,12 +13,13 @@ async function flush() {
   await new Promise(resolve => setTimeout(resolve, 0));
 }
 
-async function runCase({migrationOk = true}) {
+async function runCase({migrationOk = true, existingSpace = false}) {
   const calls = [];
   const writes = [];
   const storageData = {};
   const listeners = {installed: null, startup: null, message: null};
   let queueRuns = 0;
+  const spaceCalls = [];
 
   class BrowserStorageAdapter {
     constructor(area) {
@@ -163,7 +164,33 @@ async function runCase({migrationOk = true}) {
         },
       },
     },
+    i18n: {
+      getMessage(key) {
+        return key === "extensionName"
+          ? "CalDAV Assistant Experimental"
+          : "";
+      },
+    },
+    spaces: {
+      async query(info) {
+        spaceCalls.push({op: "query", info});
+        return existingSpace
+          ? [{id: 7, name: "caldav_assistant", isSelfOwned: true}]
+          : [];
+      },
+      async create(name, url, buttonProperties) {
+        spaceCalls.push({op: "create", name, url, buttonProperties});
+        return {id: 8, name, isSelfOwned: true};
+      },
+      async update(id, url, buttonProperties) {
+        spaceCalls.push({op: "update", id, url, buttonProperties});
+        return {id, name: "caldav_assistant", isSelfOwned: true};
+      },
+    },
     runtime: {
+      getURL(path) {
+        return "moz-extension://test/" + path;
+      },
       onInstalled: {
         addListener(fn) {
           listeners.installed = fn;
@@ -210,6 +237,7 @@ async function runCase({migrationOk = true}) {
     writes,
     listeners,
     errors,
+    spaceCalls,
     get queueRuns() {
       return queueRuns;
     },
@@ -223,6 +251,14 @@ async function runCase({migrationOk = true}) {
     "startup ordering is wrong"
   );
   assert(success.writes.length === 1, "ready status was not written exactly once");
+  assert(
+    success.spaceCalls.some(call => call.op === "create"),
+    "first startup did not create Thunderbird Space"
+  );
+  assert(
+    !success.spaceCalls.some(call => call.op === "update"),
+    "first startup unexpectedly updated existing Space"
+  );
   const serialized = JSON.stringify(success.writes);
   assert(!serialized.includes("SECRET-MUST-NOT-LEAK"), "startup leaked password");
   assert(!serialized.includes('"settings"'), "startup leaked settings object");
@@ -278,6 +314,20 @@ async function runCase({migrationOk = true}) {
   assert(
     !rpcSerialized.includes("SECRET-MUST-NOT-LEAK"),
     "background RPC leaked Application Password"
+  );
+
+
+  const existingSpace = await runCase({
+    migrationOk: true,
+    existingSpace: true,
+  });
+  assert(
+    existingSpace.spaceCalls.some(call => call.op === "update"),
+    "existing Space was not updated idempotently"
+  );
+  assert(
+    !existingSpace.spaceCalls.some(call => call.op === "create"),
+    "existing Space was duplicated"
   );
 
   const blocked = await runCase({migrationOk: false});
