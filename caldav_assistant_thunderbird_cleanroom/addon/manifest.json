@@ -1,0 +1,28 @@
+{
+  "manifest_version": 2,
+  "name": "CalDAV Assistant Cleanroom Experimental",
+  "description": "Thunderbird-native CalDAV Assistant clean-room rebuild.",
+  "version": "0.3.17",
+  "author": "ZhouAndrew",
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "ZhouAndrew.thunderbird-taskfix-lab@addons.thunderbird.net",
+      "strict_min_version": "153.0.2",
+      "strict_max_version": "153.1.*"
+    }
+  },
+  "experiment_apis": {
+    "ThunderbirdTasks": {
+      "schema": "api/ThunderbirdTasks/schema.json",
+      "parent": {
+        "scopes": ["addon_parent"],
+        "paths": [["ThunderbirdTasks"]],
+        "script": "api/ThunderbirdTasks/implementation.js"
+      }
+    }
+  },
+  "permissions": ["storage"]
+}
