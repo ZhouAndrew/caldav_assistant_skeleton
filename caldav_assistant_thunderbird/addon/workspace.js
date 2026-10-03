@@ -7,6 +7,8 @@ const state = {
   calendars: [],
   tasks: [],
   runtime: null,
+  currentWorkId: null,
+  currentRef: null,
   settings: {},
   current: null,
 };
@@ -81,7 +83,7 @@ function addAction(label, handler, className) {
 
 function render() {
   const task = state.current;
-  const active = Boolean(task && state.runtime?.currentTask);
+  const active = Boolean(task && state.currentWorkId);
 
   $("no-current").hidden = active;
   $("current-work").hidden = !active;
@@ -111,7 +113,7 @@ function render() {
 }
 
 function updateElapsed() {
-  if (!state.current || !state.runtime?.currentTask) return;
+  if (!state.current || !state.currentWorkId) return;
   let ms = Number(state.runtime.accumulatedMs || 0);
   if (state.runtime.state === "working" && state.runtime.segmentStartedAtMs) {
     ms += Math.max(0, Date.now() - state.runtime.segmentStartedAtMs);
@@ -169,22 +171,26 @@ async function refreshAll() {
     state.calendars = await browser.ThunderbirdCalDAV.listCalendars();
     state.tasks = await browser.ThunderbirdCalDAV.listTasks();
     state.runtime = await AssistantStorage.getRuntime();
+    state.currentWorkId = await AssistantStorage.getCurrentWorkId();
+    state.currentRef = state.currentWorkId
+      ? AssistantStorage.parseWorkTaskId(state.currentWorkId)
+      : null;
     state.settings = await AssistantStorage.getSettings();
     state.current = null;
 
-    if (state.runtime.currentTask) {
+    if (state.currentRef) {
       try {
         state.current = await browser.ThunderbirdCalDAV.getTask(
-          state.runtime.currentTask.calendarId,
-          state.runtime.currentTask.id,
-          state.runtime.currentTask.recurrenceId || ""
+          state.currentRef.calendarId,
+          state.currentRef.id,
+          state.currentRef.recurrenceId || ""
         );
       } catch (_error) {
-        state.current = taskByRef(state.runtime.currentTask);
+        state.current = taskByRef(state.currentRef);
       }
     }
 
-    if (state.runtime.currentTask && !state.current) {
+    if (state.currentWorkId && !state.current) {
       showNotice("当前 Task 暂时无法从 Calendar 读取。", true);
     }
 
@@ -212,7 +218,11 @@ browser.ThunderbirdCalDAV.onItemsChanged.addListener(() => {
 if (browser.storage?.onChanged) {
   browser.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== "local" || actionRunning) return;
-    if (!changes["caldavAssistant.runtime"] && !changes["caldavAssistant.settings"]) return;
+    if (
+      !changes["caldavAssistant.runtime"] &&
+      !changes["caldavAssistant.currentWorkId"] &&
+      !changes["caldavAssistant.settings"]
+    ) return;
     clearTimeout(window.__caldavAssistantStorageRefresh);
     window.__caldavAssistantStorageRefresh = setTimeout(refreshAll, 100);
   });
