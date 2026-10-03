@@ -1,0 +1,217 @@
+:root {
+  color-scheme: light dark;
+  font: message-box;
+  --gap: 0.75rem;
+  --border: color-mix(in srgb, currentColor 22%, transparent);
+  --muted: color-mix(in srgb, currentColor 65%, transparent);
+  --panel: color-mix(in srgb, Canvas 94%, currentColor 6%);
+  --accent: AccentColor;
+  --accent-text: AccentColorText;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: CanvasText;
+  background: Canvas;
+}
+
+header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 0.85rem 1rem 0;
+  background: Canvas;
+  border-bottom: 1px solid var(--border);
+}
+
+header h1 {
+  margin: 0 0 0.7rem;
+  font-size: 1.35rem;
+}
+
+#app-nav {
+  display: flex;
+  gap: 0.25rem;
+  overflow-x: auto;
+  padding-bottom: 0.55rem;
+}
+
+#app-nav a {
+  color: inherit;
+  text-decoration: none;
+  padding: 0.4rem 0.65rem;
+  border-radius: 0.35rem;
+  white-space: nowrap;
+}
+
+#app-nav a.active {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+main {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) auto auto auto;
+  gap: var(--gap);
+  align-items: end;
+  margin-bottom: 1rem;
+}
+
+label {
+  display: grid;
+  gap: 0.3rem;
+}
+
+input,
+select,
+button,
+textarea {
+  font: inherit;
+}
+
+input,
+select,
+textarea {
+  min-height: 2.2rem;
+  padding: 0.4rem 0.55rem;
+  color: inherit;
+  background: Canvas;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+}
+
+button,
+.button-link {
+  min-height: 2.2rem;
+  padding: 0.4rem 0.75rem;
+  color: inherit;
+  background: ButtonFace;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  cursor: pointer;
+}
+
+button.primary {
+  color: var(--accent-text);
+  background: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.notice {
+  margin: 0.75rem 0;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--panel);
+}
+
+.notice[data-kind="error"] {
+  border-color: color-mix(in srgb, red 55%, var(--border));
+}
+
+.notice[data-kind="warning"] {
+  border-color: color-mix(in srgb, orange 65%, var(--border));
+}
+
+.task-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.task-row {
+  width: 100%;
+  text-align: left;
+  padding: 0.8rem;
+  background: var(--panel);
+}
+
+.task-row strong {
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.meta {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.92em;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(9rem, 1fr));
+  gap: var(--gap);
+  margin: 1rem 0;
+}
+
+.detail-card {
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--panel);
+}
+
+.detail-card .label {
+  display: block;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+
+.description {
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--panel);
+  min-height: 4rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
+.session-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.session-row {
+  padding: 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--panel);
+}
+
+.empty {
+  color: var(--muted);
+  padding: 1rem 0;
+}
+
+@media (max-width: 700px) {
+  .controls {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
