@@ -60,12 +60,14 @@ if host not in permissions:
 # Acceptance-only: the real restart gate exercises AssistantExecutor from the
 # background harness. Production background scripts are intentionally unchanged.
 background_scripts = manifest.setdefault("background", {}).setdefault("scripts", [])
-if "core/executor.js" not in background_scripts:
-    try:
-        background_index = background_scripts.index("background.js")
-    except ValueError:
-        background_index = len(background_scripts)
-    background_scripts.insert(background_index, "core/executor.js")
+try:
+    background_index = background_scripts.index("background.js")
+except ValueError:
+    background_index = len(background_scripts)
+for acceptance_script in ("core/action-plan.js", "core/executor.js"):
+    if acceptance_script not in background_scripts:
+        background_scripts.insert(background_index, acceptance_script)
+        background_index += 1
 
 manifest["experiment_apis"]["AcceptanceTaskFix"] = {
     "schema": "api/AcceptanceTaskFix/schema.json",
