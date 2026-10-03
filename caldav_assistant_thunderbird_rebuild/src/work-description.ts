@@ -16,7 +16,7 @@ export interface ParseResult {
 
 export interface ParseFailure {
   readonly ok: false;
-  readonly reason: "multiple-blocks" | "unterminated-block" | "trailing-data" | "invalid-json" | "invalid-session";
+  readonly reason: "multiple-blocks" | "unterminated-block" | "invalid-json" | "invalid-session";
 }
 
 export type WorkDescriptionParse = ParseResult | ParseFailure;
@@ -82,7 +82,11 @@ export function parseWorkDescription(description: string): WorkDescriptionParse 
   if (first < 0) {
     return Object.freeze({
       ok: true,
-      value: Object.freeze({prefix: source, sessions: Object.freeze([])}),
+      value: Object.freeze({
+        prefix: source,
+        suffix: "",
+        sessions: Object.freeze([]),
+      }),
     });
   }
 
@@ -94,11 +98,6 @@ export function parseWorkDescription(description: string): WorkDescriptionParse 
   if (end < 0) return Object.freeze({ok: false, reason: "unterminated-block"});
   if (source.indexOf(END, end + END.length) >= 0) {
     return Object.freeze({ok: false, reason: "multiple-blocks"});
-  }
-
-  const trailing = source.slice(end + END.length);
-  if (trailing.trim() !== "") {
-    return Object.freeze({ok: false, reason: "trailing-data"});
   }
 
   const payloadText = source.slice(first + START.length, end).trim();
@@ -124,13 +123,14 @@ export function parseWorkDescription(description: string): WorkDescriptionParse 
     ok: true,
     value: Object.freeze({
       prefix: source.slice(0, first),
+      suffix: source.slice(end + END.length),
       sessions: Object.freeze(sessions),
     }),
   });
 }
 
 export function serializeWorkDescription(parsed: ParsedWorkDescription): string {
-  if (!parsed.sessions.length) return parsed.prefix;
+  if (!parsed.sessions.length) return parsed.prefix + parsed.suffix;
 
   const separator =
     parsed.prefix.length === 0 || parsed.prefix.endsWith("\n")
@@ -144,7 +144,8 @@ export function serializeWorkDescription(parsed: ParsedWorkDescription): string 
     "\n" +
     JSON.stringify(parsed.sessions) +
     "\n" +
-    END
+    END +
+    parsed.suffix
   );
 }
 
@@ -155,6 +156,7 @@ export function openSession(
   if (parsed.sessions.some(item => item.end === null)) return null;
   return Object.freeze({
     prefix: parsed.prefix,
+    suffix: parsed.suffix,
     sessions: Object.freeze([...parsed.sessions, Object.freeze(session)]),
   });
 }
@@ -181,6 +183,7 @@ export function closeSession(
   if (matched !== 1) return null;
   return Object.freeze({
     prefix: parsed.prefix,
+    suffix: parsed.suffix,
     sessions: Object.freeze(sessions),
   });
 }
