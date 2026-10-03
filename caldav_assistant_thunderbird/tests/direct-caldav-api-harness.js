@@ -601,11 +601,11 @@ const api = instance.getAPI({}).ThunderbirdCalDAV;
 
   const deletedTask = await api.deleteTask("cal-a", createdTask.id);
   const deletedEvent = await api.deleteEvent("cal-a", createdEvent.id);
-  const deletedOpenEvent = await api.deleteEvent("cal-a", openWorkEvent.id);
+  const deletedOpenEvent = await api.deleteEvent("cal-a", openEvent.id);
   assert(deletedTask.ok && deletedEvent.ok && deletedOpenEvent.ok, "delete API result is wrong");
   assert(!(await calendarA.getItem(createdTask.id)), "task still exists after delete");
   assert(!(await calendarA.getItem(createdEvent.id)), "event still exists after delete");
-  assert(!(await calendarA.getItem(openWorkEvent.id)), "open work event still exists after delete");
+  assert(!(await calendarA.getItem(openEvent.id)), "open-ended event still exists after delete");
   assert(calendarA.calls.delete === 3, "deletes did not use calendar.deleteItem");
 
   assert(calendarA.calls.add === 3, "all creates must use Thunderbird calendar.addItem");
