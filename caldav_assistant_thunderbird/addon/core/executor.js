@@ -255,6 +255,18 @@
     }
   }
 
+  async function createWorkEventBestEffort(task, workCalendarId, startedAt, receipt) {
+    try {
+      return await createWorkEvent(task, workCalendarId, startedAt, receipt);
+    } catch (error) {
+      step(receipt, "Work Session", "optional history create failed", false, {
+        message: errorText(error),
+        note: "Task workflow continues because Work VEVENT is auxiliary history.",
+      });
+      return null;
+    }
+  }
+
   async function closeWorkEvent(workEvent, endedAt, receipt) {
     if (!workEvent?.id || !workEvent?.calendarId) return null;
     await browser.ThunderbirdCalDAV.updateEvent(workEvent.calendarId, workEvent.id, {
@@ -280,6 +292,31 @@
       workOpen: stored.workOpen,
     });
     return stored;
+  }
+
+  async function closeWorkEventBestEffort(workEvent, endedAt, receipt) {
+    if (!workEvent?.id || !workEvent?.calendarId) return {
+      closed: false,
+      event: null,
+    };
+    try {
+      const event = await closeWorkEvent(workEvent, endedAt, receipt);
+      return {
+        closed: Boolean(event),
+        event,
+      };
+    } catch (error) {
+      step(receipt, "Work Session", "optional history close failed", false, {
+        uid: workEvent.id,
+        calendarId: workEvent.calendarId,
+        message: errorText(error),
+        note: "Task workflow continues because Work VEVENT is auxiliary history.",
+      });
+      return {
+        closed: false,
+        event: null,
+      };
+    }
   }
 
   async function reopenWorkEvent(workEvent, receipt) {
@@ -421,7 +458,12 @@
           receipt
         );
 
-        workEvent = await createWorkEvent(task, workCalendarId, toLocalInput(), receipt);
+        workEvent = await createWorkEventBestEffort(
+          task,
+          workCalendarId,
+          toLocalInput(),
+          receipt
+        );
 
         await AssistantStorage.setCurrentWorkId(
           AssistantStorage.makeWorkTaskId(task)
@@ -430,7 +472,7 @@
         step(receipt, "Current Work", "publish currentWorkId", true, {
           currentWorkId: AssistantStorage.makeWorkTaskId(task),
           taskUid: task.id,
-          workEventUid: workEvent.id,
+          workEventUid: workEvent?.id || null,
         });
       } catch (error) {
         if (workEvent) await deleteWorkEvent(workEvent, receipt);
@@ -462,8 +504,13 @@
 
       try {
         if (workEvent) {
-          eventClosed = true;
-          closedEvent = await closeWorkEvent(workEvent, toLocalInput(), receipt);
+          const closeResult = await closeWorkEventBestEffort(
+            workEvent,
+            toLocalInput(),
+            receipt
+          );
+          eventClosed = closeResult.closed;
+          closedEvent = closeResult.event;
         }
 
         taskWritten = true;
@@ -505,8 +552,13 @@
 
       try {
         if (workEvent) {
-          eventClosed = true;
-          closedEvent = await closeWorkEvent(workEvent, toLocalInput(), receipt);
+          const closeResult = await closeWorkEventBestEffort(
+            workEvent,
+            toLocalInput(),
+            receipt
+          );
+          eventClosed = closeResult.closed;
+          closedEvent = closeResult.event;
         }
 
         taskWritten = true;
@@ -569,11 +621,16 @@
           receipt
         );
 
-        workEvent = await createWorkEvent(task, workCalendarId, toLocalInput(), receipt);
+        workEvent = await createWorkEventBestEffort(
+          task,
+          workCalendarId,
+          toLocalInput(),
+          receipt
+        );
 
         step(receipt, "Current Work", "keep currentWorkId", true, {
           currentWorkId: AssistantStorage.makeWorkTaskId(task),
-          workEventUid: workEvent.id,
+          workEventUid: workEvent?.id || null,
           paused: false,
         });
       } catch (error) {
@@ -603,8 +660,13 @@
 
       try {
         if (workEvent) {
-          eventClosed = true;
-          closedEvent = await closeWorkEvent(workEvent, toLocalInput(), receipt);
+          const closeResult = await closeWorkEventBestEffort(
+            workEvent,
+            toLocalInput(),
+            receipt
+          );
+          eventClosed = closeResult.closed;
+          closedEvent = closeResult.event;
         }
 
         const changes =
