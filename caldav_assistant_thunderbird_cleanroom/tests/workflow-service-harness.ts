@@ -21,19 +21,23 @@ class FakeTasks implements ThunderbirdTaskPort {
   failRead = false;
   mismatch = false;
   calls: string[] = [];
+  trace: string[];
 
-  constructor(task: TaskSnapshot) {
+  constructor(task: TaskSnapshot, trace: string[] = []) {
     this.task = task;
+    this.trace = trace;
   }
 
   async getTask(_ref: TaskRef): Promise<TaskSnapshot> {
     this.calls.push("task.get");
+    this.trace.push("task.get");
     if (this.failRead) throw new Error("read failed");
     return cloneTask(this.task);
   }
 
   async updateTask(_ref: TaskRef, patch: TaskPatch): Promise<TaskSnapshot> {
     this.calls.push("task.update");
+    this.trace.push("task.update");
     if (this.failWrite) throw new Error("write failed");
     if (!this.mismatch) {
       this.task = Object.freeze({
@@ -49,14 +53,22 @@ class FakeCurrentWork implements CurrentWorkPort {
   value: string | null = null;
   failSet = false;
   calls: string[] = [];
+  trace: string[];
+
+  constructor(trace: string[] = []) {
+    this.trace = trace;
+  }
 
   async getCurrentWorkId(): Promise<string | null> {
     this.calls.push("pointer.get");
+    this.trace.push("pointer.get");
     return this.value;
   }
 
   async setCurrentWorkId(value: string | null): Promise<void> {
-    this.calls.push(value === null ? "pointer.clear" : "pointer.set");
+    const event = value === null ? "pointer.clear" : "pointer.set";
+    this.calls.push(event);
+    this.trace.push(event);
     if (this.failSet) throw new Error("pointer write failed");
     this.value = value;
   }
@@ -75,8 +87,9 @@ const taskId = makeTaskId(base);
 
 async function main(): Promise<void> {
 {
-  const tasks = new FakeTasks(base);
-  const pointer = new FakeCurrentWork();
+  const trace: string[] = [];
+  const tasks = new FakeTasks(base, trace);
+  const pointer = new FakeCurrentWork(trace);
   const result = await executeTaskCommand("start", taskId, {
     tasks,
     currentWork: pointer,
@@ -86,15 +99,16 @@ async function main(): Promise<void> {
   assert(result.kind === "committed", "Start should commit");
   assert(pointer.value === taskId, "Start pointer was not retained");
   assert(
-    pointer.calls.indexOf("pointer.set") < tasks.calls.indexOf("task.update"),
+    trace.indexOf("pointer.set") < trace.indexOf("task.update"),
     "Start must reserve pointer before VTODO write"
   );
 }
 
 let started: TaskSnapshot;
 {
-  const tasks = new FakeTasks(base);
-  const pointer = new FakeCurrentWork();
+  const trace: string[] = [];
+  const tasks = new FakeTasks(base, trace);
+  const pointer = new FakeCurrentWork(trace);
   const start = await executeTaskCommand("start", taskId, {
     tasks,
     currentWork: pointer,
@@ -115,7 +129,7 @@ let started: TaskSnapshot;
   assert(stop.kind === "committed", "Stop should commit");
   assert(pointer.value === null, "Stop pointer was not cleared");
   assert(
-    tasks.calls.indexOf("task.update") < pointer.calls.indexOf("pointer.clear"),
+    trace.lastIndexOf("task.update") < trace.lastIndexOf("pointer.clear"),
     "Stop must commit VTODO before clearing pointer"
   );
 }
