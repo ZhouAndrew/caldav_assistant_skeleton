@@ -103,16 +103,45 @@
     return stored;
   }
 
-  async function restoreCurrentWorkId(previous, receipt) {
+  async function restoreTaskAfterFailedStart(task, before, receipt) {
+    const changes = {
+      status: String(before?.status || "NEEDS-ACTION"),
+    };
+    const percent = Number(before?.percentComplete || 0);
+    if (percent > 0 && percent < 100) {
+      changes.percentComplete = percent;
+    }
+
     try {
-      await AssistantStorage.setCurrentWorkId(previous);
-      step(receipt, "Assistant State", "restore current_work_id", true, {
-        currentWorkId: previous || null,
+      await browser.ThunderbirdCalDAV.updateTask(
+        task.calendarId,
+        task.id,
+        changes,
+        task.recurrenceId || ""
+      );
+      const stored = await readTask(task);
+      if (stored.status !== changes.status) {
+        throw new Error(
+          `Task rollback status mismatch: expected ${changes.status}, got ${stored.status}`
+        );
+      }
+      if (
+        "percentComplete" in changes &&
+        Number(stored.percentComplete || 0) !== percent
+      ) {
+        throw new Error(
+          `Task rollback progress mismatch: expected ${percent}, got ${Number(stored.percentComplete || 0)}`
+        );
+      }
+      step(receipt, "Rollback", "restore Task after current_work_id failure", true, {
+        id: stored.id,
+        status: stored.status,
+        percentComplete: Number(stored.percentComplete || 0),
       });
       return true;
     } catch (error) {
-      step(receipt, "Assistant State", "restore current_work_id", false, {
-        currentWorkId: previous || null,
+      step(receipt, "Rollback", "restore Task after current_work_id failure", false, {
+        id: task.id,
         message: errorText(error),
       });
       return false;
@@ -220,28 +249,27 @@
 
       const storedBefore = await readTask(task);
       ensureMutableTask(storedBefore);
-      const previousCurrentWorkId = await AssistantStorage.getCurrentWorkId();
       const nextCurrentWorkId = currentWorkIdOf(storedBefore);
       if (!nextCurrentWorkId) throw new Error("Thunderbird Task has no stable id.");
 
-      // Persist the one Assistant runtime fact first. If the Thunderbird write
-      // fails, this single value can be rolled back. If the process crashes
-      // between these two writes, currentTask() will clear the pointer because
-      // the VTODO is not IN-PROCESS.
-      await AssistantStorage.setCurrentWorkId(nextCurrentWorkId);
-      step(receipt, "Assistant State", "set current_work_id", true, {
-        currentWorkId: nextCurrentWorkId,
-      });
+      // Thunderbird is authoritative for Task state. Commit and verify the
+      // standard STATUS first, then publish the single Assistant pointer.
+      // This prevents another open Assistant page from seeing a pointer to a
+      // Task that is still NEEDS-ACTION and clearing it as stale.
+      const started = await updateAndVerifyTask(
+        storedBefore,
+        {status: "IN-PROCESS"},
+        {status: "IN-PROCESS"},
+        receipt
+      );
 
       try {
-        await updateAndVerifyTask(
-          storedBefore,
-          {status: "IN-PROCESS"},
-          {status: "IN-PROCESS"},
-          receipt
-        );
+        await AssistantStorage.setCurrentWorkId(currentWorkIdOf(started));
+        step(receipt, "Assistant State", "set current_work_id", true, {
+          currentWorkId: currentWorkIdOf(started),
+        });
       } catch (error) {
-        await restoreCurrentWorkId(previousCurrentWorkId, receipt);
+        await restoreTaskAfterFailedStart(storedBefore, storedBefore, receipt);
         throw error;
       }
     });
