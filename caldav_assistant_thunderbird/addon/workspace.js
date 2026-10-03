@@ -4,10 +4,14 @@ const $ = id => document.getElementById(id);
 let actionRunning = false;
 
 const state = {
-  calendars: [],
   tasks: [],
-  runtime: null,
-  settings: {},
+  timing: {
+    accumulatedMs: 0,
+    segmentStartedAtMs: null,
+    source: "none",
+  },
+  currentWorkId: null,
+  currentRef: null,
   current: null,
 };
 
@@ -43,23 +47,6 @@ function taskByRef(ref) {
   return state.tasks.find(task => sameTaskRef(ref, task)) || null;
 }
 
-function writableEventCalendars() {
-  return state.calendars.filter(calendar =>
-    calendar.supportsEvents && !calendar.disabled && !calendar.readOnly
-  );
-}
-
-async function resolveWorkCalendar(task) {
-  const candidates = writableEventCalendars();
-  const configured = candidates.find(calendar => calendar.id === state.settings.workCalendarId);
-  if (configured) return configured.id;
-
-  const sameCalendar = candidates.find(calendar => calendar.id === task.calendarId);
-  const chosen = sameCalendar || candidates[0];
-  if (!chosen) throw new Error("没有可写的 Work Calendar。请到“工具”设置。");
-  return chosen.id;
-}
-
 function showNotice(message, error = false) {
   const notice = $("notice");
   notice.textContent = message;
@@ -81,7 +68,7 @@ function addAction(label, handler, className) {
 
 function render() {
   const task = state.current;
-  const active = Boolean(task && state.runtime?.currentTask);
+  const active = Boolean(task && state.currentWorkId);
 
   $("no-current").hidden = active;
   $("current-work").hidden = !active;
@@ -92,29 +79,23 @@ function render() {
   if (!active) return;
 
   $("current-title").textContent = task.title || "(无标题)";
-  const paused = state.runtime.state === "paused";
-  $("current-state").textContent = paused ? "已暂停" : "正在进行";
-  $("current-state").className = "task-state " + (paused ? "paused" : "working");
+  $("current-state").textContent = "正在进行";
+  $("current-state").className = "task-state working";
 
   const due = displayDate(task.due);
   $("current-due").textContent = due === "—" ? "没有截止日期" : "截止 " + due;
 
-  if (state.runtime.state === "working") {
-    addAction("暂停", () => runWorkflow("pause"), "primary");
-  } else if (state.runtime.state === "paused") {
-    addAction("继续", () => runWorkflow("resume"), "primary");
-  }
-
+  addAction("停止", () => runWorkflow("stop"), "primary");
   addAction("完成", () => runWorkflow("complete"));
   addAction("取消", () => {$("cancel-confirm").hidden = false;}, "danger");
   updateElapsed();
 }
 
 function updateElapsed() {
-  if (!state.current || !state.runtime?.currentTask) return;
-  let ms = Number(state.runtime.accumulatedMs || 0);
-  if (state.runtime.state === "working" && state.runtime.segmentStartedAtMs) {
-    ms += Math.max(0, Date.now() - state.runtime.segmentStartedAtMs);
+  if (!state.current || !state.currentWorkId) return;
+  let ms = Number(state.timing.accumulatedMs || 0);
+  if (state.timing.segmentStartedAtMs) {
+    ms += Math.max(0, Date.now() - state.timing.segmentStartedAtMs);
   }
   $("current-elapsed").textContent = formatDuration(ms);
 }
@@ -139,10 +120,8 @@ async function runWorkflow(action) {
 
   let receipt;
   try {
-    if (action === "pause") {
-      receipt = await AssistantExecutor.pause(task);
-    } else if (action === "resume") {
-      receipt = await AssistantExecutor.resume(task, await resolveWorkCalendar(task));
+    if (action === "stop") {
+      receipt = await AssistantExecutor.stop(task);
     } else if (action === "complete") {
       receipt = await AssistantExecutor.complete(task);
     } else if (action === "cancel") {
@@ -166,27 +145,36 @@ async function runWorkflow(action) {
 
 async function refreshAll() {
   try {
-    state.calendars = await browser.ThunderbirdCalDAV.listCalendars();
     state.tasks = await browser.ThunderbirdCalDAV.listTasks();
-    state.runtime = await AssistantStorage.getRuntime();
-    state.settings = await AssistantStorage.getSettings();
+    state.currentWorkId = await AssistantStorage.getCurrentWorkId();
+    state.currentRef = state.currentWorkId
+      ? AssistantStorage.parseWorkTaskId(state.currentWorkId)
+      : null;
     state.current = null;
 
-    if (state.runtime.currentTask) {
+    if (state.currentRef) {
       try {
         state.current = await browser.ThunderbirdCalDAV.getTask(
-          state.runtime.currentTask.calendarId,
-          state.runtime.currentTask.id,
-          state.runtime.currentTask.recurrenceId || ""
+          state.currentRef.calendarId,
+          state.currentRef.id,
+          state.currentRef.recurrenceId || ""
         );
       } catch (_error) {
-        state.current = taskByRef(state.runtime.currentTask);
+        state.current = taskByRef(state.currentRef);
       }
     }
 
-    if (state.runtime.currentTask && !state.current) {
+    if (state.currentWorkId && !state.current) {
       showNotice("当前 Task 暂时无法从 Calendar 读取。", true);
     }
+
+    state.timing = state.current
+      ? await AssistantStorage.deriveWorkTiming(state.current)
+      : {
+          accumulatedMs: 0,
+          segmentStartedAtMs: null,
+          source: "none",
+        };
 
     render();
   } catch (error) {
@@ -212,7 +200,14 @@ browser.ThunderbirdCalDAV.onItemsChanged.addListener(() => {
 if (browser.storage?.onChanged) {
   browser.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== "local" || actionRunning) return;
-    if (!changes["caldavAssistant.runtime"] && !changes["caldavAssistant.settings"]) return;
+    const auditChanged = Object.keys(changes).some(
+      key => key.startsWith("caldavAssistant.audit.")
+    );
+    if (
+      !changes["caldavAssistant.runtime"] &&
+      !changes["caldavAssistant.currentWorkId"] &&
+      !auditChanged
+    ) return;
     clearTimeout(window.__caldavAssistantStorageRefresh);
     window.__caldavAssistantStorageRefresh = setTimeout(refreshAll, 100);
   });

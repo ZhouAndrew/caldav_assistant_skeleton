@@ -28,6 +28,7 @@ with zipfile.ZipFile(path) as z:
         "wordpress.html",
         "wordpress.js",
         "core/storage.js",
+        "core/action-plan.js",
         "core/executor.js",
         "core/connection.js",
         "core/wordpress.js",
@@ -42,7 +43,7 @@ with zipfile.ZipFile(path) as z:
 
     manifest = json.loads(z.read("manifest.json"))
     assert manifest["name"] == "CalDAV Assistant Experimental"
-    assert manifest["version"] == "0.3.15"
+    assert manifest["version"] == "0.3.16"
     assert manifest["browser_specific_settings"]["gecko"]["id"] == (
         "ZhouAndrew.thunderbird-taskfix-lab@addons.thunderbird.net"
     )
@@ -64,6 +65,7 @@ with zipfile.ZipFile(path) as z:
     task_picker_html = z.read("task-picker.html").decode()
     task_picker = z.read("task-picker.js").decode()
     storage = z.read("core/storage.js").decode()
+    action_plan = z.read("core/action-plan.js").decode()
     executor = z.read("core/executor.js").decode()
     connection = z.read("core/connection.js").decode()
     wordpress = z.read("core/wordpress.js").decode()
@@ -112,12 +114,30 @@ with zipfile.ZipFile(path) as z:
     assert 'id="task-view"' not in workspace_html
     assert 'id="task-calendar-filter"' not in workspace_html
     assert "AssistantExecutor.start" not in workspace
-    assert "AssistantExecutor.pause" in workspace
-    assert "AssistantExecutor.resume" in workspace
+    assert 'src="core/action-plan.js"' in workspace_html
+    assert workspace_html.index('src="core/action-plan.js"') < workspace_html.index('src="core/executor.js"')
+    assert 'src="core/action-plan.js"' in task_picker_html
+    assert task_picker_html.index('src="core/action-plan.js"') < task_picker_html.index('src="core/executor.js"')
+    assert "planWorkAction" in action_plan
+    assert "browser." not in action_plan
+    assert "AssistantActionPlan.planWorkAction" in executor
+    assert "AssistantExecutor.stop" in workspace
+    assert "AssistantExecutor.pause" not in workspace
+    assert "AssistantExecutor.resume" not in workspace
+    assert "没有可写的 Work Calendar" not in workspace
     assert "AssistantExecutor.complete" in workspace
     assert "AssistantExecutor.cancel" in workspace
-    assert "resolveWorkCalendar" in workspace
+    assert "resolveWorkCalendar" not in workspace
     assert "browser.storage.onChanged" in workspace
+    assert "AssistantStorage.getCurrentWorkId" in workspace
+    assert "AssistantStorage.parseWorkTaskId" in workspace
+    assert "AssistantStorage.deriveWorkTiming" in workspace
+    assert "AssistantStorage.getRuntime" not in workspace
+    assert "runtime.currentTask" not in workspace
+    assert "state.runtime" not in workspace
+    assert "task.paused" not in workspace
+    assert "暂停" not in workspace
+    assert "继续" not in workspace
 
     assert "选择 Task" in task_picker_html
     assert "搜索 Task" in task_picker_html
@@ -137,11 +157,20 @@ with zipfile.ZipFile(path) as z:
     assert "未完成" in task_picker_html
     assert "接下来七天" in task_picker_html
     assert "最近结果" not in task_picker_html
-    assert "AssistantExecutor.switchAway" in task_picker
+    assert "AssistantExecutor.stop" in task_picker
+    assert "AssistantExecutor.switchAway" not in task_picker
     assert "AssistantExecutor.start" in task_picker
-    assert "换下当前 Task" in task_picker
+    assert "AssistantStorage.getCurrentWorkId" in task_picker
+    assert "AssistantStorage.parseWorkTaskId" in task_picker
+    assert "AssistantStorage.getRuntime" not in task_picker
+    assert "没有可写的 Work Calendar" not in task_picker
+    assert "runtime.currentTask" not in task_picker
+    assert "state.runtime.state" not in task_picker
+    assert "task.paused" not in task_picker
+    assert "换下当前 Task" not in task_picker
+    assert "停止当前 Task" in task_picker
     assert "开始这个 Task" in task_picker
-    assert "先把“" in task_picker
+    assert "先停止“" in task_picker
     assert "resolveWorkCalendar" in task_picker
     assert "listNativeTasks" in task_picker
     assert "browser.TaskFix.getSelectedTasks" in task_picker
@@ -166,7 +195,27 @@ with zipfile.ZipFile(path) as z:
     assert "recurrenceId" in task_picker
     assert "recurrenceId" in executor
     assert "taskBeforeStart" in executor
-    assert "switchAway" in executor
+    assert "stop" in executor
+    assert "switchAway" not in executor
+    assert "AssistantExecutor.pause" not in executor
+    assert "AssistantExecutor.resume" not in executor
+    assert "AssistantStorage.getCurrentWorkId" in executor
+    assert "AssistantStorage.makeWorkTaskId" in executor
+    assert "sameTask(" not in executor
+    assert "runtime.currentTask.id ===" not in executor
+    assert 'runtime.state !== "working"' not in executor
+    assert 'runtime.state !== "paused"' not in executor
+    assert 'includes(runtime.state)' not in executor
+    assert 'runtime.state === "working"' not in executor
+    assert "AssistantStorage.findOpenWorkSessionRef" in executor
+    assert "closeWorkEvent(runtime.currentWorkEvent" not in executor
+    assert "reopenWorkEvent(runtime.currentWorkEvent" not in executor
+    assert "AssistantStorage.setRuntime" not in executor
+    assert "AssistantStorage.clearRuntime" not in executor
+    assert executor.count("AssistantStorage.getLegacyRuntime") == 1
+    assert "createWorkEventBestEffort" in executor
+    assert "closeWorkEventBestEffort" in executor
+    assert "Task workflow continues because Work VEVENT is auxiliary history." in executor
     assert '@mozilla.org/network/io-service;1' in direct
     assert '@mozilla.org/appshell/window-mediator;1' in direct
     assert "new URL(url)" not in direct
@@ -177,6 +226,17 @@ with zipfile.ZipFile(path) as z:
     assert "saveSettingsWithUndo" in storage
     assert "undoSettings" in storage
     assert "snapshot.keys" in storage
+    assert 'KEY_CURRENT_WORK_ID = "caldavAssistant.currentWorkId"' in storage
+    assert "getCurrentWorkId" in storage
+    assert "setCurrentWorkId" in storage
+    assert "deriveWorkTiming" in storage
+    assert "findOpenWorkSessionRef" in storage
+    assert "makeWorkTaskId" in storage
+    assert "parseWorkTaskId" in storage
+    # Legacy 0.3.15 runtime is read-only migration data now.
+    assert "getLegacyRuntime" in storage
+    assert "async function setRuntime" not in storage
+    assert "async function clearRuntime" not in storage
     assert 'persistResult(receipt, "workflow")' in executor
     assert 'persistResult(result, "connection")' in connection
     assert 'persistResult(result, "wordpress")' in wordpress
@@ -259,4 +319,4 @@ with zipfile.ZipFile(path) as z:
     assert "apply.sh" not in names
     assert "patch_omnijar.py" not in names
 
-print("caldav-assistant-experimental-0.3.15-xpi-contract: PASS")
+print("caldav-assistant-experimental-0.3.16-xpi-contract: PASS")

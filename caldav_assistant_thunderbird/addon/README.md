@@ -1,114 +1,107 @@
 # CalDAV Assistant Experimental
 
-Current build: **0.3.12** for official Thunderbird **153.0.2 through 153.1.x**.
+Thunderbird-native CalDAV Assistant add-on for official Thunderbird 153.0.2 through
+153.1.x.
 
-0.3.15 keeps the segmented Work flow and makes Task switching restore the previous Task to exactly the state it had before Start. The Work page shows only the current Task. Task browsing and selection live on a separate Task picker page. Switching remains deliberately two-step: release the current Task, then explicitly start the selected Task. The add-on remains a direct Thunderbird Calendar/Tasks provider client.
-
-## 0.3.12 logging and WordPress changes
-
-- WordPress has a first-class page in the main navigation, with visible settings, daily-work-log state and Outbox state.
-- WordPress quick/full tests show the underlying REST attempt, conservative retry, WP-CLI fallback, timing and errors instead of only the final success summary.
-- Operation audit is stored under per-local-date keys and can be copied per day, as currently visible text, or as JSON.
-- Technical diagnostics are physically split into per-local-date files; the previous combined log is migrated on first use.
-- Closing a Work VEVENT writes one idempotent time-range entry into the matching daily WordPress post and read-backs the marker to verify the write.
-- WordPress failure queues an Outbox item and never rolls back the CalDAV Task action. Startup and the WordPress page can retry the Outbox.
-- Work sessions that cross local midnight are split into the corresponding daily posts.
+The current development line is PR #98. The release number is bumped only after the
+real Thunderbird/Radicale/WordPress gates pass.
 
 ## Work flow
 
-The Work page is intentionally small. It shows only the current Task, elapsed time and direct controls:
+The Work page is intentionally small. It shows only the current Task, elapsed time
+and these actions:
 
-- Working Task: Pause / Complete / Cancel / Switch Task.
-- Paused Task: Resume / Complete / Cancel / Switch Task.
-- No current Task: Select Task.
+- **Stop**
+- **Complete**
+- **Cancel**
 
-Task browsing is a separate page. The Task picker owns the Incomplete/Today/Overdue/Completed/All filter, Calendar filter and search field.
+With no current Task it links to **Select Task**.
 
-Starting and switching are kept explicit:
+Task browsing is a separate page. The Task Picker owns Thunderbird-native filters,
+Calendar visibility and search.
+
+Starting another Task remains explicit:
 
 ```text
 Select Task
 -> Start this Task
 -> Work
 
-Switch Task
--> select target
--> Put current Task aside
+Choose another Task while one is current
+-> Stop current Task
 -> target selection stays in place
 -> Start this Task
 -> Work
 ```
 
-Switching away is not Pause and is not Complete. The current open Work VEVENT is closed and verified, then the VTODO is restored to the exact status / paused marker / percent-complete snapshot captured immediately before Start. For an ordinary incomplete Task this means it returns to incomplete (`NEEDS-ACTION`), with no Assistant paused marker and no Resume state. The runtime current-task pointer is then released. The target Task is not auto-started.
+Stop restores the old Task to its immutable pre-Start status/progress and clears the
+Assistant `currentWorkId`. Any legacy paused marker is normalized off. The selected
+target is never auto-started.
 
-The Work page does **not** contain the Task browser, filter controls, detailed operation logs, UID, raw VTODO state, internal Assistant state, Work Calendar selectors, provider IDs, or JSON details.
+Pause, Resume and Switch Away are no longer new actions. Legacy 0.3.15 records using
+those terms remain readable only for migration/history.
 
-## Five pages
+## Six pages
 
-- **Work** — Task lifecycle.
+- **Work** — current Task lifecycle.
 - **Today** — today's workflow activity.
-- **Record** — append one log entry (and optional attachments) to today's WordPress log post.
-- **Logs** — complete persistent audit + technical diagnostics.
-- **Tools** — settings and read/write connection tests.
+- **Record** — append to today's WordPress log.
+- **Logs** — persistent audit + technical diagnostics.
+- **WordPress** — WordPress settings, Outbox and connection verification.
+- **Tools** — Task defaults and Calendar connection tests.
 
-## Guided defaults
+## Data ownership
 
-Tools owns two lightweight user preferences:
+- Thunderbird/CalDAV owns Task/Event facts.
+- Assistant owns only `currentWorkId` as dynamic work state plus settings/audit/outbox.
+- WordPress owns long-form/daily records.
 
-- Default Task view (Incomplete by default).
-- Default Task Calendar (including All Calendars).
-
-When more than one Task Calendar exists and no default has been chosen, Work shows a short link to the exact Tools section. If a saved Calendar later disappears, Work falls back to All Calendars for the current session and guides the user back to settings instead of silently replacing the preference.
-
-Saving Calendar/view defaults creates a one-step settings undo snapshot. The user can immediately undo the choice from Tools.
-
-Inferred Work Calendar choices are one-shot only; the Assistant no longer silently persists an inferred Calendar as a user preference.
+The legacy `caldavAssistant.runtime` object is read-only migration input and is never
+written by the new lifecycle.
 
 ## Simple internals
 
-The core is plain functions plus a few plain JavaScript objects. There is no extra workflow framework or class hierarchy.
+`core/action-plan.js` contains the pure Start/Stop/Complete/Cancel plan.
 
-`core/executor.js` exposes Start/Pause/SwitchAway/Resume/Complete/Cancel functions; `putAside` remains only as a compatibility alias for older 0.3.11–0.3.14 callers.
+`core/executor.js` performs Thunderbird/CalDAV/storage effects and read-back
+verification.
 
-`core/connection.js` tests Calendar reads/writes.
+`core/connection.js` performs standalone Calendar diagnostics. Its full write test
+does not load or call `AssistantExecutor`.
 
-`core/wordpress.js` talks to WordPress.
-
-`core/storage.js` stores settings/runtime/audit and enforces the log-before-display rule.
+`core/storage.js` stores settings/currentWorkId/audit/outbox and reads old runtime
+data only for migration.
 
 ## Reliability rules
 
-Data-changing Calendar paths use:
+Authoritative paths use:
 
-write -> read back -> compare -> Result
+```text
+write -> read back -> compare -> receipt
+```
 
-A Result is persisted to the audit log before it is returned to the UI. If logging itself fails, the visible Result says so.
+Start optionally opens a Work VEVENT. Stop/Complete/Cancel optionally close it.
+Work VEVENT is history, not workflow truth; its failure is logged but does not undo a
+verified VTODO/currentWorkId transition.
 
-Start/Resume create Work VEVENTs. Pause/Complete/Cancel close them.
-
-Task/Event facts remain in Thunderbird/CalDAV.
+Every result is persisted to audit before UI display. If logging itself fails, the
+visible result says so.
 
 ## Connection tests
 
 Calendar full test creates only a temporary VEVENT:
 
+```text
 create -> read -> update -> read -> delete -> verify absence
+```
 
 It never creates a VTODO.
 
-WordPress full test uses a temporary Draft post + test media, verifies them, then deletes them.
+WordPress full test uses a temporary Draft post + test media, verifies them, then
+deletes them.
 
-Normal Record writes are different: each submission appends one Gutenberg log entry to the single published daily post (new posts keep the existing helper title shape, for example `October 1  Thursday  2026`). The daily post is created only when that day's post does not yet exist; Record never asks the user for a per-entry post title or post status. Text entries keep the existing local `HH:MM` prefix, and attachments are appended as native Gutenberg media/file blocks.
+## Release acceptance
 
-## Diagnostics
-
-The Logs page contains both:
-
-- operation/audit records;
-- the extension-owned profile log `caldav-assistant-experimental.log`.
-
-See `DIAGNOSTICS.md`.
-
-## Testing
-
-Release acceptance requires more than syntax/unit tests. See `TESTING.md` and `NOTE.md`.
+A successful XPI build is not a release. Required gates include typed/unit harnesses,
+XPI contract checks, real Thunderbird + Radicale, same-profile restart recovery,
+real Thunderbird + WordPress and interactive Start/Stop/Complete/Cancel paths.

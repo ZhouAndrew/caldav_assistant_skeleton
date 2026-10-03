@@ -12,3 +12,5 @@ dist/
 *.bak
 *.zip
 caldav_assistant.egg-info/*.*
+node_modules/
+.typed-build/

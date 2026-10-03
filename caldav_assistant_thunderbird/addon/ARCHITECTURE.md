@@ -1,112 +1,108 @@
-# CalDAV Assistant Experimental 0.3.7 — simple program boundary
+# CalDAV Assistant Thunderbird — program boundary
 
-The design goal is deliberately ordinary: a small UI, a set of plain functions, a few plain objects, strict read-back checks, and persistent logs.
+The design goal is a small Thunderbird-native UI, plain action functions, strict
+read-back checks and persistent diagnostics.
 
-## Work
+## Source of truth
 
-`workspace.html + workspace.js` only does this:
+- Thunderbird/CalDAV = Task and Event facts.
+- `browser.storage.local` = settings, `currentWorkId`, audit/history and Outbox.
+- WordPress = explicit long-form/daily records.
 
-existing Task -> select -> Start -> Working -> Pause/Resume -> Complete or Cancel
+There is no second Assistant Task database and no writable Assistant workflow state
+machine.
 
-Rules:
+## Work lifecycle
 
-- the Work page defaults to the Incomplete view;
-- completed/cancelled Tasks remain available through explicit views instead of being deleted;
-- the Work page may temporarily switch view/Calendar without changing persistent defaults;
-- the Work page never creates a Task;
-- before a Task is selected there are no workflow buttons;
-- only actions valid for the current state are shown;
-- completed/cancelled Tasks show no workflow buttons;
-- UID, raw VTODO status, Work Calendar, provider IDs and JSON details do not appear on the Work page;
-- the Work page keeps only a short human-readable recent result.
+The user-facing lifecycle is:
+
+```text
+Select Task -> Start -> Stop | Complete | Cancel
+```
+
+The Work page shows only the current Task. Task browsing/filtering/search remain on
+the separate Task Picker page.
+
+`currentWorkId` is the only Assistant-owned dynamic work pointer. It identifies a
+Task with Calendar id + VTODO UID + recurrence id.
+
+Pause, Resume and Switch Away are not new workflow actions. Old 0.3.15 data using
+those concepts is migration/history input only.
 
 ## Plain action functions
 
-`core/executor.js` is intentionally a file of plain functions. It does not define a class hierarchy or workflow framework.
-
-The public operations are:
+`core/executor.js` exposes:
 
 - `start(task, workCalendarId)`
-- `pause(task)`
-- `resume(task, workCalendarId)`
+- `stop(task)`
 - `complete(task)`
 - `cancel(task)`
 
-Data-changing paths use:
+All authoritative writes use:
 
-write -> read back -> compare -> Result
+```text
+write -> read back -> compare -> receipt
+```
 
-Start/Resume create Work VEVENTs. Pause/Complete/Cancel close the current Work VEVENT. Rollback code exists only where a partial remote write could otherwise leave inconsistent data.
+Start writes the VTODO first, then optionally opens a Work VEVENT, then publishes
+`currentWorkId`.
 
-## Small data objects
+Stop restores the pre-Start VTODO status/progress from immutable Start history,
+normalizes any legacy paused marker off, closes optional Work history, and clears
+`currentWorkId`.
 
-Runtime data is ordinary JavaScript objects:
+Complete/Cancel commit their VTODO terminal state and clear `currentWorkId`.
 
-- Task view
-- Work event reference
-- Runtime state
-- Result/receipt
-- Settings
+Work VEVENT is auxiliary history. A missing Work Calendar or Work-history failure is
+recorded in the receipt but must not make an otherwise verified Task transition fail.
 
-There is no domain class hierarchy.
+## Legacy migration
 
-## Logging rule
+`caldavAssistant.runtime` is read-only migration input. New actions never write it.
+Old pause/resume/switch-away audit records remain readable so historical timing and
+old sessions can be recovered safely.
 
-Every user-visible success/failure result is sent to `AssistantStorage.persistResult()` before the function returns it to the UI.
+## Logging
 
-That function attempts:
+Every user-visible success/failure is sent to
+`AssistantStorage.persistResult()` before it is returned to the UI.
 
-Result -> append persistent audit -> cache latest Result -> return to UI
+```text
+Result -> persistent audit -> latest Result cache -> UI
+```
 
-If the persistent audit write fails, `logSaved=false` and the UI must say so instead of pretending the result was safely logged.
+If persistent audit fails, the returned result exposes `logSaved=false`.
 
-The Logs page owns full technical detail. The Work page only shows a short result plus a link to Logs.
+## Tools / connection tests
 
-## Guided defaults and Tools
+Calendar quick test reads Calendars and existing VTODOs.
 
-`tools.html` owns settings and connection tests.
+Calendar full write test is self-contained and does not depend on Workflow Executor:
 
-The default Task view and default Task Calendar are ordinary `browser.storage.local` settings. The Calendar value is Thunderbird's existing Calendar id; the add-on does not maintain a second Calendar registry.
-
-Saving those defaults writes one settings undo snapshot. Undo restores the previous Assistant settings object. If a configured Task Calendar disappears, Work temporarily shows All Calendars and links the user back to Tools; it never silently replaces the saved preference.
-
-A missing Work Calendar may be inferred for one workflow action, but that inferred choice is not persisted automatically.
-
-
-Calendar full test:
-
+```text
 temporary TEST VEVENT -> read -> update -> read -> delete -> verify absence
+```
 
 It never creates a VTODO.
 
 WordPress full test:
 
-temporary Draft Post -> read -> update -> read -> temporary media -> read -> delete media -> delete post
+```text
+temporary Draft -> read -> update -> media -> read -> delete media -> delete post
+```
 
 ## WordPress
 
-`record.html` is an append-only daily log UI. It has no per-entry title or post-status fields.
-
-Normal Record flow:
-
-today's exact daily title -> find published post -> create it only if absent -> upload optional media to that post -> append one Gutenberg log entry -> read back and verify marker
-
-New daily posts use the existing helper title shape, for example `October 1  Thursday  2026`. Lookup remains compatible with older helper-created titles: full or abbreviated month, the day as a numeric token, weekday and year are matched without depending on spacing or token order.
-
-Each text entry is appended as a new Gutenberg paragraph prefixed with local `HH:MM`. Attachments are parented to the same daily post and appended as native Gutenberg blocks: image, video, audio or file/PDF according to MIME type. Multiple Record submissions on the same day reuse the same Post ID.
-
-The visible result reports the daily Post ID / Media ID values; the full request/result record stays in Logs. Completing a Task still does not implicitly create a WordPress post.
-
-## Data ownership
-
-- Thunderbird/CalDAV = Task and Event facts.
-- browser.storage.local = small Assistant runtime/settings/audit state only.
-- WordPress = explicit long-form records.
+Record appends explicit entries to the daily WordPress post. Closing a Work-history
+segment may append an idempotent time-range record. WordPress failure is queued in
+the Outbox and never rolls back a committed Task action.
 
 ## Top-level UI
 
-Exactly five ordinary pages:
+Six ordinary pages:
 
-Work | Today | Record | Logs | Tools
+```text
+Work | Today | Record | Logs | WordPress | Tools
+```
 
-The internal implementation may have supporting files, but those are not additional user workflows.
+Supporting files are implementation details, not extra workflows.

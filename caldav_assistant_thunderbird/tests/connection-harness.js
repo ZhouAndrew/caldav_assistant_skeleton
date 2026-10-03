@@ -27,19 +27,7 @@ global.browser = {
 };
 
 global.performance = global.performance || require("perf_hooks").performance;
-global.AssistantExecutor = {
-  toLocalInput(date) {
-    const pad = value => String(value).padStart(2, "0");
-    return (
-      date.getFullYear() + "-" +
-      pad(date.getMonth() + 1) + "-" +
-      pad(date.getDate()) + "T" +
-      pad(date.getHours()) + ":" +
-      pad(date.getMinutes()) + ":" +
-      pad(date.getSeconds())
-    );
-  },
-};
+delete global.AssistantExecutor;
 
 let createTaskCalls = 0;
 let nextEvent = 1;
@@ -107,8 +95,12 @@ for (const script of ["addon/core/storage.js", "addon/core/connection.js"]) {
   assert(result.logSaved === true, "quick test was not logged before return");
 
   writes.length = 0;
+  assert(
+    typeof global.AssistantExecutor === "undefined",
+    "connection test unexpectedly depends on AssistantExecutor"
+  );
   result = await AssistantConnection.fullCalendarWriteTest("work");
-  assert(result.success, "full Calendar read/write test failed");
+  assert(result.success, "full Calendar read/write test failed without AssistantExecutor");
   assert(createTaskCalls === 0, "full Calendar test created a VTODO");
   assert(events.size === 0, "full Calendar test left TEST VEVENT data behind");
   assert(

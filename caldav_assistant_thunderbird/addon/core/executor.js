@@ -63,13 +63,35 @@
     }
   }
 
-  function sameTask(runtime, task) {
-    return Boolean(
-      runtime?.currentTask &&
-      runtime.currentTask.id === task.id &&
-      runtime.currentTask.calendarId === task.calendarId &&
-      String(runtime.currentTask.recurrenceId || "") === String(task.recurrenceId || "")
+  function taskForPlan(task) {
+    return Object.freeze({
+      ...task,
+      workTaskId: AssistantStorage.makeWorkTaskId(task),
+      paused: Boolean(task.paused),
+      percentComplete: Number(task.percentComplete || 0),
+    });
+  }
+
+  function actionPlanError(action, reason) {
+    if (reason === "finished") return "The selected task is already finished.";
+    if (reason === "current-work-exists") return "Another task is already active.";
+    if (reason === "restore-required") {
+      return "The pre-Start task state could not be reconstructed.";
+    }
+    return "The selected task is not the current task.";
+  }
+
+  function requireActionPlan(action, currentWorkId, task, restoreSnapshot = null) {
+    const plan = AssistantActionPlan.planWorkAction(
+      action,
+      currentWorkId,
+      taskForPlan(task),
+      restoreSnapshot
     );
+    if (!plan.ok) {
+      throw new Error(actionPlanError(action, plan.reason));
+    }
+    return plan;
   }
 
   function taskSnapshot(task) {
@@ -80,9 +102,19 @@
     };
   }
 
-  function switchRestoreSnapshot(runtime, task) {
-    const saved = runtime?.taskBeforeStart;
-    if (saved && typeof saved === "object") {
+  async function stopRestoreSnapshot(task) {
+    const audited = await AssistantStorage.findLatestStartSnapshot(task);
+    if (audited) return audited;
+
+    // Read-only migration fallback for a work session created by 0.3.15.
+    const legacyRuntime = await AssistantStorage.getLegacyRuntime();
+    const saved = legacyRuntime?.taskBeforeStart;
+    if (
+      AssistantStorage.makeWorkTaskId(legacyRuntime?.currentTask) ===
+        AssistantStorage.makeWorkTaskId(task) &&
+      saved &&
+      typeof saved === "object"
+    ) {
       return {
         status: saved.status || null,
         paused: Boolean(saved.paused),
@@ -90,9 +122,7 @@
       };
     }
 
-    // Compatibility for a work session that was started by an older add-on build.
-    // The old runtime did not persist the pre-start Task snapshot, so the safest
-    // incomplete state is NEEDS-ACTION while preserving existing progress.
+    // Oldest builds had neither immutable pre-Start history nor taskBeforeStart.
     return {
       status: "NEEDS-ACTION",
       paused: false,
@@ -248,6 +278,18 @@
     }
   }
 
+  async function createWorkEventBestEffort(task, workCalendarId, startedAt, receipt) {
+    try {
+      return await createWorkEvent(task, workCalendarId, startedAt, receipt);
+    } catch (error) {
+      step(receipt, "Work Session", "optional history create failed", false, {
+        message: errorText(error),
+        note: "Task workflow continues because Work VEVENT is auxiliary history.",
+      });
+      return null;
+    }
+  }
+
   async function closeWorkEvent(workEvent, endedAt, receipt) {
     if (!workEvent?.id || !workEvent?.calendarId) return null;
     await browser.ThunderbirdCalDAV.updateEvent(workEvent.calendarId, workEvent.id, {
@@ -273,6 +315,31 @@
       workOpen: stored.workOpen,
     });
     return stored;
+  }
+
+  async function closeWorkEventBestEffort(workEvent, endedAt, receipt) {
+    if (!workEvent?.id || !workEvent?.calendarId) return {
+      closed: false,
+      event: null,
+    };
+    try {
+      const event = await closeWorkEvent(workEvent, endedAt, receipt);
+      return {
+        closed: Boolean(event),
+        event,
+      };
+    } catch (error) {
+      step(receipt, "Work Session", "optional history close failed", false, {
+        uid: workEvent.id,
+        calendarId: workEvent.calendarId,
+        message: errorText(error),
+        note: "Task workflow continues because Work VEVENT is auxiliary history.",
+      });
+      return {
+        closed: false,
+        event: null,
+      };
+    }
   }
 
   async function reopenWorkEvent(workEvent, receipt) {
@@ -331,17 +398,15 @@
     }
   }
 
-  async function restoreRuntime(runtime, receipt) {
+  async function restoreCurrentWorkId(currentWorkId, receipt) {
     try {
-      await AssistantStorage.setRuntime(runtime);
-      step(receipt, "Rollback", "restore runtime state", true, {
-        state: runtime.state,
-        taskUid: runtime.currentTask?.id || null,
-        workEventUid: runtime.currentWorkEvent?.id || null,
+      await AssistantStorage.setCurrentWorkId(currentWorkId);
+      step(receipt, "Rollback", "restore currentWorkId", true, {
+        currentWorkId,
       });
       return true;
     } catch (error) {
-      step(receipt, "Rollback", "restore runtime state", false, {
+      step(receipt, "Rollback", "restore currentWorkId", false, {
         message: errorText(error),
       });
       return false;
@@ -397,238 +462,159 @@
   async function start(task, workCalendarId) {
     return runAction("start", task, async receipt => {
       ensureMutableTask(task);
-      const runtime = await AssistantStorage.getRuntime();
-      if (runtime.state !== "idle" && runtime.currentTask) {
-        throw new Error("Another task is already active.");
-      }
+      const previousCurrentWorkId = await AssistantStorage.getCurrentWorkId();
+      const plan = requireActionPlan(
+        "start",
+        previousCurrentWorkId,
+        task
+      );
 
       const beforeTask = taskSnapshot(task);
       let taskWritten = false;
       let workEvent = null;
+      let currentWorkPublished = false;
 
       try {
         taskWritten = true;
         await updateAndVerifyTask(
           task,
-          {status: "IN-PROCESS", paused: false},
-          {status: "IN-PROCESS", paused: false},
+          plan.taskChanges,
+          plan.taskChanges,
           receipt
         );
 
-        workEvent = await createWorkEvent(task, workCalendarId, toLocalInput(), receipt);
+        if (plan.historyEffect === "open") {
+          workEvent = await createWorkEventBestEffort(
+            task,
+            workCalendarId,
+            toLocalInput(),
+            receipt
+          );
+        }
 
-        await AssistantStorage.setRuntime({
-          state: "working",
-          currentTask: {
-            id: task.id,
-            calendarId: task.calendarId,
-            title: task.title,
-            recurrenceId: String(task.recurrenceId || ""),
-          },
-          currentWorkEvent: {
-            id: workEvent.id,
-            calendarId: workEvent.calendarId,
-          },
-          segmentStartedAtMs: Date.now(),
-          accumulatedMs: 0,
-          taskBeforeStart: beforeTask,
-        });
-        step(receipt, "Runtime", "set current task", true, {
-          state: "working",
+        await AssistantStorage.setCurrentWorkId(plan.nextCurrentWorkId);
+        currentWorkPublished = true;
+        step(receipt, "Current Work", "publish currentWorkId", true, {
+          currentWorkId: plan.nextCurrentWorkId,
           taskUid: task.id,
-          workEventUid: workEvent.id,
+          workEventUid: workEvent?.id || null,
         });
       } catch (error) {
         if (workEvent) await deleteWorkEvent(workEvent, receipt);
         if (taskWritten) await restoreTask(task, beforeTask, receipt);
-        await restoreRuntime(runtime, receipt);
+        if (currentWorkPublished) {
+          await restoreCurrentWorkId(previousCurrentWorkId, receipt);
+        }
         throw error;
       }
     });
   }
 
-  async function pause(task) {
-    return runAction("pause", task, async receipt => {
+  async function stop(task) {
+    return runAction("stop", task, async receipt => {
       ensureMutableTask(task);
-      const runtime = await AssistantStorage.getRuntime();
-      if (runtime.state !== "working" || !sameTask(runtime, task)) {
-        throw new Error("The selected task is not the currently working task.");
-      }
-
+      const currentWorkId = await AssistantStorage.getCurrentWorkId();
       const beforeTask = taskSnapshot(task);
+      const restoreTo = await stopRestoreSnapshot(task);
+      const plan = requireActionPlan(
+        "stop",
+        currentWorkId,
+        task,
+        restoreTo
+      );
+      const workEvent = await AssistantStorage.findOpenWorkSessionRef(task);
       let eventClosed = false;
       let closedEvent = null;
       let taskWritten = false;
+      let currentWorkCleared = false;
 
       try {
-        eventClosed = true;
-        closedEvent = await closeWorkEvent(runtime.currentWorkEvent, toLocalInput(), receipt);
-
-        taskWritten = true;
-        await updateAndVerifyTask(
-          task,
-          {status: "IN-PROCESS", paused: true},
-          {status: "IN-PROCESS", paused: true},
-          receipt
-        );
-
-        const elapsed = runtime.segmentStartedAtMs
-          ? Math.max(0, Date.now() - runtime.segmentStartedAtMs)
-          : 0;
-        await AssistantStorage.setRuntime({
-          ...runtime,
-          state: "paused",
-          currentWorkEvent: null,
-          segmentStartedAtMs: null,
-          accumulatedMs: Number(runtime.accumulatedMs || 0) + elapsed,
-        });
-        step(receipt, "Runtime", "set paused state", true, {
-          accumulatedMs: Number(runtime.accumulatedMs || 0) + elapsed,
-        });
-        await logClosedWorkSession(task, closedEvent, receipt);
-      } catch (error) {
-        if (taskWritten) await restoreTask(task, beforeTask, receipt);
-        if (eventClosed) await reopenWorkEvent(runtime.currentWorkEvent, receipt);
-        await restoreRuntime(runtime, receipt);
-        throw error;
-      }
-    });
-  }
-
-  async function switchAway(task) {
-    return runAction("switch-away", task, async receipt => {
-      ensureMutableTask(task);
-      const runtime = await AssistantStorage.getRuntime();
-      if (!sameTask(runtime, task) || !["working", "paused"].includes(runtime.state)) {
-        throw new Error("The selected task is not the current task.");
-      }
-
-      const beforeTask = taskSnapshot(task);
-      const restoreTo = switchRestoreSnapshot(runtime, task);
-      let eventClosed = false;
-      let closedEvent = null;
-      let taskWritten = false;
-
-      try {
-        if (runtime.state === "working" && runtime.currentWorkEvent) {
-          eventClosed = true;
-          closedEvent = await closeWorkEvent(runtime.currentWorkEvent, toLocalInput(), receipt);
+        if (plan.historyEffect === "close" && workEvent) {
+          const closeResult = await closeWorkEventBestEffort(
+            workEvent,
+            toLocalInput(),
+            receipt
+          );
+          eventClosed = closeResult.closed;
+          closedEvent = closeResult.event;
         }
 
         taskWritten = true;
         await updateAndVerifyTask(
           task,
-          restoreTo,
-          {
-            status: restoreTo.status || "",
-            paused: Boolean(restoreTo.paused),
-            percentComplete: Number(restoreTo.percentComplete || 0),
-          },
+          plan.taskChanges,
+          plan.taskChanges,
           receipt
         );
 
-        await AssistantStorage.clearRuntime();
-        step(receipt, "Runtime", "release current task", true, {
-          state: "idle",
+        await AssistantStorage.setCurrentWorkId(plan.nextCurrentWorkId);
+        currentWorkCleared = true;
+        step(receipt, "Current Work", "clear currentWorkId", true, {
           taskUid: task.id,
           restoredStatus: restoreTo.status || "",
-          restoredPaused: Boolean(restoreTo.paused),
+          restoredPaused: false,
           restoredPercentComplete: Number(restoreTo.percentComplete || 0),
         });
         await logClosedWorkSession(task, closedEvent, receipt);
       } catch (error) {
         if (taskWritten) await restoreTask(task, beforeTask, receipt);
-        if (eventClosed) await reopenWorkEvent(runtime.currentWorkEvent, receipt);
-        await restoreRuntime(runtime, receipt);
+        if (eventClosed) await reopenWorkEvent(workEvent, receipt);
+        if (currentWorkCleared) {
+          await restoreCurrentWorkId(currentWorkId, receipt);
+        }
         throw error;
       }
     });
   }
 
-  // Compatibility alias for callers from 0.3.11-0.3.14. New UI code uses the
-  // semantically explicit switchAway() name.
-  const putAside = switchAway;
-
-  async function resume(task, workCalendarId) {
-    return runAction("resume", task, async receipt => {
-      ensureMutableTask(task);
-      const runtime = await AssistantStorage.getRuntime();
-      if (runtime.state !== "paused" || !sameTask(runtime, task)) {
-        throw new Error("The selected task is not paused.");
-      }
-
-      const beforeTask = taskSnapshot(task);
-      let taskWritten = false;
-      let workEvent = null;
-
-      try {
-        taskWritten = true;
-        await updateAndVerifyTask(
-          task,
-          {status: "IN-PROCESS", paused: false},
-          {status: "IN-PROCESS", paused: false},
-          receipt
-        );
-
-        workEvent = await createWorkEvent(task, workCalendarId, toLocalInput(), receipt);
-
-        await AssistantStorage.setRuntime({
-          ...runtime,
-          state: "working",
-          currentWorkEvent: {
-            id: workEvent.id,
-            calendarId: workEvent.calendarId,
-          },
-          segmentStartedAtMs: Date.now(),
-        });
-        step(receipt, "Runtime", "set working state", true, {
-          workEventUid: workEvent.id,
-        });
-      } catch (error) {
-        if (workEvent) await deleteWorkEvent(workEvent, receipt);
-        if (taskWritten) await restoreTask(task, beforeTask, receipt);
-        await restoreRuntime(runtime, receipt);
-        throw error;
-      }
-    });
-  }
 
   async function finish(task, status) {
     const action = status === "COMPLETED" ? "complete" : "cancel";
 
     return runAction(action, task, async receipt => {
       ensureMutableTask(task);
-      const runtime = await AssistantStorage.getRuntime();
-      if (!sameTask(runtime, task) || !["working", "paused"].includes(runtime.state)) {
-        throw new Error("The selected task is not the current task.");
-      }
+      const currentWorkId = await AssistantStorage.getCurrentWorkId();
+      const plan = requireActionPlan(action, currentWorkId, task);
 
       const beforeTask = taskSnapshot(task);
+      const workEvent = await AssistantStorage.findOpenWorkSessionRef(task);
       let eventClosed = false;
       let closedEvent = null;
       let taskWritten = false;
+      let currentWorkCleared = false;
 
       try {
-        if (runtime.state === "working" && runtime.currentWorkEvent) {
-          eventClosed = true;
-          closedEvent = await closeWorkEvent(runtime.currentWorkEvent, toLocalInput(), receipt);
+        if (plan.historyEffect === "close" && workEvent) {
+          const closeResult = await closeWorkEventBestEffort(
+            workEvent,
+            toLocalInput(),
+            receipt
+          );
+          eventClosed = closeResult.closed;
+          closedEvent = closeResult.event;
         }
 
-        const changes =
-          status === "COMPLETED"
-            ? {status: "COMPLETED", paused: false, percentComplete: 100}
-            : {status: "CANCELLED", paused: false};
-
         taskWritten = true;
-        await updateAndVerifyTask(task, changes, {status, paused: false}, receipt);
+        await updateAndVerifyTask(
+          task,
+          plan.taskChanges,
+          plan.taskChanges,
+          receipt
+        );
 
-        await AssistantStorage.clearRuntime();
-        step(receipt, "Runtime", "clear current task", true, {state: "idle"});
+        await AssistantStorage.setCurrentWorkId(plan.nextCurrentWorkId);
+        currentWorkCleared = true;
+        step(receipt, "Current Work", "clear currentWorkId", true, {
+          taskUid: task.id,
+          status,
+        });
         await logClosedWorkSession(task, closedEvent, receipt);
       } catch (error) {
         if (taskWritten) await restoreTask(task, beforeTask, receipt);
-        if (eventClosed) await reopenWorkEvent(runtime.currentWorkEvent, receipt);
-        await restoreRuntime(runtime, receipt);
+        if (eventClosed) await reopenWorkEvent(workEvent, receipt);
+        if (currentWorkCleared) {
+          await restoreCurrentWorkId(currentWorkId, receipt);
+        }
         throw error;
       }
     });
@@ -636,10 +622,7 @@
 
   globalThis.AssistantExecutor = Object.freeze({
     start,
-    pause,
-    switchAway,
-    putAside,
-    resume,
+    stop,
     complete: task => finish(task, "COMPLETED"),
     cancel: task => finish(task, "CANCELLED"),
     toLocalInput,

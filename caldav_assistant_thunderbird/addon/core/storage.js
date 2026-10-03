@@ -4,6 +4,7 @@
   const KEY_SETTINGS = "caldavAssistant.settings";
   const KEY_SETTINGS_UNDO = "caldavAssistant.settingsUndo";
   const KEY_RUNTIME = "caldavAssistant.runtime";
+  const KEY_CURRENT_WORK_ID = "caldavAssistant.currentWorkId";
   const KEY_AUDIT_LEGACY = "caldavAssistant.audit";
   const KEY_AUDIT_DATES = "caldavAssistant.auditDates";
   const KEY_AUDIT_PREFIX = "caldavAssistant.audit.";
@@ -109,7 +110,31 @@
     return restored;
   }
 
-  async function getRuntime() {
+  function makeWorkTaskId(ref) {
+    if (!ref?.calendarId || !ref?.id) return null;
+    return [
+      encodeURIComponent(String(ref.calendarId)),
+      encodeURIComponent(String(ref.id)),
+      encodeURIComponent(String(ref.recurrenceId || "")),
+    ].join("|");
+  }
+
+  function parseWorkTaskId(value) {
+    if (typeof value !== "string") return null;
+    const parts = value.split("|");
+    if (parts.length !== 3) return null;
+    try {
+      return {
+        calendarId: decodeURIComponent(parts[0]),
+        id: decodeURIComponent(parts[1]),
+        recurrenceId: decodeURIComponent(parts[2]),
+      };
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  async function getLegacyRuntime() {
     return getValue(KEY_RUNTIME, {
       state: "idle",
       currentTask: null,
@@ -119,18 +144,64 @@
     });
   }
 
-  async function setRuntime(runtime) {
-    return setValue(KEY_RUNTIME, runtime);
+  async function getCurrentWorkId() {
+    const values = await browser.storage.local.get([
+      KEY_CURRENT_WORK_ID,
+      KEY_RUNTIME,
+    ]);
+
+    if (values[KEY_CURRENT_WORK_ID] !== undefined) {
+      const stored = values[KEY_CURRENT_WORK_ID];
+      if (stored === null || parseWorkTaskId(stored)) return stored;
+    }
+
+    const legacyRuntime = values[KEY_RUNTIME] || null;
+    const migrated = makeWorkTaskId(legacyRuntime?.currentTask);
+    await setValue(KEY_CURRENT_WORK_ID, migrated);
+
+    if (migrated) {
+      try {
+        await appendAudit({
+          scope: "migration",
+          action: "legacy-runtime-baseline",
+          success: true,
+          summary: "Migrated active 0.3.15 work state into immutable history.",
+          details: {
+            task: {
+              id: legacyRuntime.currentTask.id,
+              calendarId: legacyRuntime.currentTask.calendarId,
+              recurrenceId: String(legacyRuntime.currentTask.recurrenceId || ""),
+              title: String(legacyRuntime.currentTask.title || ""),
+            },
+            state: String(legacyRuntime.state || ""),
+            accumulatedMs: Math.max(0, Number(legacyRuntime.accumulatedMs || 0)),
+            segmentStartedAtMs: legacyRuntime.segmentStartedAtMs
+              ? Number(legacyRuntime.segmentStartedAtMs)
+              : null,
+            currentWorkEvent: legacyRuntime.currentWorkEvent || null,
+            taskBeforeStart: legacyRuntime.taskBeforeStart || null,
+          },
+        });
+      } catch (_error) {
+        // CalDAV/currentWorkId migration must not depend on auxiliary audit I/O.
+      }
+    }
+    return migrated;
   }
 
-  async function clearRuntime() {
-    return setRuntime({
-      state: "idle",
-      currentTask: null,
-      currentWorkEvent: null,
-      segmentStartedAtMs: null,
-      accumulatedMs: 0,
-    });
+  async function setCurrentWorkId(value) {
+    if (value !== null && !parseWorkTaskId(value)) {
+      throw new Error("Invalid currentWorkId.");
+    }
+    await setValue(KEY_CURRENT_WORK_ID, value);
+    if (value === null) {
+      try {
+        await browser.storage.local.remove(KEY_RUNTIME);
+      } catch (_error) {
+        // Stale legacy data is harmless once an explicit null pointer exists.
+      }
+    }
+    return value;
   }
 
   async function getAuditDatesRaw() {
@@ -236,6 +307,207 @@
     );
   }
 
+  async function findLatestStartSnapshot(task) {
+    const targetWorkId = makeWorkTaskId(task);
+    if (!targetWorkId) return null;
+
+    const records = await listAudit();
+    for (let index = records.length - 1; index >= 0; index--) {
+      const record = records[index];
+      if (record?.scope !== "workflow" || record?.action !== "start") continue;
+      if (record?.success === false || record?.details?.success === false) continue;
+
+      const receiptTask = record?.details?.task;
+      if (makeWorkTaskId(receiptTask) !== targetWorkId) continue;
+
+      const status = String(receiptTask?.beforeStatus || "NEEDS-ACTION");
+      if (status === "COMPLETED" || status === "CANCELLED") continue;
+
+      return Object.freeze({
+        status,
+        paused: Boolean(receiptTask?.beforePaused),
+        percentComplete: Math.min(
+          99,
+          Math.max(0, Number(receiptTask?.beforePercentComplete || 0))
+        ),
+      });
+    }
+    return null;
+  }
+
+  function auditTimestampMs(record) {
+    const value =
+      record?.details?.completedAt ||
+      record?.timestamp ||
+      record?.details?.startedAt ||
+      "";
+    const parsed = Date.parse(String(value));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  async function findOpenWorkSessionRef(task) {
+    const targetWorkId = makeWorkTaskId(task);
+    if (!targetWorkId) return null;
+
+    const records = await listAudit();
+    for (let index = records.length - 1; index >= 0; index--) {
+      const record = records[index];
+      if (record?.scope !== "workflow") continue;
+      if (record?.success === false || record?.details?.success === false) continue;
+      if (makeWorkTaskId(record?.details?.task) !== targetWorkId) continue;
+
+      if (
+        record.action === "pause" ||
+        record.action === "stop" ||
+        record.action === "complete" ||
+        record.action === "cancel" ||
+        record.action === "switch-away"
+      ) {
+        return null;
+      }
+
+      if (record.action !== "start" && record.action !== "resume") continue;
+
+      const steps = Array.isArray(record?.details?.steps)
+        ? record.details.steps
+        : [];
+      const created = steps.find(step =>
+        step?.component === "Work Session" &&
+        step?.operation === "create VEVENT" &&
+        step?.success !== false &&
+        step?.details?.uid &&
+        step?.details?.calendarId
+      );
+      if (created) {
+        return Object.freeze({
+          id: String(created.details.uid),
+          calendarId: String(created.details.calendarId),
+          source: "audit",
+        });
+      }
+      break;
+    }
+
+    // Migration fallback for an active 0.3.15 session whose Start/Resume audit
+    // predates the structured Work-session receipt.
+    const runtime = await getLegacyRuntime();
+    if (
+      makeWorkTaskId(runtime?.currentTask) === targetWorkId &&
+      runtime?.currentWorkEvent?.id &&
+      runtime?.currentWorkEvent?.calendarId
+    ) {
+      return Object.freeze({
+        id: String(runtime.currentWorkEvent.id),
+        calendarId: String(runtime.currentWorkEvent.calendarId),
+        source: "legacy-runtime",
+      });
+    }
+
+    return null;
+  }
+
+  async function deriveWorkTiming(task) {
+    const targetWorkId = makeWorkTaskId(task);
+    if (!targetWorkId) {
+      return Object.freeze({
+        accumulatedMs: 0,
+        segmentStartedAtMs: null,
+        source: "none",
+      });
+    }
+
+    const records = await listAudit();
+    let accumulatedMs = 0;
+    let segmentStartedAtMs = null;
+    let sessionSeen = false;
+    let historySeen = false;
+
+    for (const record of records) {
+      if (record?.success === false || record?.details?.success === false) continue;
+      if (makeWorkTaskId(record?.details?.task) !== targetWorkId) continue;
+
+      if (record.action === "legacy-runtime-baseline") {
+        accumulatedMs = Math.max(0, Number(record?.details?.accumulatedMs || 0));
+        segmentStartedAtMs =
+          String(record?.details?.state || "") === "working" &&
+          Number(record?.details?.segmentStartedAtMs) > 0
+            ? Number(record.details.segmentStartedAtMs)
+            : null;
+        sessionSeen = true;
+        historySeen = true;
+        continue;
+      }
+
+      if (record?.scope !== "workflow") continue;
+      const atMs = auditTimestampMs(record);
+      if (atMs === null) continue;
+
+      switch (record.action) {
+        case "start":
+          accumulatedMs = 0;
+          segmentStartedAtMs = atMs;
+          sessionSeen = true;
+          historySeen = true;
+          break;
+
+        case "pause":
+          if (sessionSeen && segmentStartedAtMs !== null) {
+            accumulatedMs += Math.max(0, atMs - segmentStartedAtMs);
+            segmentStartedAtMs = null;
+          }
+          historySeen = true;
+          break;
+
+        case "resume":
+          if (sessionSeen && segmentStartedAtMs === null) {
+            segmentStartedAtMs = atMs;
+          }
+          historySeen = true;
+          break;
+
+        case "stop":
+        case "complete":
+        case "cancel":
+        case "switch-away":
+          if (sessionSeen && segmentStartedAtMs !== null) {
+            accumulatedMs += Math.max(0, atMs - segmentStartedAtMs);
+          }
+          segmentStartedAtMs = null;
+          sessionSeen = false;
+          historySeen = true;
+          break;
+      }
+    }
+
+    if (historySeen && sessionSeen) {
+      return Object.freeze({
+        accumulatedMs,
+        segmentStartedAtMs,
+        source: "audit",
+      });
+    }
+
+    // Compatibility for a profile whose currentWorkId was migrated by an
+    // earlier transitional build before immutable baseline records existed.
+    // predates the new deterministic timing derivation.
+    const runtime = await getLegacyRuntime();
+    if (makeWorkTaskId(runtime?.currentTask) === targetWorkId) {
+      return Object.freeze({
+        accumulatedMs: Math.max(0, Number(runtime?.accumulatedMs || 0)),
+        segmentStartedAtMs: runtime?.segmentStartedAtMs
+          ? Number(runtime.segmentStartedAtMs)
+          : null,
+        source: "legacy-runtime",
+      });
+    }
+
+    return Object.freeze({
+      accumulatedMs: 0,
+      segmentStartedAtMs: null,
+      source: historySeen ? "audit-closed" : "none",
+    });
+  }
+
   async function clearAudit(dateKey = "") {
     await migrateLegacyAudit();
     if (dateKey) {
@@ -335,11 +607,16 @@
     saveSettingsWithUndo,
     getSettingsUndo,
     undoSettings,
-    getRuntime,
-    setRuntime,
-    clearRuntime,
+    makeWorkTaskId,
+    parseWorkTaskId,
+    getCurrentWorkId,
+    setCurrentWorkId,
+    getLegacyRuntime,
     appendAudit,
     listAudit,
+    findLatestStartSnapshot,
+    findOpenWorkSessionRef,
+    deriveWorkTiming,
     listAuditDates,
     clearAudit,
     localDateKey,
