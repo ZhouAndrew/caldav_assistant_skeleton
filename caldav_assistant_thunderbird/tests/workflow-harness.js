@@ -22,7 +22,15 @@ global.browser = {
       async set(values) {
         const keys = Object.keys(values);
         storageWrites.push(...keys);
-        operationOrder.push(...keys.map(key => "storage:" + key));
+        for (const key of keys) {
+          if (key === "caldavAssistant.currentWorkId") {
+            operationOrder.push(
+              "storage:" + key + ":" + (values[key] === null ? "null" : "value")
+            );
+          } else {
+            operationOrder.push("storage:" + key);
+          }
+        }
         Object.assign(storage, values);
       },
     },
@@ -128,6 +136,7 @@ browser.ThunderbirdCalDAV = {
   async getEvent(calendarId, itemId) {
     const event = events.get(itemId);
     if (!event || event.calendarId !== calendarId) throw new Error("Calendar item not found");
+    operationOrder.push("event:read");
     const result = clone(event);
     if (faults.corruptNextWorkReadback && result.workSession) {
       faults.corruptNextWorkReadback = false;
@@ -166,15 +175,24 @@ async function normalLifecycle() {
   const taskWriteIndex = operationOrder.indexOf("task:update:IN-PROCESS");
   const taskReadIndex = operationOrder.indexOf("task:read:IN-PROCESS");
   const eventCreateIndex = operationOrder.indexOf("event:create");
+  const eventReadIndex = operationOrder.indexOf("event:read");
+  const currentIdInitIndex = operationOrder.indexOf(
+    "storage:caldavAssistant.currentWorkId:null"
+  );
   const currentIdWriteIndex = operationOrder.indexOf(
-    "storage:caldavAssistant.currentWorkId"
+    "storage:caldavAssistant.currentWorkId:value"
   );
   assert(taskWriteIndex >= 0, "Start did not record the Task write");
+  assert(
+    currentIdInitIndex >= 0 && currentIdInitIndex < taskWriteIndex,
+    "Compatibility initialization should only publish an empty currentWorkId before Start"
+  );
   assert(taskReadIndex > taskWriteIndex, "Start published effects before Task read-back");
   assert(eventCreateIndex > taskReadIndex, "Work event was created before Task read-back");
+  assert(eventReadIndex > eventCreateIndex, "Work event was not verified by read-back");
   assert(
-    currentIdWriteIndex > eventCreateIndex,
-    "currentWorkId was published before authoritative Task/Work writes completed"
+    currentIdWriteIndex > eventReadIndex,
+    "non-null currentWorkId was published before authoritative Task/Work read-back completed"
   );
 
   let runtime = await AssistantStorage.getRuntime();
