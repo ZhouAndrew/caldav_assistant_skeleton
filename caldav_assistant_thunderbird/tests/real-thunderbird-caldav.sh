@@ -770,6 +770,14 @@ async function __waitForAcceptanceCalendar() {
   throw new Error("Timed out waiting for Thunderbird CalDAV provider to load seed VTODO");
 }
 
+async function __waitForCurrentWorkId(expected, label, timeoutMs = 16000) {
+  for (let attempt = 0; attempt < Math.ceil(timeoutMs / 100); attempt++) {
+    if (await AssistantStorage.getCurrentWorkId() === expected) return;
+    await __acceptanceDelay(100);
+  }
+  throw new Error("Timed out waiting for currentWorkId: " + label);
+}
+
 async function __runRealAcceptance() {
   __acceptanceStage = "spaces-query";
   const spaces = await browser.spaces.query({
@@ -780,6 +788,61 @@ async function __runRealAcceptance() {
 
   __acceptanceStage = "wait-calendar-seed";
   const calendar = await __waitForAcceptanceCalendar();
+  let restartRecovery = false;
+
+  // A real restart gate: the previous Thunderbird process deliberately leaves
+  // one paused current Task. The new process must recover the same opaque
+  // currentWorkId and the authoritative VTODO facts before normal acceptance.
+  __acceptanceStage = "restart-current-work-recovery";
+  const persistedAtStartup = await AssistantStorage.getCurrentWorkId();
+  if (persistedAtStartup) {
+    const persistedRef = AssistantStorage.parseWorkTaskId(persistedAtStartup);
+    __acceptanceAssert(persistedRef?.id === "seed-task", "Restart recovered the wrong Task UID");
+    __acceptanceAssert(
+      persistedRef?.calendarId === calendar.id,
+      "Restart recovered the wrong Task Calendar"
+    );
+
+    const persistedTask = await browser.ThunderbirdCalDAV.getTask(
+      persistedRef.calendarId,
+      persistedRef.id,
+      persistedRef.recurrenceId || ""
+    );
+    __acceptanceAssert(
+      persistedTask.status === "IN-PROCESS",
+      "Restart-recovered Task is not IN-PROCESS"
+    );
+    __acceptanceAssert(
+      persistedTask.paused === true,
+      "Restart-recovered Task did not preserve Pause"
+    );
+    const persistedRuntime = await AssistantStorage.getRuntime();
+    __acceptanceAssert(
+      persistedRuntime.state === "paused",
+      "Legacy compatibility runtime did not preserve paused recovery"
+    );
+    __acceptanceAssert(
+      AssistantStorage.makeWorkTaskId(persistedTask) === persistedAtStartup,
+      "Persisted currentWorkId does not match the recovered Thunderbird Task"
+    );
+
+    const restored = await AssistantExecutor.switchAway(persistedTask);
+    __acceptanceAssert(restored.success, "Could not restore restart-recovered Task");
+    __acceptanceAssert(
+      await AssistantStorage.getCurrentWorkId() === null,
+      "Restart recovery did not clear currentWorkId"
+    );
+    const restoredTask = await browser.ThunderbirdCalDAV.getTask(
+      persistedRef.calendarId,
+      persistedRef.id,
+      persistedRef.recurrenceId || ""
+    );
+    __acceptanceAssert(
+      restoredTask.status === "NEEDS-ACTION" && restoredTask.paused === false,
+      "Restart recovery did not restore the Task's pre-Start state"
+    );
+    restartRecovery = true;
+  }
 
   __acceptanceStage = "native-task-selector-recurring-anki";
   let nativeAnki = [];
@@ -875,6 +938,10 @@ async function __runRealAcceptance() {
     if (attempt === 159) throw new Error("Task picker Start did not make seed-task current");
     await __acceptanceDelay(100);
   }
+  const seedCurrentWorkId = AssistantStorage.makeWorkTaskId(
+    await browser.ThunderbirdCalDAV.getTask(calendar.id, "seed-task")
+  );
+  await __waitForCurrentWorkId(seedCurrentWorkId, "seed Start");
   await browser.tabs.remove(pickerStartTab.id);
 
   __acceptanceStage = "workspace-active";
@@ -948,6 +1015,10 @@ async function __runRealAcceptance() {
     if (attempt === 159) throw new Error("Explicit Start did not make the selected switch target current");
     await __acceptanceDelay(100);
   }
+  const switchCurrentWorkId = AssistantStorage.makeWorkTaskId(
+    await browser.ThunderbirdCalDAV.getTask(calendar.id, switchTarget.id)
+  );
+  await __waitForCurrentWorkId(switchCurrentWorkId, "switch target Start");
   await browser.tabs.remove(pickerSwitchTab.id);
 
   __acceptanceStage = "workspace-complete";
@@ -1174,6 +1245,42 @@ async function __runRealAcceptance() {
   __acceptanceAssert(logsResult.emptyStateCorrect, "Cleared log empty state is incorrect");
   await browser.tabs.remove(logsTab.id);
 
+  // Leave one paused current Task for the real same-profile Thunderbird restart.
+  // Pause closes the Work VEVENT, and the closed test VEVENT is then deleted so
+  // the server fixture remains clean while currentWorkId still persists.
+  __acceptanceStage = "leave-paused-current-for-restart";
+  const eventsBeforeRestartFixture = new Set(
+    (await browser.ThunderbirdCalDAV.listEvents(calendar.id, "", "")).map(item => item.id)
+  );
+  const seedFinal = await browser.ThunderbirdCalDAV.getTask(calendar.id, "seed-task");
+  const restartStart = await AssistantExecutor.start(seedFinal, calendar.id);
+  __acceptanceAssert(restartStart.success, "Could not Start restart recovery fixture");
+  const seedStarted = await browser.ThunderbirdCalDAV.getTask(calendar.id, "seed-task");
+  const restartPause = await AssistantExecutor.pause(seedStarted);
+  __acceptanceAssert(restartPause.success, "Could not Pause restart recovery fixture");
+
+  const restartWorkId = AssistantStorage.makeWorkTaskId(seedStarted);
+  await __waitForCurrentWorkId(restartWorkId, "paused restart fixture");
+  const pausedForRestart = await browser.ThunderbirdCalDAV.getTask(calendar.id, "seed-task");
+  __acceptanceAssert(
+    pausedForRestart.status === "IN-PROCESS" && pausedForRestart.paused === true,
+    "Restart fixture did not preserve IN-PROCESS + paused VTODO facts"
+  );
+
+  for (const eventItem of await browser.ThunderbirdCalDAV.listEvents(calendar.id, "", "")) {
+    if (
+      !eventsBeforeRestartFixture.has(eventItem.id) &&
+      eventItem.workSession &&
+      eventItem.taskUid === "seed-task"
+    ) {
+      await browser.ThunderbirdCalDAV.deleteEvent(calendar.id, eventItem.id);
+    }
+  }
+  __acceptanceAssert(
+    await AssistantStorage.getCurrentWorkId() === restartWorkId,
+    "Cleaning the closed test Work VEVENT changed currentWorkId"
+  );
+
   return {
     ok: true,
     thunderbirdCalDAV: true,
@@ -1183,6 +1290,9 @@ async function __runRealAcceptance() {
     eventCrud: true,
     validation: true,
     workSessionLifecycle: true,
+    currentWorkIdLifecycle: true,
+    restartRecovery,
+    leftCurrentForRestart: true,
     persistentAudit: true,
     spaceCreated: true,
     workspaceOpened: true,
@@ -1454,6 +1564,8 @@ for key in (
     "eventCrud",
     "validation",
     "workSessionLifecycle",
+    "currentWorkIdLifecycle",
+    "leftCurrentForRestart",
     "persistentAudit",
     "spaceCreated",
     "workspaceOpened",
@@ -1563,6 +1675,8 @@ for key in (
     "eventCrud",
     "validation",
     "workSessionLifecycle",
+    "currentWorkIdLifecycle",
+    "leftCurrentForRestart",
     "persistentAudit",
     "spaceCreated",
     "workspaceOpened",
@@ -1573,6 +1687,7 @@ for key in (
     "diagnostics",
 ):
     assert data.get(key) is True, (key, data)
+assert data.get("restartRecovery") is True, data
 assert data["calendar"]["type"] == "caldav", data
 print("real-thunderbird-restart: PASS")
 PY
