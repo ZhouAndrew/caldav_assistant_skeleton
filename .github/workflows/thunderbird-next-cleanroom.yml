@@ -1,0 +1,35 @@
+name: thunderbird-next-cleanroom
+
+on:
+  push:
+    paths:
+      - "caldav_assistant_thunderbird_next/**"
+      - ".github/workflows/thunderbird-next-cleanroom.yml"
+  pull_request:
+    paths:
+      - "caldav_assistant_thunderbird_next/**"
+      - ".github/workflows/thunderbird-next-cleanroom.yml"
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: caldav_assistant_thunderbird_next
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install
+        run: npm install --no-package-lock
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Pure core tests
+        run: npm test
+      - name: Reject old implementation imports
+        run: |
+          if grep -R -nE 'caldav_assistant_thunderbird/(addon|src)|TaskFix|AssistantExecutor|WORK-SESSION|WORK-OPEN' src addon --exclude-dir=generated; then
+            echo "Old Thunderbird implementation dependency detected."
+            exit 1
+          fi

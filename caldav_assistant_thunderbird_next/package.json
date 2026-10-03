@@ -1,0 +1,15 @@
+{
+  "name": "caldav-assistant-thunderbird-next",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Clean-room Thunderbird implementation of CalDAV Assistant",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "rm -rf .build && tsc --outDir .build && node .build/tests/core.test.js && node .build/tests/service.test.js && node .build/tests/serial-command-queue.test.js && node .build/tests/adapters.test.js && node .build/tests/recovery.test.js && node .build/tests/legacy-active-migration.test.js && node .build/tests/views.test.js && node .build/tests/wordpress-policy.test.js && node .build/tests/wordpress-service.test.js && node --check addon/api/NativeTasks/implementation.js && node tests/native-tasks-harness.js && node --check addon/background.js && node tests/background-harness.js && node tests/manifest-harness.js && node tests/i18n-harness.js && npm run build",
+    "build": "node scripts/build.mjs"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "esbuild": "0.25.10"
+  }
+}
