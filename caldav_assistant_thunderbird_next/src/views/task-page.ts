@@ -1,5 +1,6 @@
 import {TaskSnapshot, WorkIntent} from "../domain";
 import {openWorkSession, parseWorkDescription} from "../work-description";
+import {MESSAGE_KEYS, MessageKey} from "../i18n";
 
 export interface TaskPageView {
   readonly taskId: string;
@@ -10,8 +11,8 @@ export interface TaskPageView {
   readonly isCurrent: boolean;
   readonly elapsedMs: number;
   readonly actions: readonly WorkIntent[];
-  readonly notice: string | null;
-  readonly error: string | null;
+  readonly noticeKey: MessageKey | null;
+  readonly errorKey: MessageKey | null;
 }
 
 function elapsed(start: string, now: string): number {
@@ -37,8 +38,8 @@ export function deriveTaskPageView(
       isCurrent: currentWorkId === task.taskId,
       elapsedMs: 0,
       actions: Object.freeze([]),
-      notice: null,
-      error: "Task work log is malformed. No workflow action is allowed.",
+      noticeKey: null,
+      errorKey: MESSAGE_KEYS.taskWorkLogMalformed,
     });
   }
 
@@ -50,21 +51,21 @@ export function deriveTaskPageView(
     task.percentComplete === 100;
 
   let actions: readonly WorkIntent[] = Object.freeze([]);
-  let notice: string | null = null;
-  let error: string | null = null;
+  let noticeKey: MessageKey | null = null;
+  let errorKey: MessageKey | null = null;
 
   if (open && finished) {
-    error = "Finished Task still has an open work session.";
+    errorKey = MESSAGE_KEYS.taskFinishedOpenSession;
   } else if (isCurrent && open) {
     actions = Object.freeze(["stop", "complete", "cancel"]);
   } else if (isCurrent && !open) {
-    error = "Current-work pointer is stale. Recovery is required.";
+    errorKey = MESSAGE_KEYS.currentPointerStale;
   } else if (!isCurrent && open) {
-    error = "Task has an open work session but is not the current Task. Recovery is required.";
+    errorKey = MESSAGE_KEYS.openSessionNotCurrent;
   } else if (finished) {
-    notice = "Task is finished.";
+    noticeKey = MESSAGE_KEYS.taskFinished;
   } else if (currentWorkId !== null) {
-    notice = "Another Task is currently active.";
+    noticeKey = MESSAGE_KEYS.anotherTaskActive;
   } else {
     actions = Object.freeze(["start"]);
   }
@@ -78,7 +79,7 @@ export function deriveTaskPageView(
     isCurrent,
     elapsedMs: open ? elapsed(open.start, nowIso) : 0,
     actions,
-    notice,
-    error,
+    noticeKey,
+    errorKey,
   });
 }
