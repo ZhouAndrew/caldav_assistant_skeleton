@@ -149,6 +149,7 @@ with zipfile.ZipFile(path) as z:
     assert "AssistantExecutor.start" in task_picker
     assert "AssistantStorage.getCurrentWorkId" in task_picker
     assert "AssistantStorage.parseWorkTaskId" in task_picker
+    assert "AssistantStorage.getRuntime" not in task_picker
     assert "runtime.currentTask" not in task_picker
     assert "state.runtime.state" not in task_picker
     assert "task.paused" in task_picker
