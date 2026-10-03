@@ -1,0 +1,42 @@
+{
+  "manifest_version": 2,
+  "name": "CalDAV Assistant Experimental",
+  "description": "Reliable Thunderbird-native CalDAV Task workflow with functional core and VTODO work logs.",
+  "version": "0.4.0",
+  "author": "ZhouAndrew",
+  "background": {
+    "scripts": [
+      "generated/core.js",
+      "storage.js",
+      "task-port.js",
+      "legacy-store.js",
+      "background.js"
+    ]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "ZhouAndrew.thunderbird-taskfix-lab@addons.thunderbird.net",
+      "strict_min_version": "153.0.2",
+      "strict_max_version": "153.1.*"
+    }
+  },
+  "experiment_apis": {
+    "TaskBridge": {
+      "schema": "api/TaskBridge/schema.json",
+      "parent": {
+        "scopes": [
+          "addon_parent"
+        ],
+        "paths": [
+          [
+            "TaskBridge"
+          ]
+        ],
+        "script": "api/TaskBridge/implementation.js"
+      }
+    }
+  },
+  "permissions": [
+    "storage"
+  ]
+}
