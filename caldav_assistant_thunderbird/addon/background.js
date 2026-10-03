@@ -4,11 +4,7 @@ const SPACE_NAME = "thunderbird_caldav_lab";
 
 async function diagnostic(event, details = {}) {
   try {
-    await browser.ThunderbirdCalDAV.writeDiagnostic(
-      "background",
-      event,
-      details
-    );
+    await browser.ThunderbirdCalDAV.writeDiagnostic("background", event, details);
   } catch (error) {
     console.warn("[CalDAVAssistant] diagnostics unavailable", error);
   }
@@ -45,9 +41,6 @@ async function ensureWorkspace() {
       {title: "CalDAV Assistant"}
     );
   } catch (error) {
-    // onInstalled/onStartup can race in separate extension contexts. If another
-    // context created the Space after our initial query, reuse it instead of
-    // reporting a false startup failure.
     const raced = await browser.spaces.query({
       isSelfOwned: true,
       name: SPACE_NAME,
@@ -73,7 +66,7 @@ async function startup() {
     let wordpressOutbox = null;
     try {
       wordpressOutbox =
-        await globalThis.AssistantDailyLog?.flushOutbox?.() || null;
+        await globalThis.AssistantWordPressOutbox?.flushOutbox?.() || null;
     } catch (error) {
       wordpressOutbox = {
         success: false,
