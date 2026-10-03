@@ -11,6 +11,7 @@ export const STORAGE_KEYS = Object.freeze({
 export interface StorageArea {
   get(keys: string | readonly string[]): Promise<Record<string, unknown>>;
   set(values: Record<string, unknown>): Promise<void>;
+  remove(keys: string | readonly string[]): Promise<void>;
 }
 
 export class BrowserStorageAdapter
