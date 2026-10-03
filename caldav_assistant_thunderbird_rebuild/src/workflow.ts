@@ -7,7 +7,6 @@ import {
   WorkResult,
   WorkSession,
   isFinished,
-  normalizePercent,
   taskId,
 } from "./domain";
 import {
@@ -74,7 +73,6 @@ export function planTaskAction(args: {
       result: null,
       before: Object.freeze({
         status: task.status,
-        percentComplete: normalizePercent(task.percentComplete),
       }),
     });
 
@@ -114,11 +112,9 @@ export function planTaskAction(args: {
   if (intent === "stop") {
     return accept(
       intent,
-      {
-        status: active.before.status,
-        percentComplete: active.before.percentComplete,
-        description,
-      },
+      task.status === "IN-PROCESS"
+        ? {status: active.before.status, description}
+        : {description},
       null,
       closed,
     );
@@ -135,11 +131,7 @@ export function planTaskAction(args: {
 
   return accept(
     intent,
-    {
-      status: "CANCELLED",
-      percentComplete: normalizePercent(task.percentComplete),
-      description,
-    },
+    {status: "CANCELLED", description},
     null,
     closed,
   );
