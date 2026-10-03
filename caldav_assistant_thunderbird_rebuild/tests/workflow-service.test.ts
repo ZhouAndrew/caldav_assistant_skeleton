@@ -54,6 +54,7 @@ class FakeTasks implements TaskPort {
   readonly items = new Map<string, TaskRecord>();
   staleOnce = false;
   corruptReadBack = false;
+  failNextWrite = false;
 
   constructor(tasks: readonly TaskRecord[]) {
     for (const task of tasks) this.items.set(taskId(task), task);
@@ -81,6 +82,11 @@ class FakeTasks implements TaskPort {
     const key = taskId(ref);
     const current = this.items.get(key);
     if (!current) throw new Error("missing fake task");
+
+    if (this.failNextWrite) {
+      this.failNextWrite = false;
+      return {ok: false, reason: "not-writable"};
+    }
 
     if (this.staleOnce) {
       this.staleOnce = false;
@@ -198,20 +204,54 @@ class FakePointer implements CurrentWorkStore {
   tasks.items.set(taskId(refB), record(refB, {description: "beta"}));
   pointer.value = null;
 
-  // Pointer failure happens after the VTODO commit and must not trigger rollback.
+  // Start reserves currentWorkId before touching VTODO. If reservation fails,
+  // the Task must remain byte-for-byte unstarted.
   pointer.failNextSet = true;
-  const pointerFailure = await service.start(refB);
-  assert(!pointerFailure.ok, "pointer failure was reported as success");
+  const reserveFailure = await service.start(refB);
+  assert(!reserveFailure.ok, "pointer reservation failure was reported as success");
   assert(
-    !pointerFailure.ok &&
-      pointerFailure.reason === "pointer-write-failed" &&
-      pointerFailure.committed,
-    "pointer failure classification is wrong",
+    !reserveFailure.ok &&
+      reserveFailure.reason === "pointer-write-failed" &&
+      !reserveFailure.committed,
+    "pointer reservation failure classification is wrong",
   );
-  const committedTask = await tasks.getTask(refB);
+  const untouchedTask = await tasks.getTask(refB);
+  assert(untouchedTask.status === "NEEDS-ACTION", "failed reservation changed STATUS");
+  assert(untouchedTask.description === "beta", "failed reservation changed Description");
+  assert(pointer.value === null, "failed reservation published current work");
+
+  // If the VTODO write fails after a successful reservation, the reservation
+  // is released before the command returns.
+  tasks.failNextWrite = true;
+  const writeFailure = await service.start(refB);
+  assert(!writeFailure.ok, "failed Task write was reported as success");
   assert(
-    committedTask.status === "IN-PROCESS",
-    "pointer failure rolled back the committed VTODO",
+    !writeFailure.ok &&
+      writeFailure.reason === "not-writable" &&
+      !writeFailure.committed,
+    "failed Task write classification is wrong",
+  );
+  assert(pointer.value === null, "failed Start write left a stale reservation");
+
+  const startForClearFailure = await service.start(refB);
+  assert(startForClearFailure.ok, "setup Start for clear-failure case failed");
+  pointer.failNextSet = true;
+  const clearFailure = await service.stop(refB);
+  assert(!clearFailure.ok, "pointer clear failure was reported as success");
+  assert(
+    !clearFailure.ok &&
+      clearFailure.reason === "pointer-write-failed" &&
+      clearFailure.committed,
+    "post-commit pointer failure classification is wrong",
+  );
+  const closedTask = await tasks.getTask(refB);
+  assert(
+    closedTask.description.includes('"end":'),
+    "Stop did not durably close the VTODO session before pointer failure",
+  );
+  assert(
+    pointer.value === taskId(refB),
+    "pointer-clear failure unexpectedly lost the stale pointer",
   );
 
   console.log("workflow-service: PASS");
