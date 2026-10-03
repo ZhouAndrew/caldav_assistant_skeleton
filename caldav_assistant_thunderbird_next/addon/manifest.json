@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
-  "name": "CalDAV Assistant Experimental",
-  "description": "Clean-room Thunderbird-native CalDAV Assistant with VTODO DESCRIPTION work logs and verified Task transitions.",
+  "name": "__MSG_extensionName__",
+  "description": "__MSG_extensionDescription__",
   "version": "0.4.0",
   "author": "ZhouAndrew",
   "background": {
@@ -21,11 +21,20 @@
     "NativeTasks": {
       "schema": "api/NativeTasks/schema.json",
       "parent": {
-        "scopes": ["addon_parent"],
-        "paths": [["NativeTasks"]],
+        "scopes": [
+          "addon_parent"
+        ],
+        "paths": [
+          [
+            "NativeTasks"
+          ]
+        ],
         "script": "api/NativeTasks/implementation.js"
       }
     }
   },
-  "permissions": ["storage"]
+  "permissions": [
+    "storage"
+  ],
+  "default_locale": "en"
 }
