@@ -3,6 +3,7 @@ import {
   TaskActionPlan,
   TaskSnapshot,
   WorkIntent,
+  PlanRejection,
   WorkResult,
   WorkSession,
   isFinished,
@@ -17,7 +18,7 @@ import {
   serializeWorkDescription,
 } from "./work-description";
 
-function reject(intent: WorkIntent, reason: TaskActionPlan extends never ? never : any): TaskActionPlan {
+function reject(intent: WorkIntent, reason: PlanRejection): TaskActionPlan {
   return Object.freeze({ok: false, intent, reason});
 }
 
