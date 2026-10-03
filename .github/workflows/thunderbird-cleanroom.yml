@@ -1,0 +1,26 @@
+name: thunderbird-cleanroom
+
+on:
+  push:
+    paths:
+      - "caldav_assistant_thunderbird_cleanroom/**"
+      - ".github/workflows/thunderbird-cleanroom.yml"
+  pull_request:
+    paths:
+      - "caldav_assistant_thunderbird_cleanroom/**"
+      - ".github/workflows/thunderbird-cleanroom.yml"
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: caldav_assistant_thunderbird_cleanroom
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install TypeScript
+        run: npm install --no-package-lock
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Pure core tests
+        run: npm test
