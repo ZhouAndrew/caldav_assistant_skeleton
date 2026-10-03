@@ -1,8 +1,6 @@
 "use strict";
 
 (() => {
-  let autoWpCliFallback = false;
-
   function errorText(error) {
     return String(error?.message || error || "Unknown error");
   }
@@ -21,7 +19,7 @@
       baseUrl: trimSlash(config?.baseUrl),
       username: String(config?.username || "").trim(),
       applicationPassword: String(config?.applicationPassword || "").replace(/\s+/g, ""),
-      wordpressPath: String(config?.wordpressPath || "/var/www/html/wordpress").trim(),
+      wordpressPath: String(config?.wordpressPath || "").trim(),
       wpCliCommand: String(
         config?.wpCliCommand || config?.wpCliExecutable || "wp"
       ).trim() || "wp",
@@ -34,43 +32,15 @@
     if (config.transport === "application-password" || config.transport === "wp-cli") {
       return config.transport;
     }
-    return config.baseUrl && config.username && config.applicationPassword
-      ? "application-password"
-      : "wp-cli";
-  }
 
-  function effectiveTransport(config) {
-    if (config.transport === "auto" && autoWpCliFallback) return "wp-cli";
-    return selectedTransport(config);
-  }
-
-  function isRestNetworkFailure(error) {
-    const text = errorText(error);
-    if (/^WordPress HTTP \d+:/i.test(text)) return false;
-    return /Privileged HTTP request failed|network status|NS_ERROR_|NetworkError|Failed to fetch/i.test(text);
-  }
-
-  function canAutoFallbackToWpCli(config, error) {
-    return (
-      config.transport === "auto" &&
-      selectedTransport(config) === "application-password" &&
-      Boolean(config.wordpressPath) &&
-      isRestNetworkFailure(error)
-    );
-  }
-
-  async function recordTransportFallback(error) {
-    try {
-      await browser.ThunderbirdCalDAV?.writeDiagnostic?.(
-        "wordpress",
-        "transport.fallback",
-        {
-          from: "application-password",
-          to: "wp-cli",
-          reason: errorText(error),
-        }
-      );
-    } catch (_error) {}
+    // Auto is deterministic and derived only from saved configuration.
+    // A saved local WordPress path means WP-CLI is intentional; REST
+    // credentials must not silently replace that known-good route.
+    if (config.wordpressPath) return "wp-cli";
+    if (config.baseUrl && config.username && config.applicationPassword) {
+      return "application-password";
+    }
+    return "wp-cli";
   }
 
   async function getConfig() {
@@ -80,7 +50,6 @@
 
   async function saveConfig(config) {
     const normalized = normalizeConfig(config);
-    autoWpCliFallback = false;
     await AssistantStorage.saveSettings({wordpress: normalized});
     return normalized;
   }
@@ -471,27 +440,9 @@
 
   async function request(path, options = {}) {
     const config = await getConfig();
-    if (effectiveTransport(config) === "wp-cli") {
-      return wpCliRequest(config, path, options);
-    }
-
-    try {
-      return await restRequest(config, path, options);
-    } catch (error) {
-      if (!canAutoFallbackToWpCli(config, error)) throw error;
-
-      try {
-        const result = await wpCliRequest(config, path, options);
-        autoWpCliFallback = true;
-        await recordTransportFallback(error);
-        return result;
-      } catch (fallbackError) {
-        throw new Error(
-          "WordPress REST failed (" + errorText(error) +
-          "); WP-CLI fallback failed (" + errorText(fallbackError) + ")"
-        );
-      }
-    }
+    return selectedTransport(config) === "wp-cli"
+      ? wpCliRequest(config, path, options)
+      : restRequest(config, path, options);
   }
 
   async function validateTransportConfig() {
@@ -558,7 +509,7 @@
       });
       result.success = true;
       const config = await getConfig();
-      const transport = effectiveTransport(config);
+      const transport = selectedTransport(config);
       result.transport = transport;
       result.tlsVerification =
         transport === "application-password" && config.allowUntrustedTls
