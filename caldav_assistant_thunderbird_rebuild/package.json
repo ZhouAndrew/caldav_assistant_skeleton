@@ -5,7 +5,7 @@
   "type": "commonjs",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "rm -rf .build && tsc --outDir .build && node .build/tests/core.test.js && node .build/tests/workflow-service.test.js && node .build/tests/reconciliation.test.js && node .build/tests/legacy-migration.test.js && node tests/storage-migration.test.js"
+    "test": "rm -rf .build && tsc --outDir .build && node .build/tests/core.test.js && node .build/tests/workflow-service.test.js && node .build/tests/reconciliation.test.js && node .build/tests/legacy-migration.test.js && node .build/tests/legacy-migration-service.test.js && node tests/storage-migration.test.js"
   },
   "devDependencies": {
     "typescript": "5.9.3"
