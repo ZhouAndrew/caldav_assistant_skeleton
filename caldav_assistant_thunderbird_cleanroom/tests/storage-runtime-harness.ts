@@ -6,7 +6,7 @@ import {
   StorageCurrentWork,
   loadOrMigrateSettings,
   saveSettings,
-} from "../src/storage-runtime";
+} from "../src/storage-runtime.js";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
