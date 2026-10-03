@@ -1,5 +1,5 @@
 import {RawSettingsStore} from "../ports";
-import {AppSettings, migrateLegacySettings} from "./legacy-settings";
+import {AppSettings, isAppSettings, migrateLegacySettings} from "./legacy-settings";
 
 export interface SettingsMigrationResult {
   readonly migrated: boolean;
@@ -16,7 +16,7 @@ export async function ensureV2Settings(
   store: RawSettingsStore
 ): Promise<SettingsMigrationResult> {
   const existing = await store.getV2Settings();
-  if (existing?.schemaVersion === 2) {
+  if (existing && isAppSettings(existing)) {
     return Object.freeze({migrated: false, settings: existing});
   }
 
