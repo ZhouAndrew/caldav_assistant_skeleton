@@ -6,6 +6,21 @@ export interface TaskRepository {
   update(taskId: string, patch: TaskPatch): Promise<void>;
 }
 
+export interface TaskScanFailure {
+  readonly calendarId: string;
+  readonly message: string;
+}
+
+export interface TaskScanResult {
+  readonly tasks: readonly TaskSnapshot[];
+  readonly complete: boolean;
+  readonly failures: readonly TaskScanFailure[];
+}
+
+export interface TaskCatalog {
+  scanStored(): Promise<TaskScanResult>;
+}
+
 export interface CurrentWorkStore {
   get(): Promise<string | null>;
   set(value: string | null): Promise<void>;
