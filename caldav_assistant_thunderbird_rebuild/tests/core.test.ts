@@ -24,6 +24,7 @@ const base: TaskSnapshot = Object.freeze({
   recurrenceId: "",
   title: "测试 Task",
   status: "NEEDS-ACTION",
+  completed: false,
   percentComplete: 35,
   description: "用户原文\n第二行 😀",
 });
@@ -69,7 +70,7 @@ const stop = planTaskAction({
 });
 assert(stop.ok, "stop rejected");
 assert(stop.taskPatch.status === "NEEDS-ACTION", "stop did not restore status");
-assert(stop.taskPatch.percentComplete === 35, "stop did not restore percent");
+assert(!("percentComplete" in stop.taskPatch), "stop must not roll progress back");
 assert(stop.nextCurrentWorkId === null, "stop did not clear pointer");
 assert(stop.closedSession?.result === "stop", "stop did not emit closed session");
 
@@ -95,7 +96,7 @@ const cancel = planTaskAction({
 });
 assert(cancel.ok, "cancel rejected");
 assert(cancel.taskPatch.status === "CANCELLED", "cancel status wrong");
-assert(cancel.taskPatch.percentComplete === 35, "cancel did not preserve percent");
+assert(!("percentComplete" in cancel.taskPatch), "cancel must not rewrite progress");
 
 const conflict = planTaskAction({
   intent: "start",
@@ -148,7 +149,61 @@ const noStatusStop = planTaskAction({
 });
 assert(noStatusStop.ok, "status-less task could not stop");
 assert(noStatusStop.taskPatch.status === null, "unset STATUS was not restored");
-assert(noStatusStop.taskPatch.percentComplete === 42, "status-less task percent was not restored");
+assert(
+  !("percentComplete" in noStatusStop.taskPatch),
+  "status-less Stop must preserve current percent instead of rewriting it",
+);
+
+const fullyProgressed: TaskSnapshot = Object.freeze({
+  ...base,
+  uid: "uid-100-percent",
+  status: null,
+  completed: true,
+  percentComplete: 100,
+});
+const completedByPercent = planTaskAction({
+  intent: "start",
+  task: fullyProgressed,
+  currentWorkId: null,
+  now: "2026-10-03T17:11:00+08:00",
+  sessionId: "must-not-open",
+});
+assert(
+  !completedByPercent.ok && completedByPercent.reason === "finished",
+  "Thunderbird-completed Task was startable",
+);
+
+const progressChanged: TaskSnapshot = Object.freeze({
+  ...started,
+  percentComplete: 67,
+});
+const stopAfterProgressEdit = planTaskAction({
+  intent: "stop",
+  task: progressChanged,
+  currentWorkId: id,
+  now: "2026-10-03T17:12:00+08:00",
+});
+assert(stopAfterProgressEdit.ok, "Stop after progress edit was rejected");
+assert(
+  !("percentComplete" in stopAfterProgressEdit.taskPatch),
+  "Stop would overwrite progress changed during the session",
+);
+
+const statusChanged: TaskSnapshot = Object.freeze({
+  ...started,
+  status: "NEEDS-ACTION",
+});
+const stopAfterStatusEdit = planTaskAction({
+  intent: "stop",
+  task: statusChanged,
+  currentWorkId: id,
+  now: "2026-10-03T17:13:00+08:00",
+});
+assert(stopAfterStatusEdit.ok, "Stop after external STATUS edit was rejected");
+assert(
+  !("status" in stopAfterStatusEdit.taskPatch),
+  "Stop would overwrite a STATUS changed during the session",
+);
 
 const malformed: TaskSnapshot = Object.freeze({
   ...base,
@@ -179,7 +234,7 @@ const withSuffix =
     start: "2026-10-03T12:00:00+08:00",
     end: "2026-10-03T12:10:00+08:00",
     result: "stop",
-    before: {status: null, percentComplete: 42},
+    before: {status: null},
   }]) +
   "\n[/CALDAV-ASSISTANT-WORKLOG]" +
   "\nafter user text 😀";
