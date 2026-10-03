@@ -34,6 +34,7 @@ export interface WorkSession {
 
 export interface ParsedWorkDescription {
   readonly prefix: string;
+  readonly suffix: string;
   readonly sessions: readonly WorkSession[];
 }
 
