@@ -24,6 +24,17 @@ jobs:
         run: npm run typecheck
       - name: Pure core tests
         run: npm test
+      - name: Build Thunderbird ES modules
+        run: |
+          npm run build:addon
+          test -f addon/dist/workflow.js
+          test -f addon/dist/workflow-service.js
+          test -f addon/dist/storage-runtime.js
+          grep -q 'from "./task-id.js"' addon/dist/workflow.js
+          if grep -R -E 'WorkEvent|WORK-SESSION|WORK-OPEN|pause|resume|switch-away' addon/dist; then
+            echo "Forbidden legacy workflow concept found in production core."
+            exit 1
+          fi
       - name: Native VTODO adapter boundary
         run: |
           node --check addon/api/ThunderbirdTasks/implementation.js
