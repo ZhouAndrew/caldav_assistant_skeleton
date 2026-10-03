@@ -1,5 +1,6 @@
 import {TaskSnapshot, WorkSession} from "../domain";
 import {parseWorkDescription} from "../work-description";
+import {MESSAGE_KEYS, MessageKey} from "../i18n";
 
 export interface TodayWorkRow {
   readonly taskId: string;
@@ -13,7 +14,7 @@ export interface TodayWorkRow {
 export interface TodayView {
   readonly date: string;
   readonly rows: readonly TodayWorkRow[];
-  readonly warnings: readonly string[];
+  readonly warnings: readonly {readonly key: MessageKey; readonly taskId: string}[];
 }
 
 function localDateKey(iso: string): string | null {
@@ -29,12 +30,12 @@ export function deriveTodayView(
   localDate: string
 ): TodayView {
   const rows: TodayWorkRow[] = [];
-  const warnings: string[] = [];
+  const warnings: {readonly key: MessageKey; readonly taskId: string}[] = [];
 
   for (const task of tasks) {
     const parsed = parseWorkDescription(task.description);
     if (!parsed.ok) {
-      warnings.push(`Malformed work log: ${task.taskId}`);
+      warnings.push(Object.freeze({key: MESSAGE_KEYS.todayMalformedWorkLog, taskId: task.taskId}));
       continue;
     }
     for (const session of parsed.value.workLog.sessions) {
