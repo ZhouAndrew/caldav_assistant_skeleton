@@ -140,6 +140,16 @@ class FakeNativeTasks implements NativeTasksApi {
     } as const;
   }
 
+  async listTaskCalendars() {
+    return [{
+      id: "cal/1",
+      name: "Tasks",
+      disabled: false,
+      inComposite: true,
+      readOnly: false,
+    }] as const;
+  }
+
   async queryTasks() {
     return {
       tasks: [{
@@ -195,6 +205,11 @@ async function testThunderbirdRepositoryIdentity(): Promise<void> {
   assert(scan.complete, "complete native scan became incomplete");
   assert(scan.tasks.length === 1, "native scan lost Task");
   assert(scan.tasks[0]?.taskId === taskId, "native scan changed Task identity");
+
+  const calendars = await repo.listCalendars();
+  assert(calendars.length === 1, "native calendar list lost calendar");
+  assert(calendars[0]?.id === "cal/1", "native calendar identity changed");
+  assert(calendars[0]?.inComposite === true, "native composite state lost");
 
   const query = await repo.query({
     filter: "open",
