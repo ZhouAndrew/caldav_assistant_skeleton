@@ -1,4 +1,4 @@
-import {TaskRef} from "./domain";
+import {TaskRef} from "./domain.js";
 
 export function makeTaskId(ref: TaskRef): string {
   return [
