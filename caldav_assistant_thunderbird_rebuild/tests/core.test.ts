@@ -95,6 +95,7 @@ const cancel = planTaskAction({
 });
 assert(cancel.ok, "cancel rejected");
 assert(cancel.taskPatch.status === "CANCELLED", "cancel status wrong");
+assert(cancel.taskPatch.percentComplete === 35, "cancel did not preserve percent");
 
 const conflict = planTaskAction({
   intent: "start",
@@ -117,6 +118,37 @@ const otherView = deriveTaskPage({
 });
 assert(otherView.actions.length === 0, "non-current page offered Start");
 assert(otherView.anotherTaskIsCurrent, "current-task conflict not exposed");
+
+
+const noStatus: TaskSnapshot = Object.freeze({
+  ...base,
+  uid: "uid-no-status",
+  status: null,
+  percentComplete: 42,
+});
+const noStatusId = taskId(noStatus);
+const noStatusStart = planTaskAction({
+  intent: "start",
+  task: noStatus,
+  currentWorkId: null,
+  now: "2026-10-03T17:00:00+08:00",
+  sessionId: "session-no-status",
+});
+assert(noStatusStart.ok, "status-less task could not start");
+const noStatusStarted: TaskSnapshot = Object.freeze({
+  ...noStatus,
+  status: "IN-PROCESS",
+  description: String(noStatusStart.taskPatch.description),
+});
+const noStatusStop = planTaskAction({
+  intent: "stop",
+  task: noStatusStarted,
+  currentWorkId: noStatusId,
+  now: "2026-10-03T17:10:00+08:00",
+});
+assert(noStatusStop.ok, "status-less task could not stop");
+assert(noStatusStop.taskPatch.status === null, "unset STATUS was not restored");
+assert(noStatusStop.taskPatch.percentComplete === 42, "status-less task percent was not restored");
 
 const malformed: TaskSnapshot = Object.freeze({
   ...base,
