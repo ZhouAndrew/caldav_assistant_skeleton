@@ -152,7 +152,7 @@
 
     if (values[KEY_CURRENT_WORK_ID] !== undefined) {
       const stored = values[KEY_CURRENT_WORK_ID];
-      return stored === null || parseWorkTaskId(stored) ? stored : null;
+      if (stored === null || parseWorkTaskId(stored)) return stored;
     }
 
     const migrated = makeWorkTaskId(values[KEY_RUNTIME]?.currentTask);
