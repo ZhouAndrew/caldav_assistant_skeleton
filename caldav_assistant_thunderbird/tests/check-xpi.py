@@ -120,8 +120,10 @@ with zipfile.ZipFile(path) as z:
     assert "browser.storage.onChanged" in workspace
     assert "AssistantStorage.getCurrentWorkId" in workspace
     assert "AssistantStorage.parseWorkTaskId" in workspace
+    assert "AssistantStorage.deriveWorkTiming" in workspace
+    assert "AssistantStorage.getRuntime" not in workspace
     assert "runtime.currentTask" not in workspace
-    assert "state.runtime.state" not in workspace
+    assert "state.runtime" not in workspace
     assert "task.paused" in workspace
     # Existing workflow features are preserved while identity moves to one id.
     assert "AssistantExecutor.pause" in workspace
@@ -202,6 +204,7 @@ with zipfile.ZipFile(path) as z:
     assert 'KEY_CURRENT_WORK_ID = "caldavAssistant.currentWorkId"' in storage
     assert "getCurrentWorkId" in storage
     assert "setCurrentWorkId" in storage
+    assert "deriveWorkTiming" in storage
     assert "makeWorkTaskId" in storage
     assert "parseWorkTaskId" in storage
     # Phase 1 compatibility: existing 0.3.15 runtime API remains until all
