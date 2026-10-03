@@ -215,7 +215,7 @@ with zipfile.ZipFile(path) as z:
     assert "WP-CLI（兼容旧脚本）" in wordpress_html
     assert 'id="wp-path"' in wordpress_html
     assert 'id="wp-cli"' in wordpress_html
-    assert 'id="wp-daily-work-log"' in wordpress_html
+    assert 'id="wp-daily-work-log"' not in wordpress_html
     assert "底层实际执行" in wordpress_page
     assert "httpRequest" in direct
     assert "curlRequest" in direct
@@ -259,8 +259,11 @@ with zipfile.ZipFile(path) as z:
     assert "copy-json" in logs_html
     assert "listDiagnosticsDates" in schema
     assert "flushOutbox" in daily_log
+    assert "AssistantWordPressOutbox" in daily_log
+    assert "recordClosedWorkSession" not in daily_log
+    assert "Work VEVENT" not in daily_log
     assert "AssistantDailyLog" not in executor
-    assert "dailyWorkLogEnabled" in wordpress
+    assert "dailyWorkLogEnabled" not in wordpress
     assert "ExtensionUtils" in direct and "ExtensionError" in direct
     assert "CalTodo.sys.mjs" in direct and "new CalTodo()" in direct
     assert "CalEvent.sys.mjs" in direct and "new CalEvent()" in direct
