@@ -10,6 +10,7 @@ import {
 const START = "[CALDAV-ASSISTANT-WORKLOG v1]";
 const END = "[/CALDAV-ASSISTANT-WORKLOG]";
 const VALID_STATUS = new Set<TaskStatus>([
+  "",
   "NEEDS-ACTION",
   "IN-PROCESS",
   "COMPLETED",
