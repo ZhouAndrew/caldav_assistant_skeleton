@@ -191,6 +191,9 @@ with zipfile.ZipFile(path) as z:
     assert 'runtime.state !== "paused"' not in executor
     assert 'includes(runtime.state)' not in executor
     assert 'runtime.state === "working"' not in executor
+    assert "AssistantStorage.findOpenWorkSessionRef" in executor
+    assert "closeWorkEvent(runtime.currentWorkEvent" not in executor
+    assert "reopenWorkEvent(runtime.currentWorkEvent" not in executor
     assert '@mozilla.org/network/io-service;1' in direct
     assert '@mozilla.org/appshell/window-mediator;1' in direct
     assert "new URL(url)" not in direct
@@ -205,6 +208,7 @@ with zipfile.ZipFile(path) as z:
     assert "getCurrentWorkId" in storage
     assert "setCurrentWorkId" in storage
     assert "deriveWorkTiming" in storage
+    assert "findOpenWorkSessionRef" in storage
     assert "makeWorkTaskId" in storage
     assert "parseWorkTaskId" in storage
     # Phase 1 compatibility: existing 0.3.15 runtime API remains until all
