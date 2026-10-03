@@ -1,0 +1,52 @@
+[
+  {
+    "namespace": "TaskBridge",
+    "description": "Minimal Thunderbird Calendar/VTODO provider bridge for CalDAV Assistant.",
+    "functions": [
+      {
+        "name": "listCalendars",
+        "type": "function",
+        "async": true,
+        "parameters": []
+      },
+      {
+        "name": "listTasks",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {
+            "name": "options",
+            "type": "any",
+            "optional": true
+          }
+        ]
+      },
+      {
+        "name": "getTask",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {
+            "name": "ref",
+            "type": "any"
+          }
+        ]
+      },
+      {
+        "name": "updateTask",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {
+            "name": "ref",
+            "type": "any"
+          },
+          {
+            "name": "changes",
+            "type": "any"
+          }
+        ]
+      }
+    ]
+  }
+]
