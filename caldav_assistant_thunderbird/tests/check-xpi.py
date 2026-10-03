@@ -121,6 +121,8 @@ with zipfile.ZipFile(path) as z:
     assert "AssistantStorage.getCurrentWorkId" in workspace
     assert "AssistantStorage.parseWorkTaskId" in workspace
     assert "runtime.currentTask" not in workspace
+    assert "state.runtime.state" not in workspace
+    assert "task.paused" in workspace
     # Existing workflow features are preserved while identity moves to one id.
     assert "AssistantExecutor.pause" in workspace
     assert "AssistantExecutor.resume" in workspace
@@ -148,6 +150,8 @@ with zipfile.ZipFile(path) as z:
     assert "AssistantStorage.getCurrentWorkId" in task_picker
     assert "AssistantStorage.parseWorkTaskId" in task_picker
     assert "runtime.currentTask" not in task_picker
+    assert "state.runtime.state" not in task_picker
+    assert "task.paused" in task_picker
     assert "换下当前 Task" in task_picker
     assert "开始这个 Task" in task_picker
     assert "先把“" in task_picker
@@ -180,6 +184,10 @@ with zipfile.ZipFile(path) as z:
     assert "AssistantStorage.makeWorkTaskId" in executor
     assert "sameTask(" not in executor
     assert "runtime.currentTask.id ===" not in executor
+    assert 'runtime.state !== "working"' not in executor
+    assert 'runtime.state !== "paused"' not in executor
+    assert 'includes(runtime.state)' not in executor
+    assert 'runtime.state === "working"' not in executor
     assert '@mozilla.org/network/io-service;1' in direct
     assert '@mozilla.org/appshell/window-mediator;1' in direct
     assert "new URL(url)" not in direct
