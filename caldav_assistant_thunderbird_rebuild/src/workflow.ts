@@ -36,7 +36,20 @@ function accept(
   });
 }
 
-function closeResult(intent: Exclude<WorkIntent, "start">): WorkResult {
+function closeResult(
+  intent: Exclude<WorkIntent, "start">,
+  task: TaskSnapshot,
+): WorkResult {
+  if (intent === "stop") {
+    if (task.status === "CANCELLED") return "cancel";
+    if (
+      task.completed ||
+      task.percentComplete === 100 ||
+      task.status === "COMPLETED"
+    ) {
+      return "complete";
+    }
+  }
   return intent;
 }
 
@@ -60,7 +73,9 @@ export function planTaskAction(args: {
 
   if (intent === "start") {
     if (isFinished(task)) return reject(intent, "finished");
-    if (currentWorkId !== null) return reject(intent, "current-work-exists");
+    if (currentWorkId !== null && currentWorkId !== id) {
+      return reject(intent, "current-work-exists");
+    }
     if (open.length > 0) return reject(intent, "open-session-exists");
 
     const sessionId = String(args.sessionId || "");
@@ -97,7 +112,7 @@ export function planTaskAction(args: {
   const active = open[0];
   if (!active) return reject(intent, "open-session-missing");
 
-  const result = closeResult(intent);
+  const result = closeResult(intent, task);
   const closed: WorkSession = Object.freeze({
     id: active.id,
     start: active.start,
