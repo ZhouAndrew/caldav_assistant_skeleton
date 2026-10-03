@@ -124,7 +124,6 @@ function renderTest(result) {
 }
 
 async function runTest(kind) {
-  await saveConfig();
   const result =
     kind === "full"
       ? await AssistantWordPress.fullWriteTest()
