@@ -8,6 +8,8 @@ const state = {
   tasks: [],
   selected: null,
   runtime: null,
+  currentWorkId: null,
+  currentRef: null,
   settings: {},
   taskView: "open",
   filtersInitialized: false,
@@ -60,10 +62,10 @@ function taskByRef(ref) {
 
 function taskState(task) {
   if (!task) return {label: "未选择", css: ""};
-  if (sameTaskRef(state.runtime?.currentTask, task) && state.runtime.state === "working") {
+  if (sameTaskRef(state.currentRef, task) && state.runtime.state === "working") {
     return {label: "正在进行", css: "working"};
   }
-  if (sameTaskRef(state.runtime?.currentTask, task) && state.runtime.state === "paused") {
+  if (sameTaskRef(state.currentRef, task) && state.runtime.state === "paused") {
     return {label: "已暂停", css: "paused"};
   }
   if (task.status === "COMPLETED") return {label: "已完成", css: "completed"};
@@ -140,7 +142,7 @@ function renderFilters() {
 }
 
 function renderCurrentStrip() {
-  const task = taskByRef(state.runtime?.currentTask);
+  const task = taskByRef(state.currentRef);
   const strip = $("current-strip");
   if (!task) {
     strip.hidden = true;
@@ -216,14 +218,14 @@ function renderSelection() {
   $("selected-due").textContent = due === "—" ? "没有截止日期" : "截止 " + due;
 
   const finished = task.status === "COMPLETED" || task.status === "CANCELLED";
-  const current = taskByRef(state.runtime?.currentTask);
+  const current = taskByRef(state.currentRef);
 
   if (finished) {
     $("flow-note").textContent = [sourceNote, "这个 Task 已结束。"].filter(Boolean).join(" ");
     return;
   }
 
-  if (sameTaskRef(state.runtime?.currentTask, task)) {
+  if (sameTaskRef(state.currentRef, task)) {
     $("flow-note").textContent = [sourceNote, "这个 Task 就是当前工作。"].filter(Boolean).join(" ");
     return;
   }
@@ -255,7 +257,7 @@ async function persistUiFailure(action, task, error) {
 
 async function runPutAside() {
   const target = state.selected;
-  const current = taskByRef(state.runtime?.currentTask);
+  const current = taskByRef(state.currentRef);
   if (!target || !current) return;
 
   actionRunning = true;
@@ -316,6 +318,10 @@ async function refreshAll(preserveSelection = true) {
 
     state.calendars = await browser.ThunderbirdCalDAV.listCalendars();
     state.runtime = await AssistantStorage.getRuntime();
+    state.currentWorkId = await AssistantStorage.getCurrentWorkId();
+    state.currentRef = state.currentWorkId
+      ? AssistantStorage.parseWorkTaskId(state.currentWorkId)
+      : null;
     state.settings = await AssistantStorage.getSettings();
 
     if (!state.filtersInitialized) {
@@ -392,10 +398,17 @@ browser.ThunderbirdCalDAV.onItemsChanged.addListener(() => {
 
 if (browser.storage?.onChanged) {
   browser.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== "local" || !changes["caldavAssistant.settings"]) return;
-    state.settings = changes["caldavAssistant.settings"].newValue || {};
-    state.taskView = normalizeTaskView(state.settings.taskView);
-    state.filtersInitialized = true;
+    if (areaName !== "local") return;
+    if (changes["caldavAssistant.settings"]) {
+      state.settings = changes["caldavAssistant.settings"].newValue || {};
+      state.taskView = normalizeTaskView(state.settings.taskView);
+      state.filtersInitialized = true;
+    }
+    if (
+      !changes["caldavAssistant.settings"] &&
+      !changes["caldavAssistant.runtime"] &&
+      !changes["caldavAssistant.currentWorkId"]
+    ) return;
     refreshAll(true);
   });
 }
