@@ -114,6 +114,7 @@ with zipfile.ZipFile(path) as z:
     assert "AssistantExecutor.start" not in workspace
     assert "AssistantExecutor.pause" in workspace
     assert "AssistantExecutor.resume" in workspace
+    assert "没有可写的 Work Calendar" not in workspace
     assert "AssistantExecutor.complete" in workspace
     assert "AssistantExecutor.cancel" in workspace
     assert "resolveWorkCalendar" in workspace
@@ -152,6 +153,7 @@ with zipfile.ZipFile(path) as z:
     assert "AssistantStorage.getCurrentWorkId" in task_picker
     assert "AssistantStorage.parseWorkTaskId" in task_picker
     assert "AssistantStorage.getRuntime" not in task_picker
+    assert "没有可写的 Work Calendar" not in task_picker
     assert "runtime.currentTask" not in task_picker
     assert "state.runtime.state" not in task_picker
     assert "task.paused" in task_picker
@@ -197,6 +199,9 @@ with zipfile.ZipFile(path) as z:
     assert "AssistantStorage.setRuntime" not in executor
     assert "AssistantStorage.clearRuntime" not in executor
     assert executor.count("AssistantStorage.getLegacyRuntime") == 1
+    assert "createWorkEventBestEffort" in executor
+    assert "closeWorkEventBestEffort" in executor
+    assert "Task workflow continues because Work VEVENT is auxiliary history." in executor
     assert '@mozilla.org/network/io-service;1' in direct
     assert '@mozilla.org/appshell/window-mediator;1' in direct
     assert "new URL(url)" not in direct
