@@ -290,9 +290,11 @@ async function __wpAcceptWaitReceipt(action, timeoutMs = 30000) {
 }
 async function __runRealWordPressAcceptance() {
   await new Promise(resolve => setTimeout(resolve, 1000));
+  $("wp-transport").value = "application-password";
   $("wp-url").value = __WP_BASE_URL__;
   $("wp-user").value = "wp_user";
   $("wp-password").value = __WP_APP_PASSWORD__;
+  await saveConfig();
 
   const quick = $("quick");
   quick.style.position = "fixed";
