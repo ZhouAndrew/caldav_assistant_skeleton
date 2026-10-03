@@ -279,6 +279,34 @@ async function legacyRuntimeMigration() {
   );
 }
 
+async function legacyRuntimeStateIsNotWorkflowTruth() {
+  resetAll();
+
+  let receipt = await AssistantExecutor.start(clone(task), "work");
+  assert(receipt.success, "state-truth setup Start failed");
+  let runtime = await AssistantStorage.getRuntime();
+
+  await AssistantStorage.setRuntime({...runtime, state: "paused"});
+  receipt = await AssistantExecutor.pause(clone(task));
+  assert(
+    receipt.success,
+    "Pause incorrectly trusted legacy runtime.state instead of VTODO facts"
+  );
+  assert(task.status === "IN-PROCESS" && task.paused === true, "Pause VTODO facts wrong");
+
+  runtime = await AssistantStorage.getRuntime();
+  await AssistantStorage.setRuntime({...runtime, state: "working"});
+  receipt = await AssistantExecutor.resume(clone(task), "work");
+  assert(
+    receipt.success,
+    "Resume incorrectly trusted legacy runtime.state instead of VTODO facts"
+  );
+  assert(task.status === "IN-PROCESS" && task.paused === false, "Resume VTODO facts wrong");
+
+  receipt = await AssistantExecutor.cancel(clone(task));
+  assert(receipt.success, "state-truth cleanup Cancel failed");
+}
+
 async function startReadbackRollback() {
   resetAll();
   faults.corruptNextWorkReadback = true;
@@ -451,6 +479,7 @@ async function completeWriteRollback() {
   resetAll();
   await normalLifecycle();
   await legacyRuntimeMigration();
+  await legacyRuntimeStateIsNotWorkflowTruth();
   await startReadbackRollback();
   await uncertainCreateRollback();
   await pauseWriteRollback();
