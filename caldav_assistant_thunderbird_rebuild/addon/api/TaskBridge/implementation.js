@@ -234,14 +234,28 @@ async function getTask(ref) {
   return taskView(item);
 }
 
-async function updateTask(ref, changes) {
+function samePrecondition(item, expected) {
+  if (!expected || typeof expected !== "object") return false;
+  const view = taskView(item);
+  return (
+    view.status === (expected.status ?? null) &&
+    view.percentComplete === Number(expected.percentComplete || 0) &&
+    view.description === text(expected.description)
+  );
+}
+
+async function updateTask(ref, changes, expected) {
   const {calendar, item: oldItem} = await resolveTask(ref);
 
   if (
     !calendarWritable(calendar) ||
     !cal.acl.userCanModifyItem(oldItem)
   ) {
-    throw new Error("VTODO is not writable.");
+    return {ok: false, reason: "not-writable"};
+  }
+
+  if (!samePrecondition(oldItem, expected)) {
+    return {ok: false, reason: "changed"};
   }
 
   const newItem = oldItem.clone();
@@ -254,7 +268,7 @@ async function updateTask(ref, changes) {
 
   // CalDAV providers may normalize the item during PUT. Always return a fresh
   // provider read rather than trusting the local clone.
-  return getTask(ref);
+  return {ok: true, task: await getTask(ref)};
 }
 
 var TaskBridge = class extends ExtensionCommon.ExtensionAPI {
