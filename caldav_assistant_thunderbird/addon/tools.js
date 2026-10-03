@@ -1,4 +1,5 @@
 "use strict";
+
 const $ = id => document.getElementById(id);
 let calendars = [];
 
@@ -41,6 +42,7 @@ function renderResult(result) {
   const traceTitle = document.createElement("h3");
   traceTitle.textContent = "底层实际执行";
   root.appendChild(traceTitle);
+
   const traceList = document.createElement("ul");
   traceList.className = "result-list trace-list";
   for (const trace of result.trace || []) {
@@ -79,8 +81,6 @@ function renderResult(result) {
 async function saveSettings() {
   const changed = await AssistantStorage.saveSettingsWithUndo({
     taskView: $("task-view").value || "incomplete",
-    taskCalendarId: $("task-calendar").value,
-    workCalendarId: $("work-calendar").value,
   });
 
   const result = await AssistantStorage.persistResult({
@@ -88,7 +88,7 @@ async function saveSettings() {
     success: true,
     startedAt: new Date().toISOString(),
     completedAt: new Date().toISOString(),
-    summary: "Task / Calendar 设置已保存。",
+    summary: "Task 设置已保存。",
     steps: [{
       component: "Settings",
       operation: "save defaults",
@@ -112,49 +112,22 @@ async function undoSettings() {
     return;
   }
   await load();
-  $("save-result").textContent = "✓ 已撤销刚才的 Calendar / 视图设置。";
+  $("save-result").textContent = "✓ 已撤销刚才的视图设置。";
 }
 
 async function load() {
   calendars = await browser.ThunderbirdCalDAV.listCalendars();
   const settings = await AssistantStorage.getSettings();
 
-  $("task-calendar").replaceChildren();
-  option($("task-calendar"), "", "全部 Task Calendar");
-  for (
-    const calendar of calendars.filter(
-      item => item.supportsTasks && !item.disabled
-    )
-  ) {
-    option(
-      $("task-calendar"),
-      calendar.id,
-      calendar.name + (calendar.readOnly ? " · 只读" : "")
-    );
-  }
+  $("task-view").value = settings.taskView || "incomplete";
 
-  $("work-calendar").replaceChildren();
+  $("calendar-test").replaceChildren();
   for (
     const calendar of calendars.filter(
       item => item.supportsEvents && !item.disabled && !item.readOnly
     )
   ) {
-    option($("work-calendar"), calendar.id, calendar.name);
-  }
-
-  $("task-view").value = settings.taskView || "incomplete";
-  const taskCalendarExists = [...$("task-calendar").options].some(
-    item => item.value === (settings.taskCalendarId || "")
-  );
-  $("task-calendar").value =
-    taskCalendarExists ? (settings.taskCalendarId || "") : "";
-
-  if (
-    [...$("work-calendar").options].some(
-      item => item.value === settings.workCalendarId
-    )
-  ) {
-    $("work-calendar").value = settings.workCalendarId;
+    option($("calendar-test"), calendar.id, calendar.name);
   }
 
   $("undo-settings").hidden = !(await AssistantStorage.getSettingsUndo());
@@ -162,18 +135,20 @@ async function load() {
 
 $("save-settings").addEventListener("click", saveSettings);
 $("undo-settings").addEventListener("click", undoSettings);
+
 $("calendar-quick").addEventListener("click", async () => {
   renderResult(await AssistantConnection.quickCalendarTest());
 });
+
 $("calendar-full").addEventListener("click", async () => {
-  const calendarId = $("work-calendar").value;
+  const calendarId = $("calendar-test").value;
   if (!calendarId) {
     renderResult(await AssistantStorage.persistResult({
       action: "connection.full-calendar-write",
       success: false,
       startedAt: new Date().toISOString(),
       completedAt: new Date().toISOString(),
-      summary: "没有可写的 Work Calendar。",
+      summary: "没有可写的 Calendar 可用于测试。",
       steps: [],
     }, "connection"));
     return;
