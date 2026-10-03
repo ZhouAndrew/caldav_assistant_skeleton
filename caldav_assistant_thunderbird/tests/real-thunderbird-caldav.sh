@@ -334,7 +334,7 @@ async function __runTaskPickerAcceptance() {
   const receipt = await __pickerWaitForNewReceipt("switch-away", before?.id || null);
   await __pickerWaitFor(
     () =>
-      state.runtime?.state === "idle" &&
+      state.currentWorkId === null &&
       state.selected?.id === targetId &&
       Boolean(__pickerButton("开始这个 Task")),
     "switch-away -> preserved target selection"
@@ -444,7 +444,11 @@ async function __runWorkspaceAcceptance() {
     __workspaceButton("暂停").click();
     let receipt = await __workspaceWaitForNewReceipt("pause", before?.id || null);
     await __workspaceWaitFor(
-      () => state.runtime?.state === "paused" && Boolean(__workspaceButton("继续")),
+      () =>
+        state.currentWorkId !== null &&
+        state.current?.status === "IN-PROCESS" &&
+        state.current?.paused === true &&
+        Boolean(__workspaceButton("继续")),
       "Pause -> paused"
     );
 
@@ -452,7 +456,11 @@ async function __runWorkspaceAcceptance() {
     __workspaceButton("继续").click();
     receipt = await __workspaceWaitForNewReceipt("resume", before?.id || null);
     await __workspaceWaitFor(
-      () => state.runtime?.state === "working" && Boolean(__workspaceButton("暂停")),
+      () =>
+        state.currentWorkId !== null &&
+        state.current?.status === "IN-PROCESS" &&
+        state.current?.paused === false &&
+        Boolean(__workspaceButton("暂停")),
       "Resume -> working"
     );
 
@@ -473,7 +481,7 @@ async function __runWorkspaceAcceptance() {
   __workspaceButton("完成").click();
   const receipt = await __workspaceWaitForNewReceipt("complete", before?.id || null);
   await __workspaceWaitFor(
-    () => state.runtime?.state === "idle" && !$("no-current").hidden,
+    () => state.currentWorkId === null && !$("no-current").hidden,
     "Complete -> idle"
   );
 
@@ -816,11 +824,6 @@ async function __runRealAcceptance() {
       persistedTask.paused === true,
       "Restart-recovered Task did not preserve Pause"
     );
-    const persistedRuntime = await AssistantStorage.getRuntime();
-    __acceptanceAssert(
-      persistedRuntime.state === "paused",
-      "Legacy compatibility runtime did not preserve paused recovery"
-    );
     __acceptanceAssert(
       AssistantStorage.makeWorkTaskId(persistedTask) === persistedAtStartup,
       "Persisted currentWorkId does not match the recovered Thunderbird Task"
@@ -931,17 +934,16 @@ async function __runRealAcceptance() {
   );
   __acceptanceAssert(pickerStartResult.segmentedUi, "Task picker segmented UI contract failed");
 
-  for (let attempt = 0; attempt < 160; attempt++) {
-    const runtimeState = await browser.storage.local.get("caldavAssistant.runtime");
-    const runtime = runtimeState["caldavAssistant.runtime"];
-    if (runtime?.state === "working" && runtime?.currentTask?.id === "seed-task") break;
-    if (attempt === 159) throw new Error("Task picker Start did not make seed-task current");
-    await __acceptanceDelay(100);
-  }
-  const seedCurrentWorkId = AssistantStorage.makeWorkTaskId(
-    await browser.ThunderbirdCalDAV.getTask(calendar.id, "seed-task")
+  const seedStartedTask = await browser.ThunderbirdCalDAV.getTask(
+    calendar.id,
+    "seed-task"
   );
+  const seedCurrentWorkId = AssistantStorage.makeWorkTaskId(seedStartedTask);
   await __waitForCurrentWorkId(seedCurrentWorkId, "seed Start");
+  __acceptanceAssert(
+    seedStartedTask.status === "IN-PROCESS" && seedStartedTask.paused === false,
+    "Task picker Start did not persist the authoritative VTODO working state"
+  );
   await browser.tabs.remove(pickerStartTab.id);
 
   __acceptanceStage = "workspace-active";
@@ -1008,17 +1010,16 @@ async function __runRealAcceptance() {
   );
   __acceptanceAssert(pickerSwitchResult.explicitStartStep, "Switch flow auto-chained instead of staying segmented");
 
-  for (let attempt = 0; attempt < 160; attempt++) {
-    const runtimeState = await browser.storage.local.get("caldavAssistant.runtime");
-    const runtime = runtimeState["caldavAssistant.runtime"];
-    if (runtime?.state === "working" && runtime?.currentTask?.id === switchTarget.id) break;
-    if (attempt === 159) throw new Error("Explicit Start did not make the selected switch target current");
-    await __acceptanceDelay(100);
-  }
-  const switchCurrentWorkId = AssistantStorage.makeWorkTaskId(
-    await browser.ThunderbirdCalDAV.getTask(calendar.id, switchTarget.id)
+  const switchStartedTask = await browser.ThunderbirdCalDAV.getTask(
+    calendar.id,
+    switchTarget.id
   );
+  const switchCurrentWorkId = AssistantStorage.makeWorkTaskId(switchStartedTask);
   await __waitForCurrentWorkId(switchCurrentWorkId, "switch target Start");
+  __acceptanceAssert(
+    switchStartedTask.status === "IN-PROCESS" && switchStartedTask.paused === false,
+    "Explicit Start did not persist the selected switch target as working"
+  );
   await browser.tabs.remove(pickerSwitchTab.id);
 
   __acceptanceStage = "workspace-complete";
