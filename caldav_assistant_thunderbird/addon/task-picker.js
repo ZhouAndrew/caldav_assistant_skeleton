@@ -7,7 +7,6 @@ const state = {
   calendars: [],
   tasks: [],
   selected: null,
-  runtime: null,
   currentWorkId: null,
   currentRef: null,
   settings: {},
@@ -316,7 +315,6 @@ async function refreshAll(preserveSelection = true) {
       : null;
 
     state.calendars = await browser.ThunderbirdCalDAV.listCalendars();
-    state.runtime = await AssistantStorage.getRuntime();
     state.currentWorkId = await AssistantStorage.getCurrentWorkId();
     state.currentRef = state.currentWorkId
       ? AssistantStorage.parseWorkTaskId(state.currentWorkId)
@@ -405,7 +403,6 @@ if (browser.storage?.onChanged) {
     }
     if (
       !changes["caldavAssistant.settings"] &&
-      !changes["caldavAssistant.runtime"] &&
       !changes["caldavAssistant.currentWorkId"]
     ) return;
     refreshAll(true);
