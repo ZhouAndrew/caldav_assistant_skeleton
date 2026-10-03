@@ -239,6 +239,13 @@ async function main() {
   const api = new context.NativeTasks().getAPI().NativeTasks;
 
 
+  const calendars = await api.listTaskCalendars();
+  assert(calendars.length === 1, "native Task calendar list lost calendar");
+  assert(calendars[0].id === "cal-1", "native Task calendar id wrong");
+  assert(calendars[0].name === "Tasks", "native Task calendar name wrong");
+  assert(calendars[0].disabled === false, "native Task calendar disabled state wrong");
+  assert(calendars[0].inComposite === true, "native Task calendar composite state wrong");
+
   const query = await api.queryTasks({
     filter: "open",
     search: "study",
