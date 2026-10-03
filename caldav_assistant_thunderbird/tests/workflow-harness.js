@@ -168,7 +168,11 @@ browser.ThunderbirdCalDAV = {
 
 global.window = global;
 
-for (const script of ["addon/core/storage.js", "addon/core/executor.js"]) {
+for (const script of [
+  "addon/core/storage.js",
+  "addon/core/action-plan.js",
+  "addon/core/executor.js",
+]) {
   vm.runInThisContext(fs.readFileSync(script, "utf8"), {filename: script});
 }
 
