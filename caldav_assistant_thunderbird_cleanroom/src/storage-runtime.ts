@@ -1,5 +1,5 @@
-import {CleanSettings, SettingsMigration, migrateLegacySettings} from "./settings-migration";
-import {CurrentWorkPort} from "./workflow-service";
+import {CleanSettings, SettingsMigration, migrateLegacySettings} from "./settings-migration.js";
+import {CurrentWorkPort} from "./workflow-service.js";
 
 export const SETTINGS_KEY = "caldavAssistant.v2.settings";
 export const CURRENT_WORK_KEY = "caldavAssistant.v2.currentWorkId";
