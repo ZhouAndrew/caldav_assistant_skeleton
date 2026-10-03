@@ -9,7 +9,9 @@ export interface TaskCommandDeps {
 }
 
 export type TaskCommandFailureKind =
+  | "task-read-failed"
   | "task-not-found"
+  | "pointer-read-failed"
   | "transition-rejected"
   | "task-write-failed"
   | "readback-failed"
@@ -29,7 +31,8 @@ export interface TaskCommandFailure {
   readonly intent: WorkIntent;
   readonly kind: TaskCommandFailureKind;
   readonly message: string;
-  readonly taskCommitted: boolean;
+  readonly taskWriteAttempted: boolean;
+  readonly taskVerified: boolean;
 }
 
 export type TaskCommandResult = TaskCommandSuccess | TaskCommandFailure;
@@ -44,6 +47,29 @@ async function diag(
   } catch {
     // Diagnostics are observational and must never change command semantics.
   }
+}
+
+function errorText(error: unknown): string {
+  return String(error instanceof Error ? error.message : error);
+}
+
+function failure(
+  taskId: string,
+  intent: WorkIntent,
+  kind: TaskCommandFailureKind,
+  message: string,
+  taskWriteAttempted: boolean,
+  taskVerified: boolean
+): TaskCommandFailure {
+  return Object.freeze({
+    ok: false,
+    taskId,
+    intent,
+    kind,
+    message,
+    taskWriteAttempted,
+    taskVerified,
+  });
 }
 
 function sameTaskState(
@@ -70,24 +96,57 @@ export async function runTaskCommand(
   nowIso: string,
   sessionId: string
 ): Promise<TaskCommandResult> {
-  const task = await deps.tasks.get(taskId);
+  let task;
+  try {
+    task = await deps.tasks.get(taskId);
+  } catch (error) {
+    const message = errorText(error);
+    await diag(deps.diagnostics, {
+      kind: "task-read-failed",
+      success: false,
+      taskId,
+      message,
+    });
+    return failure(taskId, intent, "task-read-failed", message, false, false);
+  }
+
   if (!task) {
     await diag(deps.diagnostics, {
       kind: "task-not-found",
       success: false,
       taskId,
     });
-    return Object.freeze({
-      ok: false,
+    return failure(
       taskId,
       intent,
-      kind: "task-not-found",
-      message: "Task not found.",
-      taskCommitted: false,
-    });
+      "task-not-found",
+      "Task not found.",
+      false,
+      false
+    );
   }
 
-  const currentWorkId = await deps.currentWork.get();
+  let currentWorkId: string | null;
+  try {
+    currentWorkId = await deps.currentWork.get();
+  } catch (error) {
+    const message = errorText(error);
+    await diag(deps.diagnostics, {
+      kind: "pointer-read-failed",
+      success: false,
+      taskId,
+      message,
+    });
+    return failure(
+      taskId,
+      intent,
+      "pointer-read-failed",
+      message,
+      false,
+      false
+    );
+  }
+
   const plan = planTaskAction(intent, task, currentWorkId, nowIso, sessionId);
   if (!plan.ok) {
     await diag(deps.diagnostics, {
@@ -96,71 +155,91 @@ export async function runTaskCommand(
       taskId,
       message: plan.reason,
     });
-    return Object.freeze({
-      ok: false,
+    return failure(
       taskId,
       intent,
-      kind: "transition-rejected",
-      message: plan.reason,
-      taskCommitted: false,
-    });
+      "transition-rejected",
+      plan.reason,
+      false,
+      false
+    );
   }
 
   try {
     await deps.tasks.update(taskId, plan.taskPatch);
   } catch (error) {
-    const message = String(error instanceof Error ? error.message : error);
+    const message = errorText(error);
     await diag(deps.diagnostics, {
       kind: "task-write-failed",
       success: false,
       taskId,
       message,
     });
-    return Object.freeze({
-      ok: false,
+    return failure(
       taskId,
       intent,
-      kind: "task-write-failed",
+      "task-write-failed",
       message,
-      taskCommitted: false,
-    });
+      true,
+      false
+    );
   }
 
-  const stored = await deps.tasks.get(taskId);
+  let stored;
+  try {
+    stored = await deps.tasks.get(taskId);
+  } catch (error) {
+    const message = errorText(error);
+    await diag(deps.diagnostics, {
+      kind: "readback-failed",
+      success: false,
+      taskId,
+      message,
+    });
+    return failure(
+      taskId,
+      intent,
+      "readback-failed",
+      message,
+      true,
+      false
+    );
+  }
+
   if (!stored || !sameTaskState(plan.taskPatch, stored)) {
     await diag(deps.diagnostics, {
       kind: "readback-failed",
       success: false,
       taskId,
     });
-    return Object.freeze({
-      ok: false,
+    return failure(
       taskId,
       intent,
-      kind: "readback-failed",
-      message: "Task read-back verification failed.",
-      taskCommitted: false,
-    });
+      "readback-failed",
+      "Task read-back verification failed.",
+      true,
+      false
+    );
   }
 
   try {
     await deps.currentWork.set(plan.nextCurrentWorkId);
   } catch (error) {
-    const message = String(error instanceof Error ? error.message : error);
+    const message = errorText(error);
     await diag(deps.diagnostics, {
       kind: "pointer-write-failed",
       success: false,
       taskId,
       message,
     });
-    return Object.freeze({
-      ok: false,
+    return failure(
       taskId,
       intent,
-      kind: "pointer-write-failed",
+      "pointer-write-failed",
       message,
-      taskCommitted: true,
-    });
+      true,
+      true
+    );
   }
 
   await diag(deps.diagnostics, {
