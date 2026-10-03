@@ -144,8 +144,6 @@ async function refreshStatus() {
   const outbox = await AssistantStorage.listWordPressOutbox();
 
   $("status").textContent = [
-    "自动每日工作日志：" +
-      (config.dailyWorkLogEnabled === false ? "关闭" : "开启"),
     "配置 Transport：" + config.transport,
     "WordPress URL：" + (config.baseUrl || "(未设置)"),
     "WordPress 本地路径：" + (config.wordpressPath || "(未设置)"),
@@ -168,8 +166,6 @@ async function refreshStatus() {
 
 async function load() {
   const config = await AssistantWordPress.getConfig();
-  $("wp-daily-work-log").checked =
-    config.dailyWorkLogEnabled !== false;
   $("wp-transport").value = config.transport || "auto";
   $("wp-url").value = config.baseUrl || "";
   $("wp-user").value = config.username || "";
@@ -203,7 +199,7 @@ $("copy-config").addEventListener("click", async () => {
   await navigator.clipboard.writeText(JSON.stringify(safe, null, 2));
 });
 $("retry-outbox").addEventListener("click", async () => {
-  const result = await AssistantDailyLog.flushOutbox();
+  const result = await AssistantWordPressOutbox.flushOutbox();
   $("outbox-status").textContent =
     "Outbox 重试完成：处理 " + (result.processed || 0) +
     "，成功 " + (result.sent || 0) +
