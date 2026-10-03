@@ -1,11 +1,11 @@
-import {TaskPatch, TaskRef, TaskSnapshot} from "../src/domain";
-import {makeTaskId} from "../src/task-id";
+import {TaskPatch, TaskRef, TaskSnapshot} from "../src/domain.js";
+import {makeTaskId} from "../src/task-id.js";
 import {
   CurrentWorkPort,
   ThunderbirdTaskPort,
   executeTaskCommand,
   reconcileCurrentWork,
-} from "../src/workflow-service";
+} from "../src/workflow-service.js";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
