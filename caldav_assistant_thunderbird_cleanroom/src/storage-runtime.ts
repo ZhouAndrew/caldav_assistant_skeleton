@@ -39,6 +39,17 @@ export function isCleanSettings(value: unknown): value is CleanSettings {
   );
 }
 
+
+export async function readSettings(
+  storage: StorageAreaPort
+): Promise<CleanSettings> {
+  const value = (await storage.get(SETTINGS_KEY))[SETTINGS_KEY];
+  if (!isCleanSettings(value)) {
+    throw new Error("Clean-room settings are not initialized.");
+  }
+  return value;
+}
+
 export interface SettingsLoadResult {
   readonly settings: CleanSettings;
   readonly migrated: boolean;
