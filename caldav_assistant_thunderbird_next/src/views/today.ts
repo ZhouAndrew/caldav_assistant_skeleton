@@ -1,5 +1,5 @@
-import {TaskSnapshot, WorkSession} from "../../domain";
-import {parseWorkDescription} from "../../work-description";
+import {TaskSnapshot, WorkSession} from "../domain";
+import {parseWorkDescription} from "../work-description";
 
 export interface TodayWorkRow {
   readonly taskId: string;
@@ -17,14 +17,11 @@ export interface TodayView {
 }
 
 function localDateKey(iso: string): string | null {
-  const timestamp = Date.parse(iso);
-  if (!Number.isFinite(timestamp)) return null;
-  const d = new Date(timestamp);
-  return [
-    d.getFullYear(),
-    String(d.getMonth() + 1).padStart(2, "0"),
-    String(d.getDate()).padStart(2, "0"),
-  ].join("-");
+  // Work-session timestamps are stored with their local UTC offset. Use the
+  // calendar date embedded in that timestamp instead of the machine running
+  // the view, so CI/server timezone cannot move a session to another day.
+  const match = /^(\d{4}-\d{2}-\d{2})T/.exec(iso);
+  return match?.[1] ?? null;
 }
 
 export function deriveTodayView(
