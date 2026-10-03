@@ -85,18 +85,12 @@ const picker = deriveTaskPickerView(
   },
   [
     {
-      taskId: "1",
-      calendarId: "tasks",
-      calendarName: "Tasks",
-      title: "English",
-      due: null,
-      categories: [],
-    },
-    {
       taskId: "2",
       calendarId: "tasks",
       calendarName: "Tasks",
       title: "Math question",
+      status: "NEEDS-ACTION",
+      percentComplete: 0,
       due: "2026-10-04",
       categories: ["study"],
     },
@@ -115,6 +109,8 @@ const filteredAwayPicker = deriveTaskPickerView(
     calendarId: "tasks",
     calendarName: "Tasks",
     title: "Other task",
+    status: "NEEDS-ACTION",
+    percentComplete: 0,
     due: null,
     categories: [],
   }]
