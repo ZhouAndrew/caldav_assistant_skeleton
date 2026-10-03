@@ -316,6 +316,104 @@
     return null;
   }
 
+  function auditTimestampMs(record) {
+    const value =
+      record?.details?.completedAt ||
+      record?.timestamp ||
+      record?.details?.startedAt ||
+      "";
+    const parsed = Date.parse(String(value));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  async function deriveWorkTiming(task) {
+    const targetWorkId = makeWorkTaskId(task);
+    if (!targetWorkId) {
+      return Object.freeze({
+        accumulatedMs: 0,
+        segmentStartedAtMs: null,
+        source: "none",
+      });
+    }
+
+    const records = await listAudit();
+    let accumulatedMs = 0;
+    let segmentStartedAtMs = null;
+    let sessionSeen = false;
+    let historySeen = false;
+
+    for (const record of records) {
+      if (record?.scope !== "workflow") continue;
+      if (record?.success === false || record?.details?.success === false) continue;
+      if (makeWorkTaskId(record?.details?.task) !== targetWorkId) continue;
+
+      const atMs = auditTimestampMs(record);
+      if (atMs === null) continue;
+
+      switch (record.action) {
+        case "start":
+          accumulatedMs = 0;
+          segmentStartedAtMs = atMs;
+          sessionSeen = true;
+          historySeen = true;
+          break;
+
+        case "pause":
+          if (sessionSeen && segmentStartedAtMs !== null) {
+            accumulatedMs += Math.max(0, atMs - segmentStartedAtMs);
+            segmentStartedAtMs = null;
+          }
+          historySeen = true;
+          break;
+
+        case "resume":
+          if (sessionSeen && segmentStartedAtMs === null) {
+            segmentStartedAtMs = atMs;
+          }
+          historySeen = true;
+          break;
+
+        case "complete":
+        case "cancel":
+        case "switch-away":
+          if (sessionSeen && segmentStartedAtMs !== null) {
+            accumulatedMs += Math.max(0, atMs - segmentStartedAtMs);
+          }
+          segmentStartedAtMs = null;
+          sessionSeen = false;
+          historySeen = true;
+          break;
+      }
+    }
+
+    if (historySeen && sessionSeen) {
+      return Object.freeze({
+        accumulatedMs,
+        segmentStartedAtMs,
+        source: "audit",
+      });
+    }
+
+    // Compatibility for an already-active 0.3.15 session whose action history
+    // predates the new deterministic timing derivation.
+    const runtime = await getRuntime();
+    if (makeWorkTaskId(runtime?.currentTask) === targetWorkId) {
+      return Object.freeze({
+        accumulatedMs: Math.max(0, Number(runtime?.accumulatedMs || 0)),
+        segmentStartedAtMs: runtime?.segmentStartedAtMs
+          ? Number(runtime.segmentStartedAtMs)
+          : null,
+        source: "legacy-runtime",
+      });
+    }
+
+    return Object.freeze({
+      accumulatedMs: 0,
+      segmentStartedAtMs: null,
+      source: historySeen ? "audit-closed" : "none",
+    });
+  }
+
   async function clearAudit(dateKey = "") {
     await migrateLegacyAudit();
     if (dateKey) {
@@ -425,6 +523,7 @@
     appendAudit,
     listAudit,
     findLatestStartSnapshot,
+    deriveWorkTiming,
     listAuditDates,
     clearAudit,
     localDateKey,
