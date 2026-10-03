@@ -4,6 +4,8 @@ export type TaskStatus =
   | "COMPLETED"
   | "CANCELLED";
 
+export type StoredTaskStatus = TaskStatus | null;
+
 export type WorkResult = "stop" | "complete" | "cancel";
 
 export interface TaskRef {
@@ -14,7 +16,7 @@ export interface TaskRef {
 
 export interface TaskSnapshot extends TaskRef {
   readonly title: string;
-  readonly status: TaskStatus;
+  readonly status: StoredTaskStatus;
   readonly percentComplete: number;
   readonly description: string;
 }
@@ -25,7 +27,7 @@ export interface WorkSession {
   readonly end: string | null;
   readonly result: WorkResult | null;
   readonly before: {
-    readonly status: TaskStatus;
+    readonly status: StoredTaskStatus;
     readonly percentComplete: number;
   };
 }
@@ -38,7 +40,7 @@ export interface ParsedWorkDescription {
 export type WorkIntent = "start" | "stop" | "complete" | "cancel";
 
 export interface TaskPatch {
-  readonly status?: TaskStatus;
+  readonly status?: StoredTaskStatus;
   readonly percentComplete?: number;
   readonly description?: string;
 }
