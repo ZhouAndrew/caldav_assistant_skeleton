@@ -5,9 +5,11 @@
   "type": "commonjs",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "rm -rf .build && tsc --outDir .build && node .build/tests/core.test.js && node .build/tests/workflow-service.test.js && node .build/tests/reconciliation.test.js && node .build/tests/legacy-migration.test.js && node .build/tests/legacy-migration-service.test.js && node tests/storage-migration.test.js"
+    "test": "rm -rf .build && tsc --outDir .build && node .build/tests/core.test.js && node .build/tests/workflow-service.test.js && node .build/tests/reconciliation.test.js && node .build/tests/legacy-migration.test.js && node .build/tests/legacy-migration-service.test.js && node tests/storage-migration.test.js",
+    "build": "rm -rf addon/generated && mkdir -p addon/generated && esbuild src/public.ts --bundle --format=iife --global-name=CalDAVAssistantCore --platform=browser --target=firefox128 --outfile=addon/generated/core.js"
   },
   "devDependencies": {
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "esbuild": "0.25.10"
   }
 }
