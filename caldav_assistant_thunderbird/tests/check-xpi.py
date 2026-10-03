@@ -194,6 +194,9 @@ with zipfile.ZipFile(path) as z:
     assert "AssistantStorage.findOpenWorkSessionRef" in executor
     assert "closeWorkEvent(runtime.currentWorkEvent" not in executor
     assert "reopenWorkEvent(runtime.currentWorkEvent" not in executor
+    assert "AssistantStorage.setRuntime" not in executor
+    assert "AssistantStorage.clearRuntime" not in executor
+    assert executor.count("AssistantStorage.getRuntime") == 1
     assert '@mozilla.org/network/io-service;1' in direct
     assert '@mozilla.org/appshell/window-mediator;1' in direct
     assert "new URL(url)" not in direct
@@ -211,10 +214,10 @@ with zipfile.ZipFile(path) as z:
     assert "findOpenWorkSessionRef" in storage
     assert "makeWorkTaskId" in storage
     assert "parseWorkTaskId" in storage
-    # Phase 1 compatibility: existing 0.3.15 runtime API remains until all
-    # consumers have moved behind the one-id boundary.
+    # Legacy 0.3.15 runtime is read-only migration data now.
     assert "getRuntime" in storage
-    assert "setRuntime" in storage
+    assert "async function setRuntime" not in storage
+    assert "async function clearRuntime" not in storage
     assert 'persistResult(receipt, "workflow")' in executor
     assert 'persistResult(result, "connection")' in connection
     assert 'persistResult(result, "wordpress")' in wordpress
