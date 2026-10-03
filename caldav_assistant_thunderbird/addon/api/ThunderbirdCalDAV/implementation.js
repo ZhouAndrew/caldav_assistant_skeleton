@@ -1108,9 +1108,6 @@ function taskView(item) {
       String(item.calendar?.superCalendar?.id || item.calendar?.id || "") +
       "::" + String(item.id || "") +
       "::" + String(item.recurrenceId?.icalString || ""),
-    paused:
-      String(item.getProperty("X-CALDAV-ASSISTANT-PAUSED") || "").toUpperCase() ===
-      "TRUE",
   };
 }
 
@@ -1130,13 +1127,6 @@ function eventView(item) {
     categories: categoriesOf(item),
     description: String(item.getProperty("DESCRIPTION") || ""),
     recurring: Boolean(item.recurrenceInfo || item.recurrenceId),
-    taskUid: String(item.getProperty("X-CALDAV-ASSISTANT-TASK-UID") || ""),
-    workSession:
-      String(item.getProperty("X-CALDAV-ASSISTANT-WORK-SESSION") || "").toUpperCase() ===
-      "TRUE",
-    workOpen:
-      String(item.getProperty("X-CALDAV-ASSISTANT-WORK-OPEN") || "").toUpperCase() ===
-      "TRUE",
   };
 }
 
@@ -1295,14 +1285,6 @@ function applyTaskChanges(item, changes) {
   if ("categories" in changes) setCategories(item, changes.categories);
   if ("due" in changes) item.dueDate = fromInputDate(changes.due);
   if ("start" in changes) item.entryDate = fromInputDate(changes.start);
-  if ("paused" in changes) {
-    if (changes.paused) {
-      item.setProperty("X-CALDAV-ASSISTANT-PAUSED", "TRUE");
-    } else {
-      item.deleteProperty("X-CALDAV-ASSISTANT-PAUSED");
-    }
-  }
-
   if ("status" in changes) {
     const status = normalizeTaskStatus(changes.status);
     const previousPercent = Number(item.percentComplete || 0);
@@ -1372,35 +1354,14 @@ function applyEventChanges(item, changes) {
     if (status) item.status = status;
     else item.deleteProperty("STATUS");
   }
-  if ("taskUid" in changes) {
-    if (changes.taskUid) {
-      item.setProperty("X-CALDAV-ASSISTANT-TASK-UID", String(changes.taskUid));
-    } else {
-      item.deleteProperty("X-CALDAV-ASSISTANT-TASK-UID");
-    }
-  }
-  if ("workSession" in changes) {
-    if (changes.workSession) {
-      item.setProperty("X-CALDAV-ASSISTANT-WORK-SESSION", "TRUE");
-    } else {
-      item.deleteProperty("X-CALDAV-ASSISTANT-WORK-SESSION");
-    }
-  }
-  if ("workOpen" in changes) {
-    if (changes.workOpen) {
-      item.setProperty("X-CALDAV-ASSISTANT-WORK-OPEN", "TRUE");
-    } else {
-      item.deleteProperty("X-CALDAV-ASSISTANT-WORK-OPEN");
-    }
-  }
 }
 
 function validateEvent(item) {
   if (!item.startDate) {
     throw new ExtensionError("Event start is required");
   }
-  // DTEND is intentionally optional. CalDAV Assistant keeps the current work
-  // session open until Pause/Complete/Cancel closes it.
+  // DTEND is intentionally optional because ordinary Thunderbird events may
+  // be open-ended; Task lifecycle state is not represented by VEVENT here.
   if (item.endDate && item.endDate.compare(item.startDate) < 0) {
     throw new ExtensionError("Event end must not be before its start");
   }
