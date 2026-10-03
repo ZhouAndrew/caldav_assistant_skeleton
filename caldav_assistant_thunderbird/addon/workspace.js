@@ -6,7 +6,11 @@ let actionRunning = false;
 const state = {
   calendars: [],
   tasks: [],
-  runtime: null,
+  timing: {
+    accumulatedMs: 0,
+    segmentStartedAtMs: null,
+    source: "none",
+  },
   currentWorkId: null,
   currentRef: null,
   settings: {},
@@ -114,9 +118,9 @@ function render() {
 
 function updateElapsed() {
   if (!state.current || !state.currentWorkId) return;
-  let ms = Number(state.runtime.accumulatedMs || 0);
-  if (!state.current.paused && state.runtime.segmentStartedAtMs) {
-    ms += Math.max(0, Date.now() - state.runtime.segmentStartedAtMs);
+  let ms = Number(state.timing.accumulatedMs || 0);
+  if (!state.current.paused && state.timing.segmentStartedAtMs) {
+    ms += Math.max(0, Date.now() - state.timing.segmentStartedAtMs);
   }
   $("current-elapsed").textContent = formatDuration(ms);
 }
@@ -170,7 +174,6 @@ async function refreshAll() {
   try {
     state.calendars = await browser.ThunderbirdCalDAV.listCalendars();
     state.tasks = await browser.ThunderbirdCalDAV.listTasks();
-    state.runtime = await AssistantStorage.getRuntime();
     state.currentWorkId = await AssistantStorage.getCurrentWorkId();
     state.currentRef = state.currentWorkId
       ? AssistantStorage.parseWorkTaskId(state.currentWorkId)
@@ -193,6 +196,14 @@ async function refreshAll() {
     if (state.currentWorkId && !state.current) {
       showNotice("当前 Task 暂时无法从 Calendar 读取。", true);
     }
+
+    state.timing = state.current
+      ? await AssistantStorage.deriveWorkTiming(state.current)
+      : {
+          accumulatedMs: 0,
+          segmentStartedAtMs: null,
+          source: "none",
+        };
 
     render();
   } catch (error) {
@@ -218,10 +229,14 @@ browser.ThunderbirdCalDAV.onItemsChanged.addListener(() => {
 if (browser.storage?.onChanged) {
   browser.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== "local" || actionRunning) return;
+    const auditChanged = Object.keys(changes).some(
+      key => key.startsWith("caldavAssistant.audit.")
+    );
     if (
       !changes["caldavAssistant.runtime"] &&
       !changes["caldavAssistant.currentWorkId"] &&
-      !changes["caldavAssistant.settings"]
+      !changes["caldavAssistant.settings"] &&
+      !auditChanged
     ) return;
     clearTimeout(window.__caldavAssistantStorageRefresh);
     window.__caldavAssistantStorageRefresh = setTimeout(refreshAll, 100);
