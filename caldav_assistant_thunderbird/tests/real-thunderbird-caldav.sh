@@ -934,12 +934,16 @@ async function __runRealAcceptance() {
   );
   __acceptanceAssert(pickerStartResult.segmentedUi, "Task picker segmented UI contract failed");
 
+  const seedCurrentWorkId = AssistantStorage.makeWorkTaskId({
+    calendarId: calendar.id,
+    id: "seed-task",
+    recurrenceId: "",
+  });
+  await __waitForCurrentWorkId(seedCurrentWorkId, "seed Start");
   const seedStartedTask = await browser.ThunderbirdCalDAV.getTask(
     calendar.id,
     "seed-task"
   );
-  const seedCurrentWorkId = AssistantStorage.makeWorkTaskId(seedStartedTask);
-  await __waitForCurrentWorkId(seedCurrentWorkId, "seed Start");
   __acceptanceAssert(
     seedStartedTask.status === "IN-PROCESS" && seedStartedTask.paused === false,
     "Task picker Start did not persist the authoritative VTODO working state"
@@ -1010,12 +1014,17 @@ async function __runRealAcceptance() {
   );
   __acceptanceAssert(pickerSwitchResult.explicitStartStep, "Switch flow auto-chained instead of staying segmented");
 
+  const switchCurrentWorkId = AssistantStorage.makeWorkTaskId({
+    calendarId: calendar.id,
+    id: switchTarget.id,
+    recurrenceId: String(switchTarget.recurrenceId || ""),
+  });
+  await __waitForCurrentWorkId(switchCurrentWorkId, "switch target Start");
   const switchStartedTask = await browser.ThunderbirdCalDAV.getTask(
     calendar.id,
-    switchTarget.id
+    switchTarget.id,
+    switchTarget.recurrenceId || ""
   );
-  const switchCurrentWorkId = AssistantStorage.makeWorkTaskId(switchStartedTask);
-  await __waitForCurrentWorkId(switchCurrentWorkId, "switch target Start");
   __acceptanceAssert(
     switchStartedTask.status === "IN-PROCESS" && switchStartedTask.paused === false,
     "Explicit Start did not persist the selected switch target as working"
