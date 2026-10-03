@@ -26,6 +26,12 @@ class MemoryStorage implements StorageArea {
   async set(values: Record<string, unknown>): Promise<void> {
     Object.assign(this.data, values);
   }
+
+  async remove(keys: string | readonly string[]): Promise<void> {
+    for (const key of typeof keys === "string" ? [keys] : keys) {
+      delete this.data[key];
+    }
+  }
 }
 
 async function testStorageAndPasswordMigration(): Promise<void> {
