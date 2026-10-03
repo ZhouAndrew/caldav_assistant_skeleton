@@ -161,6 +161,13 @@ async function handleMessage(message) {
 
   const {Core, storage, tasks} = context;
 
+  if (message.type === "calendars.list") {
+    return {
+      ok: true,
+      calendars: await tasks.listCalendars(),
+    };
+  }
+
   if (message.type === "tasks.query") {
     const options = message.options;
     if (!options || typeof options !== "object") {
