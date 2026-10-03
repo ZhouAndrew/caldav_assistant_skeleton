@@ -29,6 +29,7 @@ export interface TaskQuery {
 
 export interface TaskPrecondition {
   readonly status: TaskSnapshot["status"];
+  readonly completed: boolean;
   readonly percentComplete: number;
   readonly description: string;
 }
