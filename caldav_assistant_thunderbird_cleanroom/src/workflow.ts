@@ -6,6 +6,7 @@ import {
   WorkPlan,
   WorkSession,
 } from "./domain";
+import {makeTaskId} from "./task-id";
 import {
   closeWorkSession,
   getOpenSession,
@@ -13,14 +14,6 @@ import {
   parseWorkDescription,
   serializeWorkDescription,
 } from "./work-description";
-
-export function makeWorkId(task: TaskSnapshot): string {
-  return [
-    encodeURIComponent(task.calendarId),
-    encodeURIComponent(task.uid),
-    encodeURIComponent(task.recurrenceId),
-  ].join("|");
-}
 
 function reject(
   intent: WorkIntent,
@@ -58,7 +51,7 @@ export function planTaskAction(
   const parsed = parseWorkDescription(task.description);
   if (!parsed.ok) return reject(intent, "description-corrupt");
 
-  const taskWorkId = makeWorkId(task);
+  const taskWorkId = makeTaskId(task);
   const isCurrent = currentWorkId === taskWorkId;
   const open = getOpenSession(parsed);
 
