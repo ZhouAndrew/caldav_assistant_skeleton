@@ -7,6 +7,36 @@ deliberately narrower than the global CalDAV Assistant Public Python API: generi
 VEVENT support remains a CalDAV capability, but the Thunderbird work workflow no
 longer uses Work Session / Work Event VEVENTs.
 
+## 0. Clean-room rule
+
+This rebuild is intentionally clean-room with respect to earlier CalDAV Assistant
+Thunderbird code.
+
+Allowed implementation references:
+
+- Thunderbird Desktop source itself;
+- Thunderbird's own extension/API tests;
+- iCalendar/CalDAV standards where needed.
+
+Forbidden as implementation references:
+
+- existing CalDAV Assistant / TaskFix workflow, storage, executor, page or test code;
+- copying old helper functions and renaming them;
+- preserving old module boundaries merely for compatibility.
+
+The old add-on tree may be inspected only to understand legacy persisted data for
+one-time migration and to prove that the replacement no longer depends on it.  It
+must not be used as a code template.
+
+Initial Thunderbird source provenance:
+
+- `calendar/base/src/CalTodo.sys.mjs` — VTODO completion/progress semantics;
+- `calendar/base/public/calICalendar.idl` — calendar provider contract;
+- `calendar/base/content/widgets/calendar-filter.js` — native Task filter semantics;
+- `calendar/providers/caldav/CalDavCalendar.sys.mjs` — CalDAV recurring-item behavior;
+- `calendar/base/src/CalRecurrenceInfo.sys.mjs` — occurrence resolution;
+- `mail/components/extensions/test/browser/browser_ext_spaces.js` — Spaces API behavior.
+
 ## 1. Product invariants
 
 1. Thunderbird/CalDAV VTODO is the Task fact source.
