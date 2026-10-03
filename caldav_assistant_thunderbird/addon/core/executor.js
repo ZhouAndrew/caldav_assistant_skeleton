@@ -463,13 +463,16 @@
       }
 
       const beforeTask = taskSnapshot(task);
+      const workEvent = await AssistantStorage.findOpenWorkSessionRef(task);
       let eventClosed = false;
       let closedEvent = null;
       let taskWritten = false;
 
       try {
-        eventClosed = true;
-        closedEvent = await closeWorkEvent(runtime.currentWorkEvent, toLocalInput(), receipt);
+        if (workEvent) {
+          eventClosed = true;
+          closedEvent = await closeWorkEvent(workEvent, toLocalInput(), receipt);
+        }
 
         taskWritten = true;
         await updateAndVerifyTask(
@@ -495,7 +498,7 @@
         await logClosedWorkSession(task, closedEvent, receipt);
       } catch (error) {
         if (taskWritten) await restoreTask(task, beforeTask, receipt);
-        if (eventClosed) await reopenWorkEvent(runtime.currentWorkEvent, receipt);
+        if (eventClosed) await reopenWorkEvent(workEvent, receipt);
         await restoreRuntime(runtime, receipt);
         throw error;
       }
@@ -512,14 +515,15 @@
 
       const beforeTask = taskSnapshot(task);
       const restoreTo = await switchRestoreSnapshot(runtime, task);
+      const workEvent = await AssistantStorage.findOpenWorkSessionRef(task);
       let eventClosed = false;
       let closedEvent = null;
       let taskWritten = false;
 
       try {
-        if (runtime.currentWorkEvent) {
+        if (workEvent) {
           eventClosed = true;
-          closedEvent = await closeWorkEvent(runtime.currentWorkEvent, toLocalInput(), receipt);
+          closedEvent = await closeWorkEvent(workEvent, toLocalInput(), receipt);
         }
 
         taskWritten = true;
@@ -545,7 +549,7 @@
         await logClosedWorkSession(task, closedEvent, receipt);
       } catch (error) {
         if (taskWritten) await restoreTask(task, beforeTask, receipt);
-        if (eventClosed) await reopenWorkEvent(runtime.currentWorkEvent, receipt);
+        if (eventClosed) await reopenWorkEvent(workEvent, receipt);
         await restoreRuntime(runtime, receipt);
         throw error;
       }
@@ -615,14 +619,15 @@
       }
 
       const beforeTask = taskSnapshot(task);
+      const workEvent = await AssistantStorage.findOpenWorkSessionRef(task);
       let eventClosed = false;
       let closedEvent = null;
       let taskWritten = false;
 
       try {
-        if (runtime.currentWorkEvent) {
+        if (workEvent) {
           eventClosed = true;
-          closedEvent = await closeWorkEvent(runtime.currentWorkEvent, toLocalInput(), receipt);
+          closedEvent = await closeWorkEvent(workEvent, toLocalInput(), receipt);
         }
 
         const changes =
@@ -638,7 +643,7 @@
         await logClosedWorkSession(task, closedEvent, receipt);
       } catch (error) {
         if (taskWritten) await restoreTask(task, beforeTask, receipt);
-        if (eventClosed) await reopenWorkEvent(runtime.currentWorkEvent, receipt);
+        if (eventClosed) await reopenWorkEvent(workEvent, receipt);
         await restoreRuntime(runtime, receipt);
         throw error;
       }
