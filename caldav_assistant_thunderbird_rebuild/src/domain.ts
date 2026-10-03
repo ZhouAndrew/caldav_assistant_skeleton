@@ -17,6 +17,7 @@ export interface TaskRef {
 export interface TaskSnapshot extends TaskRef {
   readonly title: string;
   readonly status: StoredTaskStatus;
+  readonly completed: boolean;
   readonly percentComplete: number;
   readonly description: string;
 }
@@ -28,7 +29,6 @@ export interface WorkSession {
   readonly result: WorkResult | null;
   readonly before: {
     readonly status: StoredTaskStatus;
-    readonly percentComplete: number;
   };
 }
 
@@ -101,8 +101,15 @@ export function parseTaskId(value: string): TaskRef | null {
   }
 }
 
-export function isFinished(task: Pick<TaskSnapshot, "status">): boolean {
-  return task.status === "COMPLETED" || task.status === "CANCELLED";
+export function isFinished(
+  task: Pick<TaskSnapshot, "status" | "completed" | "percentComplete">,
+): boolean {
+  return (
+    task.completed ||
+    task.percentComplete === 100 ||
+    task.status === "COMPLETED" ||
+    task.status === "CANCELLED"
+  );
 }
 
 export function normalizePercent(value: number): number {
