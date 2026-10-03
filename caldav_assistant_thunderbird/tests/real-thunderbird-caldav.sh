@@ -573,15 +573,19 @@ async function __runToolsAcceptance() {
   );
   $("work-calendar").value = "acceptance-calendar";
 
-  const beforeWrite = await AssistantStorage.getLastReceipt();
+  const writeTriggeredAt = Date.now();
   $("calendar-full").click();
   let fullWriteReceipt = null;
   await __toolsWaitFor(async () => {
     const current = await AssistantStorage.getLastReceipt();
+    const startedAtMs = Date.parse(String(current?.startedAt || ""));
+    const completedAtMs = Date.parse(String(current?.completedAt || ""));
     if (
-      current &&
-      current.id !== beforeWrite?.id &&
-      current.action === "connection.full-calendar-write"
+      current?.action === "connection.full-calendar-write" &&
+      Number.isFinite(startedAtMs) &&
+      Number.isFinite(completedAtMs) &&
+      startedAtMs >= writeTriggeredAt - 1000 &&
+      completedAtMs >= startedAtMs
     ) {
       fullWriteReceipt = current;
       return true;
