@@ -28,6 +28,7 @@ with zipfile.ZipFile(path) as z:
         "wordpress.html",
         "wordpress.js",
         "core/storage.js",
+        "core/action-plan.js",
         "core/executor.js",
         "core/connection.js",
         "core/wordpress.js",
@@ -64,6 +65,7 @@ with zipfile.ZipFile(path) as z:
     task_picker_html = z.read("task-picker.html").decode()
     task_picker = z.read("task-picker.js").decode()
     storage = z.read("core/storage.js").decode()
+    action_plan = z.read("core/action-plan.js").decode()
     executor = z.read("core/executor.js").decode()
     connection = z.read("core/connection.js").decode()
     wordpress = z.read("core/wordpress.js").decode()
@@ -112,6 +114,13 @@ with zipfile.ZipFile(path) as z:
     assert 'id="task-view"' not in workspace_html
     assert 'id="task-calendar-filter"' not in workspace_html
     assert "AssistantExecutor.start" not in workspace
+    assert 'src="core/action-plan.js"' in workspace_html
+    assert workspace_html.index('src="core/action-plan.js"') < workspace_html.index('src="core/executor.js"')
+    assert 'src="core/action-plan.js"' in task_picker_html
+    assert task_picker_html.index('src="core/action-plan.js"') < task_picker_html.index('src="core/executor.js"')
+    assert "planWorkAction" in action_plan
+    assert "browser." not in action_plan
+    assert "AssistantActionPlan.planWorkAction" in executor
     assert "AssistantExecutor.pause" in workspace
     assert "AssistantExecutor.resume" in workspace
     assert "没有可写的 Work Calendar" not in workspace
