@@ -15,6 +15,8 @@ function createTodo(calendar, {
   description = "Description",
   status = "NEEDS-ACTION",
   percentComplete = 25,
+  due = null,
+  categories = [],
 } = {}) {
   const item = {
     id: uid,
@@ -24,7 +26,11 @@ function createTodo(calendar, {
     descriptionText: description,
     status,
     percentComplete,
+    dueDate: due ? {value: due} : null,
     completedDate: null,
+    getCategories() {
+      return [...categories];
+    },
     isTodo() {
       return true;
     },
@@ -36,6 +42,8 @@ function createTodo(calendar, {
         description: this.descriptionText,
         status: this.status,
         percentComplete: this.percentComplete,
+        due: this.dueDate?.value || null,
+        categories: this.getCategories(),
       });
       clone.completedDate = this.completedDate;
       return clone;
@@ -65,10 +73,14 @@ function createTodo(calendar, {
 
 const calendar = {
   id: "cal-1",
+  name: "Tasks",
   master: null,
+  queryItems: [],
   lastModify: null,
   getProperty(name) {
     if (name === "capabilities.tasks.supported") return true;
+    if (name === "disabled") return false;
+    if (name === "calendar-main-in-composite") return true;
     return null;
   },
   async getItemsAsArray() {
@@ -90,6 +102,8 @@ const occurrence = createTodo(calendar, {
   description: "Occurrence description",
   status: "NEEDS-ACTION",
   percentComplete: 35,
+  due: "20261004T120000",
+  categories: ["study"],
 });
 const master = createTodo(calendar, {
   uid: "uid-1",
@@ -112,6 +126,42 @@ master.recurrenceInfo = {
   },
 };
 calendar.master = master;
+calendar.queryItems = [master, occurrence];
+
+const filterCalls = [];
+class FakeCalFilter {
+  constructor() {
+    this.itemType = 0;
+    this.selectedDate = null;
+    this.filterText = "";
+    this.filterName = "";
+  }
+  applyFilter(name) {
+    this.filterName = name;
+    filterCalls.push({type: "apply", name, text: this.filterText});
+  }
+  getItems(targetCalendar) {
+    filterCalls.push({
+      type: "getItems",
+      calendarId: targetCalendar.id,
+      name: this.filterName,
+      text: this.filterText,
+    });
+    return targetCalendar.queryItems || [];
+  }
+}
+
+const Services = {
+  scriptloader: {
+    loadSubScript(uri, scope) {
+      assert(
+        uri === "chrome://calendar/content/widgets/calendar-filter.js",
+        "unexpected Thunderbird filter script"
+      );
+      scope.calFilter = FakeCalFilter;
+    },
+  },
+};
 
 const cal = {
   manager: {
@@ -124,6 +174,19 @@ const cal = {
   },
   createDateTime(value) {
     return {icalString: String(value)};
+  },
+  dtz: {
+    now() {
+      return {icalString: "20261003T120000"};
+    },
+    toRFC3339(value) {
+      return value?.value ? "2026-10-04T12:00:00+08:00" : null;
+    },
+  },
+  iterate: {
+    async streamToArray(stream) {
+      return [...stream];
+    },
   },
 };
 
@@ -145,6 +208,9 @@ const context = {
       }
       if (uri.includes("calUtils")) {
         return {cal};
+      }
+      if (uri.includes("Services.sys.mjs")) {
+        return {Services};
       }
       throw new Error("Unexpected module: " + uri);
     },
@@ -171,6 +237,45 @@ vm.runInContext(fs.readFileSync(implPath, "utf8"), context, {
 
 async function main() {
   const api = new context.NativeTasks().getAPI().NativeTasks;
+
+
+  const query = await api.queryTasks({
+    filter: "open",
+    search: "study",
+    calendarIds: ["cal-1"],
+  });
+  assert(query.complete === true, "native Task query unexpectedly incomplete");
+  assert(query.failures.length === 0, "native Task query reported false failure");
+  assert(query.tasks.length === 2, "native Task query lost filtered items");
+  assert(
+    filterCalls.some(call =>
+      call.type === "apply" &&
+      call.name === "open"
+    ),
+    "Thunderbird filter name was not applied"
+  );
+  assert(
+    filterCalls.some(call =>
+      call.type === "getItems" &&
+      call.calendarId === "cal-1" &&
+      call.text === "study"
+    ),
+    "Thunderbird filterText/search was not passed to calFilter"
+  );
+  const queriedOccurrence = query.tasks.find(
+    item => item.recurrenceId === "20261003T090000"
+  );
+  assert(queriedOccurrence, "native query lost recurring occurrence identity");
+  assert(queriedOccurrence.status === "NEEDS-ACTION", "native query lost status");
+  assert(queriedOccurrence.percentComplete === 35, "native query lost progress");
+  assert(
+    queriedOccurrence.due === "2026-10-04T12:00:00+08:00",
+    "native query lost due date"
+  );
+  assert(
+    queriedOccurrence.categories[0] === "study",
+    "native query lost categories"
+  );
 
   const masterView = await api.getTask("cal-1", "uid-1", "");
   assert(masterView.title === "Master", "master VTODO read failed");
