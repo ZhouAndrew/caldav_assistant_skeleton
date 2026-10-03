@@ -63,12 +63,39 @@
     }
   }
 
-  async function isCurrentTask(task) {
-    const currentWorkId = await AssistantStorage.getCurrentWorkId();
-    return Boolean(
-      currentWorkId &&
-      currentWorkId === AssistantStorage.makeWorkTaskId(task)
+  function taskForPlan(task) {
+    return Object.freeze({
+      ...task,
+      workTaskId: AssistantStorage.makeWorkTaskId(task),
+      paused: Boolean(task.paused),
+      percentComplete: Number(task.percentComplete || 0),
+    });
+  }
+
+  function actionPlanError(action, reason) {
+    if (reason === "finished") return "The selected task is already finished.";
+    if (reason === "current-work-exists") return "Another task is already active.";
+    if (reason === "restore-required") {
+      return "The pre-Start task state could not be reconstructed.";
+    }
+    if (action === "pause") {
+      return "The selected task is not the currently working task.";
+    }
+    if (action === "resume") return "The selected task is not paused.";
+    return "The selected task is not the current task.";
+  }
+
+  function requireActionPlan(action, currentWorkId, task, restoreSnapshot = null) {
+    const plan = AssistantActionPlan.planWorkAction(
+      action,
+      currentWorkId,
+      taskForPlan(task),
+      restoreSnapshot
     );
+    if (!plan.ok) {
+      throw new Error(actionPlanError(action, plan.reason));
+    }
+    return plan;
   }
 
   function taskSnapshot(task) {
@@ -440,9 +467,11 @@
     return runAction("start", task, async receipt => {
       ensureMutableTask(task);
       const previousCurrentWorkId = await AssistantStorage.getCurrentWorkId();
-      if (previousCurrentWorkId) {
-        throw new Error("Another task is already active.");
-      }
+      const plan = requireActionPlan(
+        "start",
+        previousCurrentWorkId,
+        task
+      );
 
       const beforeTask = taskSnapshot(task);
       let taskWritten = false;
@@ -453,24 +482,24 @@
         taskWritten = true;
         await updateAndVerifyTask(
           task,
-          {status: "IN-PROCESS", paused: false},
-          {status: "IN-PROCESS", paused: false},
+          plan.taskChanges,
+          plan.taskChanges,
           receipt
         );
 
-        workEvent = await createWorkEventBestEffort(
-          task,
-          workCalendarId,
-          toLocalInput(),
-          receipt
-        );
+        if (plan.historyEffect === "open") {
+          workEvent = await createWorkEventBestEffort(
+            task,
+            workCalendarId,
+            toLocalInput(),
+            receipt
+          );
+        }
 
-        await AssistantStorage.setCurrentWorkId(
-          AssistantStorage.makeWorkTaskId(task)
-        );
+        await AssistantStorage.setCurrentWorkId(plan.nextCurrentWorkId);
         currentWorkPublished = true;
         step(receipt, "Current Work", "publish currentWorkId", true, {
-          currentWorkId: AssistantStorage.makeWorkTaskId(task),
+          currentWorkId: plan.nextCurrentWorkId,
           taskUid: task.id,
           workEventUid: workEvent?.id || null,
         });
@@ -488,13 +517,8 @@
   async function pause(task) {
     return runAction("pause", task, async receipt => {
       ensureMutableTask(task);
-      if (
-        !(await isCurrentTask(task)) ||
-        task.status !== "IN-PROCESS" ||
-        Boolean(task.paused)
-      ) {
-        throw new Error("The selected task is not the currently working task.");
-      }
+      const currentWorkId = await AssistantStorage.getCurrentWorkId();
+      const plan = requireActionPlan("pause", currentWorkId, task);
 
       const beforeTask = taskSnapshot(task);
       const workEvent = await AssistantStorage.findOpenWorkSessionRef(task);
@@ -503,7 +527,7 @@
       let taskWritten = false;
 
       try {
-        if (workEvent) {
+        if (plan.historyEffect === "close" && workEvent) {
           const closeResult = await closeWorkEventBestEffort(
             workEvent,
             toLocalInput(),
@@ -516,14 +540,14 @@
         taskWritten = true;
         await updateAndVerifyTask(
           task,
-          {status: "IN-PROCESS", paused: true},
-          {status: "IN-PROCESS", paused: true},
+          plan.taskChanges,
+          plan.taskChanges,
           receipt
         );
 
         step(receipt, "Current Work", "keep currentWorkId", true, {
-          currentWorkId: AssistantStorage.makeWorkTaskId(task),
-          paused: true,
+          currentWorkId: plan.nextCurrentWorkId,
+          paused: Boolean(plan.taskChanges.paused),
         });
         await logClosedWorkSession(task, closedEvent, receipt);
       } catch (error) {
@@ -537,13 +561,15 @@
   async function switchAway(task) {
     return runAction("switch-away", task, async receipt => {
       ensureMutableTask(task);
-      if (!(await isCurrentTask(task))) {
-        throw new Error("The selected task is not the current task.");
-      }
-
-      const currentWorkId = AssistantStorage.makeWorkTaskId(task);
+      const currentWorkId = await AssistantStorage.getCurrentWorkId();
       const beforeTask = taskSnapshot(task);
       const restoreTo = await switchRestoreSnapshot(task);
+      const plan = requireActionPlan(
+        "switch-away",
+        currentWorkId,
+        task,
+        restoreTo
+      );
       const workEvent = await AssistantStorage.findOpenWorkSessionRef(task);
       let eventClosed = false;
       let closedEvent = null;
@@ -551,7 +577,7 @@
       let currentWorkCleared = false;
 
       try {
-        if (workEvent) {
+        if (plan.historyEffect === "close" && workEvent) {
           const closeResult = await closeWorkEventBestEffort(
             workEvent,
             toLocalInput(),
@@ -564,16 +590,12 @@
         taskWritten = true;
         await updateAndVerifyTask(
           task,
-          restoreTo,
-          {
-            status: restoreTo.status || "",
-            paused: Boolean(restoreTo.paused),
-            percentComplete: Number(restoreTo.percentComplete || 0),
-          },
+          plan.taskChanges,
+          plan.taskChanges,
           receipt
         );
 
-        await AssistantStorage.setCurrentWorkId(null);
+        await AssistantStorage.setCurrentWorkId(plan.nextCurrentWorkId);
         currentWorkCleared = true;
         step(receipt, "Current Work", "clear currentWorkId", true, {
           taskUid: task.id,
@@ -600,13 +622,8 @@
   async function resume(task, workCalendarId) {
     return runAction("resume", task, async receipt => {
       ensureMutableTask(task);
-      if (
-        !(await isCurrentTask(task)) ||
-        task.status !== "IN-PROCESS" ||
-        !Boolean(task.paused)
-      ) {
-        throw new Error("The selected task is not paused.");
-      }
+      const currentWorkId = await AssistantStorage.getCurrentWorkId();
+      const plan = requireActionPlan("resume", currentWorkId, task);
 
       const beforeTask = taskSnapshot(task);
       let taskWritten = false;
@@ -616,22 +633,24 @@
         taskWritten = true;
         await updateAndVerifyTask(
           task,
-          {status: "IN-PROCESS", paused: false},
-          {status: "IN-PROCESS", paused: false},
+          plan.taskChanges,
+          plan.taskChanges,
           receipt
         );
 
-        workEvent = await createWorkEventBestEffort(
-          task,
-          workCalendarId,
-          toLocalInput(),
-          receipt
-        );
+        if (plan.historyEffect === "open") {
+          workEvent = await createWorkEventBestEffort(
+            task,
+            workCalendarId,
+            toLocalInput(),
+            receipt
+          );
+        }
 
         step(receipt, "Current Work", "keep currentWorkId", true, {
-          currentWorkId: AssistantStorage.makeWorkTaskId(task),
+          currentWorkId: plan.nextCurrentWorkId,
           workEventUid: workEvent?.id || null,
-          paused: false,
+          paused: Boolean(plan.taskChanges.paused),
         });
       } catch (error) {
         if (workEvent) await deleteWorkEvent(workEvent, receipt);
@@ -646,11 +665,9 @@
 
     return runAction(action, task, async receipt => {
       ensureMutableTask(task);
-      if (!(await isCurrentTask(task))) {
-        throw new Error("The selected task is not the current task.");
-      }
+      const currentWorkId = await AssistantStorage.getCurrentWorkId();
+      const plan = requireActionPlan(action, currentWorkId, task);
 
-      const currentWorkId = AssistantStorage.makeWorkTaskId(task);
       const beforeTask = taskSnapshot(task);
       const workEvent = await AssistantStorage.findOpenWorkSessionRef(task);
       let eventClosed = false;
@@ -659,7 +676,7 @@
       let currentWorkCleared = false;
 
       try {
-        if (workEvent) {
+        if (plan.historyEffect === "close" && workEvent) {
           const closeResult = await closeWorkEventBestEffort(
             workEvent,
             toLocalInput(),
@@ -669,15 +686,15 @@
           closedEvent = closeResult.event;
         }
 
-        const changes =
-          status === "COMPLETED"
-            ? {status: "COMPLETED", paused: false, percentComplete: 100}
-            : {status: "CANCELLED", paused: false};
-
         taskWritten = true;
-        await updateAndVerifyTask(task, changes, {status, paused: false}, receipt);
+        await updateAndVerifyTask(
+          task,
+          plan.taskChanges,
+          plan.taskChanges,
+          receipt
+        );
 
-        await AssistantStorage.setCurrentWorkId(null);
+        await AssistantStorage.setCurrentWorkId(plan.nextCurrentWorkId);
         currentWorkCleared = true;
         step(receipt, "Current Work", "clear currentWorkId", true, {
           taskUid: task.id,
