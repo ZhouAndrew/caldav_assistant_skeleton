@@ -1,0 +1,13 @@
+{
+  "name": "caldav-assistant-thunderbird-cleanroom",
+  "private": true,
+  "version": "0.0.0-dev",
+  "description": "Clean-room Thunderbird-native CalDAV Assistant rebuild",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "rm -rf .build && tsc --outDir .build && node .build/tests/core-harness.js"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}
