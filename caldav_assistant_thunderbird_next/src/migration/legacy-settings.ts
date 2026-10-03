@@ -44,6 +44,27 @@ function transport(value: unknown): WordPressSettings["transport"] {
     : "auto";
 }
 
+function isWordPressSettings(value: unknown): value is WordPressSettings {
+  if (!value || typeof value !== "object") return false;
+  const wp = value as Record<string, unknown>;
+  return (
+    transport(wp.transport) === wp.transport &&
+    typeof wp.baseUrl === "string" &&
+    typeof wp.username === "string" &&
+    typeof wp.applicationPassword === "string" &&
+    typeof wp.wordpressPath === "string" &&
+    typeof wp.wpCliCommand === "string" &&
+    typeof wp.allowUntrustedTls === "boolean" &&
+    typeof wp.dailyWorkLogEnabled === "boolean"
+  );
+}
+
+export function isAppSettings(value: unknown): value is AppSettings {
+  if (!value || typeof value !== "object") return false;
+  const settings = value as Record<string, unknown>;
+  return settings.schemaVersion === 2 && isWordPressSettings(settings.wordpress);
+}
+
 /**
  * One-time pure mapping from persisted 0.3.x settings to the new schema.
  *
@@ -54,7 +75,7 @@ export function migrateLegacySettings(
   legacySettings: unknown,
   existingV2: AppSettings | null
 ): MigrationResult {
-  if (existingV2?.schemaVersion === 2) {
+  if (existingV2 && isAppSettings(existingV2)) {
     return Object.freeze({migrated: false, settings: existingV2});
   }
 
