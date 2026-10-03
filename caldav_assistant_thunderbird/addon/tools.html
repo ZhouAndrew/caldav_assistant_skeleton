@@ -19,7 +19,7 @@
 
   <div class="tool-grid">
     <section class="card" id="task-defaults">
-      <h2>Task / Calendar 设置</h2>
+      <h2>Task 设置</h2>
       <div class="form-grid">
         <label>默认 Task 视图
           <select id="task-view">
@@ -30,16 +30,10 @@
             <option value="all">全部</option>
           </select>
         </label>
-        <label>默认 Task Calendar
-          <select id="task-calendar"></select>
-        </label>
-        <label>Work Calendar
-          <select id="work-calendar"></select>
-        </label>
       </div>
       <div class="tool-actions">
         <button id="save-settings">保存设置</button>
-        <button id="undo-settings" hidden>撤销刚才的 Calendar / 视图设置</button>
+        <button id="undo-settings" hidden>撤销刚才的视图设置</button>
         <a href="workspace.html">返回工作</a>
       </div>
       <div id="save-result" class="result-box"></div>
@@ -47,7 +41,10 @@
 
     <section class="card">
       <h2>Calendar 连接测试</h2>
-      <p class="muted">完整 Calendar 测试只创建临时 TEST VEVENT，不创建 Task。</p>
+      <p class="muted">完整 Calendar 测试只创建临时 TEST VEVENT；它不属于 Task 生命周期，也不会作为当前工作保存。</p>
+      <label>测试 Calendar
+        <select id="calendar-test"></select>
+      </label>
       <div class="tool-actions">
         <button id="calendar-quick">Calendar 快速测试</button>
         <button id="calendar-full">Calendar 完整读写</button>
@@ -58,7 +55,7 @@
 
     <section class="card">
       <h2>WordPress</h2>
-      <p>WordPress 设置、自动每日工作日志、完整 REST / WP-CLI 测试现在有独立页面。</p>
+      <p>WordPress 设置、长期记录和连接测试使用独立页面。</p>
       <p><a href="wordpress.html"><strong>打开 WordPress 设置与测试 →</strong></a></p>
     </section>
   </div>
