@@ -166,7 +166,11 @@ export async function runTaskCommand(
   }
 
   try {
-    await deps.tasks.update(taskId, plan.taskPatch);
+    await deps.tasks.update(taskId, plan.taskPatch, {
+      description: task.description,
+      status: task.status,
+      percentComplete: task.percentComplete,
+    });
   } catch (error) {
     const message = errorText(error);
     await diag(deps.diagnostics, {
