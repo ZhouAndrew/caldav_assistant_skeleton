@@ -14,6 +14,10 @@ import {
   currentWorkIdFromLegacyRuntime,
   normalizeRuntime,
 } from "../src/legacy-runtime";
+import {
+  fallbackRestoreSnapshot,
+  restoreSnapshotFromStartReceipt,
+} from "../src/restore-snapshot";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -105,5 +109,31 @@ assert(
   invalidExplicit.currentWorkId === workTaskId,
   "invalid new runtime should recover from legacy runtime"
 );
+
+const restored = restoreSnapshotFromStartReceipt(inProcess, {
+  workTaskId,
+  beforeStatus: "NEEDS-ACTION",
+  beforePaused: false,
+  beforePercentComplete: 35,
+});
+assert(restored?.status === "NEEDS-ACTION", "history restore lost original status");
+assert(restored?.paused === false, "history restore invented pause state");
+assert(restored?.percentComplete === 35, "history restore lost original progress");
+
+const wrongHistory = restoreSnapshotFromStartReceipt(inProcess, {
+  workTaskId: makeWorkTaskId(taskRef("tasks", "different", "")),
+  beforeStatus: "NEEDS-ACTION",
+  beforePaused: false,
+  beforePercentComplete: 5,
+});
+assert(wrongHistory === null, "restore accepted history for another Task");
+
+const conservative = fallbackRestoreSnapshot({
+  ...inProcess,
+  percentComplete: 42,
+});
+assert(conservative.status === "NEEDS-ACTION", "fallback must remain incomplete");
+assert(conservative.paused === false, "fallback must release Assistant pause state");
+assert(conservative.percentComplete === 42, "fallback should preserve existing progress");
 
 console.log("typed-core-harness: PASS");
