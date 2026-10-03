@@ -319,4 +319,4 @@ with zipfile.ZipFile(path) as z:
     assert "apply.sh" not in names
     assert "patch_omnijar.py" not in names
 
-print("caldav-assistant-experimental-0.3.15-xpi-contract: PASS")
+print("caldav-assistant-experimental-0.3.16-xpi-contract: PASS")
