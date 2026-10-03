@@ -1,0 +1,13 @@
+{
+  "name": "caldav-assistant-thunderbird-rebuild",
+  "private": true,
+  "version": "0.1.0",
+  "type": "commonjs",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "rm -rf .build && tsc --outDir .build && node .build/tests/core.test.js"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}
