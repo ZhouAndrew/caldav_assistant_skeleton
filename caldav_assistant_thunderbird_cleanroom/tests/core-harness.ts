@@ -145,7 +145,6 @@ const finishedStart = planTaskAction(
 );
 assert(!finishedStart.ok && finishedStart.reason === "finished", "Finished Task must not start");
 
-console.log("cleanroom core-harness: PASS");
 
 const noStatus: TaskSnapshot = Object.freeze({
   ...base,
@@ -179,3 +178,5 @@ assert(
   noStatusStop.taskPatch.status === "",
   "Stop must restore absence of STATUS exactly"
 );
+
+console.log("cleanroom core-harness: PASS");
