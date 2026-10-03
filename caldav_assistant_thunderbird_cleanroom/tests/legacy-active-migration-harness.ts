@@ -124,6 +124,52 @@ async function main(): Promise<void> {
     "Unresolved migration must not modify Description"
   );
 
+  // Explicit legacy null pointer means idle and must not resurrect stale runtime.
+  const idleStorage = new FakeStorage();
+  idleStorage.values[LEGACY_CURRENT_WORK_KEY] = null;
+  idleStorage.values[LEGACY_RUNTIME_KEY] = {
+    currentTask: {calendarId: "cal", id: "uid", recurrenceId: ""},
+    taskBeforeStart: {status: "NEEDS-ACTION", percentComplete: 30},
+    segmentStartedAtMs: Date.parse("2026-10-03T08:00:00.000Z"),
+  };
+  const idle = await migrateLegacyActiveSession(
+    idleStorage,
+    new FakeTasks(base),
+    new StorageCurrentWork(idleStorage)
+  );
+  assert(idle.kind === "none", "Explicit legacy null pointer must remain idle");
+
+  // A receipt missing beforeStatus is not trustworthy evidence.
+  const missingStatusStorage = new FakeStorage();
+  missingStatusStorage.values[LEGACY_CURRENT_WORK_KEY] = taskId;
+  missingStatusStorage.values[LEGACY_AUDIT_DATES_KEY] = ["2026-10-03"];
+  missingStatusStorage.values[LEGACY_AUDIT_PREFIX + "2026-10-03"] = [{
+    scope: "workflow",
+    action: "start",
+    success: true,
+    details: {
+      id: "receipt-missing-status",
+      action: "start",
+      success: true,
+      startedAt: "2026-10-03T08:00:00.000Z",
+      task: {
+        id: "uid",
+        calendarId: "cal",
+        recurrenceId: "",
+        beforePercentComplete: 30,
+      },
+    },
+  }];
+  const missingStatus = await migrateLegacyActiveSession(
+    missingStatusStorage,
+    new FakeTasks(base),
+    new StorageCurrentWork(missingStatusStorage)
+  );
+  assert(
+    missingStatus.kind === "unresolved",
+    "Missing beforeStatus must not be guessed"
+  );
+
   console.log("legacy-active-migration-harness: PASS");
 }
 
