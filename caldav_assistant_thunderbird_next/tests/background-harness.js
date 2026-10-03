@@ -51,6 +51,15 @@ async function runCase({migrationOk = true}) {
           }
         : null;
     }
+    async listCalendars() {
+      return [{
+        id: "cal",
+        name: "Tasks",
+        disabled: false,
+        inComposite: true,
+        readOnly: false,
+      }];
+    }
     async query() {
       return {
         items: [{
@@ -238,6 +247,14 @@ async function runCase({migrationOk = true}) {
   assert(command.ok && command.result?.ok, "task.command failed");
   assert(success.queueRuns === 1, "task.command bypassed serialized queue");
 
+  const calendars = await success.listeners.message({
+    type: "calendars.list",
+  });
+  assert(
+    calendars.ok && calendars.calendars[0]?.id === "cal",
+    "calendars.list failed"
+  );
+
   const query = await success.listeners.message({
     type: "tasks.query",
     options: {filter: "open", search: "", calendarIds: []},
@@ -250,7 +267,14 @@ async function runCase({migrationOk = true}) {
   });
   assert(today.ok && today.view.date === "2026-10-03", "today.read failed");
 
-  const rpcSerialized = JSON.stringify({startupStatus, read, command, query, today});
+  const rpcSerialized = JSON.stringify({
+    startupStatus,
+    read,
+    command,
+    calendars,
+    query,
+    today,
+  });
   assert(
     !rpcSerialized.includes("SECRET-MUST-NOT-LEAK"),
     "background RPC leaked Application Password"
