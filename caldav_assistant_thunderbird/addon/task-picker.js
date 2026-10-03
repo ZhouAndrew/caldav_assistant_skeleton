@@ -62,13 +62,10 @@ function taskByRef(ref) {
 function taskState(task) {
   if (!task) return {label: "未选择", css: ""};
   if (sameTaskRef(state.currentRef, task)) {
-    return task.paused
-      ? {label: "已暂停", css: "paused"}
-      : {label: "正在进行", css: "working"};
+    return {label: "当前工作", css: "working"};
   }
   if (task.status === "COMPLETED") return {label: "已完成", css: "completed"};
   if (task.status === "CANCELLED") return {label: "已取消", css: "cancelled"};
-  if (task.paused) return {label: "已暂停", css: "paused"};
   if (task.status === "IN-PROCESS") return {label: "进行中", css: "working"};
   return {label: "未开始", css: ""};
 }
@@ -145,9 +142,8 @@ function renderCurrentStrip() {
     strip.hidden = true;
     return;
   }
-  const stateText = task.paused ? "已暂停" : "正在进行";
   $("current-strip-text").textContent =
-    "当前：" + (task.title || "(无标题)") + " · " + stateText;
+    "当前：" + (task.title || "(无标题)") + " · 正在进行";
   strip.hidden = false;
 }
 
@@ -228,10 +224,10 @@ function renderSelection() {
   }
 
   if (current) {
-    addAction("换下当前 Task", runPutAside, "primary");
+    addAction("停止当前 Task", runStop, "primary");
     $("flow-note").textContent = [
       sourceNote,
-      "先把“" + (current.title || "(无标题)") + "”换下来；完成后再开始这个 Task。",
+      "先停止“" + (current.title || "(无标题)") + "”；完成后再开始这个 Task。",
     ].filter(Boolean).join(" ");
     return;
   }
@@ -252,7 +248,7 @@ async function persistUiFailure(action, task, error) {
   }, "workflow");
 }
 
-async function runPutAside() {
+async function runStop() {
   const target = state.selected;
   const current = taskByRef(state.currentRef);
   if (!target || !current) return;
@@ -261,21 +257,21 @@ async function runPutAside() {
   $("actions").querySelectorAll("button").forEach(button => { button.disabled = true; });
   let receipt;
   try {
-    receipt = await AssistantExecutor.switchAway(current);
+    receipt = await AssistantExecutor.stop(current);
   } catch (error) {
-    receipt = await persistUiFailure("switch-away", current, error);
+    receipt = await persistUiFailure("stop", current, error);
   }
 
-  // Keep the user's target choice across provider notifications from putting
-  // the current Task aside. The steps remain separate; this does not start it.
+  // Keep the user's target choice across provider notifications while Stop
+  // restores the old Task. The steps remain separate; Stop never starts target.
   state.selected = target;
   await refreshAll(true);
   actionRunning = false;
 
   if (receipt.success) {
-    showNotice("已结束当前工作，并把原 Task 恢复到开始前的未完成状态。现在可以开始“" + (target.title || "(无标题)") + "”。");
+    showNotice("已停止当前工作，并把原 Task 恢复到开始前的未完成状态。现在可以开始“" + (target.title || "(无标题)") + "”。");
   } else {
-    showNotice(receipt.error || receipt.summary || "换下当前 Task 失败。", true);
+    showNotice(receipt.error || receipt.summary || "停止当前 Task 失败。", true);
   }
 }
 

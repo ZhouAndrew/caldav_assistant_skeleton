@@ -78,10 +78,6 @@
     if (reason === "restore-required") {
       return "The pre-Start task state could not be reconstructed.";
     }
-    if (action === "pause") {
-      return "The selected task is not the currently working task.";
-    }
-    if (action === "resume") return "The selected task is not paused.";
     return "The selected task is not the current task.";
   }
 
@@ -106,7 +102,7 @@
     };
   }
 
-  async function switchRestoreSnapshot(task) {
+  async function stopRestoreSnapshot(task) {
     const audited = await AssistantStorage.findLatestStartSnapshot(task);
     if (audited) return audited;
 
@@ -514,58 +510,14 @@
     });
   }
 
-  async function pause(task) {
-    return runAction("pause", task, async receipt => {
-      ensureMutableTask(task);
-      const currentWorkId = await AssistantStorage.getCurrentWorkId();
-      const plan = requireActionPlan("pause", currentWorkId, task);
-
-      const beforeTask = taskSnapshot(task);
-      const workEvent = await AssistantStorage.findOpenWorkSessionRef(task);
-      let eventClosed = false;
-      let closedEvent = null;
-      let taskWritten = false;
-
-      try {
-        if (plan.historyEffect === "close" && workEvent) {
-          const closeResult = await closeWorkEventBestEffort(
-            workEvent,
-            toLocalInput(),
-            receipt
-          );
-          eventClosed = closeResult.closed;
-          closedEvent = closeResult.event;
-        }
-
-        taskWritten = true;
-        await updateAndVerifyTask(
-          task,
-          plan.taskChanges,
-          plan.taskChanges,
-          receipt
-        );
-
-        step(receipt, "Current Work", "keep currentWorkId", true, {
-          currentWorkId: plan.nextCurrentWorkId,
-          paused: Boolean(plan.taskChanges.paused),
-        });
-        await logClosedWorkSession(task, closedEvent, receipt);
-      } catch (error) {
-        if (taskWritten) await restoreTask(task, beforeTask, receipt);
-        if (eventClosed) await reopenWorkEvent(workEvent, receipt);
-        throw error;
-      }
-    });
-  }
-
-  async function switchAway(task) {
-    return runAction("switch-away", task, async receipt => {
+  async function stop(task) {
+    return runAction("stop", task, async receipt => {
       ensureMutableTask(task);
       const currentWorkId = await AssistantStorage.getCurrentWorkId();
       const beforeTask = taskSnapshot(task);
-      const restoreTo = await switchRestoreSnapshot(task);
+      const restoreTo = await stopRestoreSnapshot(task);
       const plan = requireActionPlan(
-        "switch-away",
+        "stop",
         currentWorkId,
         task,
         restoreTo
@@ -600,7 +552,7 @@
         step(receipt, "Current Work", "clear currentWorkId", true, {
           taskUid: task.id,
           restoredStatus: restoreTo.status || "",
-          restoredPaused: Boolean(restoreTo.paused),
+          restoredPaused: false,
           restoredPercentComplete: Number(restoreTo.percentComplete || 0),
         });
         await logClosedWorkSession(task, closedEvent, receipt);
@@ -615,50 +567,6 @@
     });
   }
 
-  // Compatibility alias for callers from 0.3.11-0.3.14. New UI code uses the
-  // semantically explicit switchAway() name.
-  const putAside = switchAway;
-
-  async function resume(task, workCalendarId) {
-    return runAction("resume", task, async receipt => {
-      ensureMutableTask(task);
-      const currentWorkId = await AssistantStorage.getCurrentWorkId();
-      const plan = requireActionPlan("resume", currentWorkId, task);
-
-      const beforeTask = taskSnapshot(task);
-      let taskWritten = false;
-      let workEvent = null;
-
-      try {
-        taskWritten = true;
-        await updateAndVerifyTask(
-          task,
-          plan.taskChanges,
-          plan.taskChanges,
-          receipt
-        );
-
-        if (plan.historyEffect === "open") {
-          workEvent = await createWorkEventBestEffort(
-            task,
-            workCalendarId,
-            toLocalInput(),
-            receipt
-          );
-        }
-
-        step(receipt, "Current Work", "keep currentWorkId", true, {
-          currentWorkId: plan.nextCurrentWorkId,
-          workEventUid: workEvent?.id || null,
-          paused: Boolean(plan.taskChanges.paused),
-        });
-      } catch (error) {
-        if (workEvent) await deleteWorkEvent(workEvent, receipt);
-        if (taskWritten) await restoreTask(task, beforeTask, receipt);
-        throw error;
-      }
-    });
-  }
 
   async function finish(task, status) {
     const action = status === "COMPLETED" ? "complete" : "cancel";
@@ -714,10 +622,7 @@
 
   globalThis.AssistantExecutor = Object.freeze({
     start,
-    pause,
-    switchAway,
-    putAside,
-    resume,
+    stop,
     complete: task => finish(task, "COMPLETED"),
     cancel: task => finish(task, "CANCELLED"),
     toLocalInput,
