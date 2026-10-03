@@ -41,3 +41,11 @@ export interface TaskQueryResult {
 export interface TaskQuery {
   query(options: TaskQueryOptions): Promise<TaskQueryResult>;
 }
+
+export interface TaskCalendarInfo {
+  readonly id: string;
+  readonly name: string;
+  readonly disabled: boolean;
+  readonly inComposite: boolean;
+  readonly readOnly: boolean;
+}
