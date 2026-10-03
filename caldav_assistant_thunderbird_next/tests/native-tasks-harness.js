@@ -297,6 +297,11 @@ async function main() {
       description: "Updated description",
       status: "IN-PROCESS",
       percentComplete: 35,
+    },
+    {
+      description: "Occurrence description",
+      status: "NEEDS-ACTION",
+      percentComplete: 35,
     }
   );
   assert(calendar.lastModify?.old === occurrence, "modifyItem oldItem was not occurrence");
@@ -317,6 +322,11 @@ async function main() {
       description: "Done",
       status: "COMPLETED",
       percentComplete: 100,
+    },
+    {
+      description: "Occurrence description",
+      status: "NEEDS-ACTION",
+      percentComplete: 35,
     }
   );
   assert(completed.status === "COMPLETED", "Thunderbird completion semantics not used");
@@ -338,6 +348,35 @@ async function main() {
     invalidRejected = true;
   }
   assert(invalidRejected, "non-completed 100% VTODO was accepted");
+
+  const beforeConflictModify = calendar.lastModify;
+  let conflictRejected = false;
+  try {
+    await api.updateTask(
+      "cal-1",
+      "uid-1",
+      "20261003T090000",
+      {
+        description: "Should not write",
+        status: "IN-PROCESS",
+        percentComplete: 35,
+      },
+      {
+        description: "Stale description",
+        status: "NEEDS-ACTION",
+        percentComplete: 35,
+      }
+    );
+  } catch (error) {
+    conflictRejected = String(error?.message || error).includes(
+      "VTODO changed since it was read"
+    );
+  }
+  assert(conflictRejected, "stale VTODO write was not rejected");
+  assert(
+    calendar.lastModify === beforeConflictModify,
+    "stale VTODO write reached modifyItem"
+  );
 
   const scan = await api.scanStoredTasks();
   assert(scan.complete === true, "stored task scan unexpectedly incomplete");
