@@ -451,7 +451,11 @@
     return runAction("pause", task, async receipt => {
       ensureMutableTask(task);
       const runtime = await AssistantStorage.getRuntime();
-      if (runtime.state !== "working" || !(await isCurrentTask(task))) {
+      if (
+        !(await isCurrentTask(task)) ||
+        task.status !== "IN-PROCESS" ||
+        Boolean(task.paused)
+      ) {
         throw new Error("The selected task is not the currently working task.");
       }
 
@@ -499,7 +503,7 @@
     return runAction("switch-away", task, async receipt => {
       ensureMutableTask(task);
       const runtime = await AssistantStorage.getRuntime();
-      if (!(await isCurrentTask(task)) || !["working", "paused"].includes(runtime.state)) {
+      if (!(await isCurrentTask(task))) {
         throw new Error("The selected task is not the current task.");
       }
 
@@ -510,7 +514,7 @@
       let taskWritten = false;
 
       try {
-        if (runtime.state === "working" && runtime.currentWorkEvent) {
+        if (runtime.currentWorkEvent) {
           eventClosed = true;
           closedEvent = await closeWorkEvent(runtime.currentWorkEvent, toLocalInput(), receipt);
         }
@@ -553,7 +557,11 @@
     return runAction("resume", task, async receipt => {
       ensureMutableTask(task);
       const runtime = await AssistantStorage.getRuntime();
-      if (runtime.state !== "paused" || !(await isCurrentTask(task))) {
+      if (
+        !(await isCurrentTask(task)) ||
+        task.status !== "IN-PROCESS" ||
+        !Boolean(task.paused)
+      ) {
         throw new Error("The selected task is not paused.");
       }
 
@@ -599,7 +607,7 @@
     return runAction(action, task, async receipt => {
       ensureMutableTask(task);
       const runtime = await AssistantStorage.getRuntime();
-      if (!(await isCurrentTask(task)) || !["working", "paused"].includes(runtime.state)) {
+      if (!(await isCurrentTask(task))) {
         throw new Error("The selected task is not the current task.");
       }
 
@@ -609,7 +617,7 @@
       let taskWritten = false;
 
       try {
-        if (runtime.state === "working" && runtime.currentWorkEvent) {
+        if (runtime.currentWorkEvent) {
           eventClosed = true;
           closedEvent = await closeWorkEvent(runtime.currentWorkEvent, toLocalInput(), receipt);
         }
