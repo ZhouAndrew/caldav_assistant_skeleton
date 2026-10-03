@@ -130,6 +130,14 @@ const cal = {
 class ExtensionAPI {}
 
 const context = {
+  Ci: {
+    calICalendar: {
+      ITEM_FILTER_COMPLETED_YES: 1 << 0,
+      ITEM_FILTER_COMPLETED_NO: 1 << 1,
+      ITEM_FILTER_COMPLETED_ALL: (1 << 0) | (1 << 1),
+      ITEM_FILTER_TYPE_TODO: 1 << 2,
+    },
+  },
   ChromeUtils: {
     importESModule(uri) {
       if (uri.includes("ExtensionCommon")) {
