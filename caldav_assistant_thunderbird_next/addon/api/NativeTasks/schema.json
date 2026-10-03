@@ -1,0 +1,30 @@
+[
+  {
+    "namespace": "NativeTasks",
+    "functions": [
+      {
+        "name": "getTask",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {"name": "calendarId", "type": "string"},
+          {"name": "uid", "type": "string"},
+          {"name": "recurrenceId", "type": "string"}
+        ],
+        "returns": {"type": "any"}
+      },
+      {
+        "name": "updateTask",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {"name": "calendarId", "type": "string"},
+          {"name": "uid", "type": "string"},
+          {"name": "recurrenceId", "type": "string"},
+          {"name": "patch", "type": "any"}
+        ],
+        "returns": {"type": "any"}
+      }
+    ]
+  }
+]
