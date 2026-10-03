@@ -1,160 +1,146 @@
 # Thunderbird typed functional refactor
 
-Status: development scaffold. The installed XPI behavior remains 0.3.15 until each
-migration step passes the existing behavior, real Thunderbird + Radicale, and
-WordPress acceptance gates.
+Status: active development on PR #98. The release version is not bumped until the
+real Thunderbird/Radicale/WordPress gates pass.
 
 ## Goal
 
-Keep the complete user-visible feature set while reducing Assistant-owned mutable
-runtime state and hidden behavior.
-
-The target runtime invariant is:
+Keep Thunderbird/CalDAV as the Task/Event source of truth while shrinking
+Assistant-owned mutable workflow state to one value:
 
 ```text
-Assistant-owned authoritative work state
-    = currentWorkId: WorkTaskId | null
+currentWorkId: WorkTaskId | null
 ```
 
-Everything else is either:
-
-- a Thunderbird / CalDAV VTODO or VEVENT fact;
-- a derived value;
-- settings;
-- append-only audit/history;
-- WordPress outbox/long-form data.
-
-Task status, paused marker, progress, due dates, categories and completion state must
-not be duplicated as authoritative Assistant runtime state.
-
-## Identity
-
-A Thunderbird task is not identified safely by VTODO UID alone. The typed core
-therefore defines an opaque `WorkTaskId` built from:
+`WorkTaskId` is recurring-safe:
 
 ```text
 calendar id + VTODO UID + recurrence id
 ```
 
-This preserves recurring-task safety while still allowing one dynamic Assistant
-runtime variable.
+Settings, append-only audit/history and the WordPress Outbox are allowed local data,
+but they are not a second Task state machine.
 
-## Architecture rule
+## Current lifecycle
+
+The user-facing workflow is deliberately reduced to:
+
+```text
+Start
+Stop
+Complete
+Cancel
+```
+
+Pause, Resume and Switch Away are no longer new workflow actions.
+
+Stop preserves the data-safety property that previously existed in Switch Away:
+it reads the immutable pre-Start snapshot, restores the VTODO status/progress, clears
+any legacy paused marker, closes auxiliary Work history when possible, and clears
+`currentWorkId`.
+
+Old 0.3.15 pause/resume/switch-away audit records and legacy runtime objects remain
+readable for migration and historical timing only. New workflow code must not write
+those states or expose those actions.
+
+## Ownership
+
+Authoritative facts:
+
+- Thunderbird/CalDAV VTODO: status, progress, dates, categories, completion and any
+  legacy extension properties.
+- Thunderbird/CalDAV VEVENT: normal Events and optional Work history.
+- Assistant: only `currentWorkId` as dynamic work pointer.
+- WordPress: long-form/daily records, never Task state.
+
+Work VEVENT is auxiliary history. Failure to create/read/close it is logged but does
+not roll back a successfully verified VTODO + `currentWorkId` transition.
+
+## Architecture
 
 Use a functional core and imperative shell.
 
 Pure/typed core:
 
-- task identity;
-- action legality;
-- state derivation;
-- task transition plans;
-- Agenda / Next decisions;
-- validation.
+- recurring-safe identity;
+- Start/Stop/Complete/Cancel legality;
+- VTODO change plans;
+- `currentWorkId` transitions;
+- restore-snapshot validation;
+- timing derivation from immutable history.
 
-Effect boundary:
+Effect shell:
 
 - Thunderbird Calendar/Tasks API;
-- browser.storage.local;
+- `browser.storage.local`;
 - WordPress;
 - notifications;
 - diagnostics/audit persistence.
 
-Core functions must receive time/config/state explicitly rather than reading hidden
-globals.
+New core code is strict TypeScript. Prefer readonly inputs, immutable return values,
+discriminated unions, branded identifiers, exhaustive switches and explicit null.
 
-## Type rule
+## Compatibility boundary
 
-New core code is TypeScript with strict checking enabled. Prefer:
+Legacy 0.3.15 runtime is read-only migration input.
 
-- readonly inputs;
-- immutable return values;
-- discriminated unions;
-- branded identifiers instead of interchangeable strings;
-- exhaustive switches;
-- explicit `null` for absence.
-
-The XPI may continue to ship JavaScript produced by the build. Thunderbird does not
-need a TypeScript runtime.
-
-## Feature-preservation rule
-
-This refactor is not allowed to remove:
-
-- Task selection/filtering;
-- Start;
-- Pause;
-- Resume;
-- Complete;
-- Cancel;
-- switching away/restoring the previous incomplete Task state;
-- Today;
-- Record / WordPress;
-- Logs / diagnostics;
-- Tools/settings;
-- recurring Task safety;
-- read-back verification and failure reporting.
-
-If deleting an internal layer makes an existing user path unavailable, that change
-is not simplification and must not merge.
-
-## Migration phases
-
-### Phase 0 — typed guardrail
-
-- add strict TypeScript tooling;
-- define domain identifiers and immutable task snapshots;
-- define `AssistantRuntime = { currentWorkId }`;
-- add pure action/state tests;
-- keep 0.3.15 runtime behavior unchanged.
-
-### Phase 1 — compatibility runtime boundary
-
-Introduce storage normalization that can read the existing 0.3.15 runtime object
-but exposes only `currentWorkId` to new code. Old stored values must remain
-recoverable during migration.
-
-### Phase 2 — derive state
-
-Replace persisted `idle/working/paused` with derivation from:
+Allowed:
 
 ```text
-currentWorkId + current VTODO
+legacy runtime -> currentWorkId
+legacy Start snapshot -> Stop restore fallback
+legacy pause/resume audit -> historical elapsed-time reconstruction
+legacy Work VEVENT ref -> best-effort cleanup
 ```
 
-Pause remains a VTODO fact. UI labels become derived values.
+Forbidden:
 
-### Phase 3 — remove Work VEVENT as workflow state
+```text
+new workflow -> caldavAssistant.runtime
+new Pause/Resume/Switch Away action
+runtime.state as workflow truth
+runtime.currentTask as identity truth
+Work VEVENT as workflow truth
+```
 
-Start/Pause/Resume/Complete/Cancel must no longer depend on a Work VEVENT for
-correctness. If Work-session history remains useful, it becomes append-only
-activity/logging data rather than authoritative workflow state.
+## Write ordering
 
-### Phase 4 — functional action plans
+Start:
 
-Move action decisions into pure functions that return explicit change/effect plans.
-A thin executor performs Thunderbird/CalDAV/storage effects and verifies read-back.
+```text
+VTODO write
+-> VTODO read-back
+-> optional Work VEVENT create/read-back
+-> publish currentWorkId
+-> persist receipt/audit
+```
 
-### Phase 5 — delete obsolete compatibility state
+Stop / Complete / Cancel:
 
-Only after migration and real-user-path acceptance:
+```text
+optional Work VEVENT close
+-> VTODO write
+-> VTODO read-back
+-> clear currentWorkId
+-> WordPress handoff if a Work history segment closed
+-> persist receipt/audit
+```
 
-- remove old runtime state fields;
-- remove Work VEVENT workflow coupling;
-- update XPI contract checks;
-- update architecture documentation;
-- bump the add-on version.
+Authoritative VTODO/currentWorkId failures remain strict and rollback-capable.
+Work-history failures are visible but non-blocking.
 
 ## Release gate
 
-Do not call the refactor complete until all of these pass:
+Do not merge/release until all pass:
 
 1. strict TypeScript typecheck;
-2. typed-core deterministic harness;
-3. existing JavaScript behavior harnesses;
+2. typed deterministic harness;
+3. JavaScript behavior harnesses;
 4. XPI contract validation;
-5. real Thunderbird + Radicale acceptance;
-6. real Thunderbird + WordPress acceptance;
-7. interactive human-path acceptance for Start/Pause/Resume/Complete/Cancel/Switch;
-8. restart/recovery acceptance proving current work can be reconstructed from
-   `currentWorkId + CalDAV`.
+5. real Thunderbird + Radicale;
+6. same-profile restart/recovery of an active `currentWorkId`;
+7. real Thunderbird + WordPress;
+8. interactive Start/Stop/Complete/Cancel human path;
+9. Calendar connection full create/read/update/delete test;
+10. no loss of existing Task/Event/WordPress data;
+11. no writable legacy runtime or reintroduced Pause/Resume/Switch Away path.
