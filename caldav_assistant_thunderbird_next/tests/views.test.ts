@@ -58,7 +58,7 @@ const otherCurrent = deriveTaskPageView(
 );
 assert(otherCurrent.actions.length === 0, "non-current Task exposed Start");
 assert(
-  otherCurrent.notice === "Another Task is currently active.",
+  otherCurrent.noticeKey === "anotherTaskActive",
   "non-current Task conflict is not visible"
 );
 
@@ -68,7 +68,7 @@ const stale = deriveTaskPageView(
   "2026-10-04T00:05:00+08:00"
 );
 assert(stale.actions.length === 0, "stale pointer exposed workflow action");
-assert(Boolean(stale.error), "stale pointer did not request recovery");
+assert(Boolean(stale.errorKey), "stale pointer did not request recovery");
 
 const idle = deriveTaskPageView(
   task("idle"),
