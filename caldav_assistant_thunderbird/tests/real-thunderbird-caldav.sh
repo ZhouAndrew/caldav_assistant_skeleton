@@ -57,6 +57,16 @@ host = "http://127.0.0.1/*"
 if host not in permissions:
     permissions.append(host)
 
+# Acceptance-only: the real restart gate exercises AssistantExecutor from the
+# background harness. Production background scripts are intentionally unchanged.
+background_scripts = manifest.setdefault("background", {}).setdefault("scripts", [])
+if "core/executor.js" not in background_scripts:
+    try:
+        background_index = background_scripts.index("background.js")
+    except ValueError:
+        background_index = len(background_scripts)
+    background_scripts.insert(background_index, "core/executor.js")
+
 manifest["experiment_apis"]["AcceptanceTaskFix"] = {
     "schema": "api/AcceptanceTaskFix/schema.json",
     "parent": {
