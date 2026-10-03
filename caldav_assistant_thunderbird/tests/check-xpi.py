@@ -85,10 +85,10 @@ with zipfile.ZipFile(path) as z:
     assert ".modifyItem(" in direct
     assert ".deleteItem(" in direct
     assert "getTask" in schema and "getEvent" in schema
-    assert "X-CALDAV-ASSISTANT-PAUSED" in direct
-    assert "X-CALDAV-ASSISTANT-TASK-UID" in direct
-    assert "X-CALDAV-ASSISTANT-WORK-SESSION" in direct
-    assert "X-CALDAV-ASSISTANT-WORK-OPEN" in direct
+    assert "X-CALDAV-ASSISTANT-PAUSED" not in direct
+    assert "X-CALDAV-ASSISTANT-TASK-UID" not in direct
+    assert "X-CALDAV-ASSISTANT-WORK-SESSION" not in direct
+    assert "X-CALDAV-ASSISTANT-WORK-OPEN" not in direct
 
     # Production diagnostics remain available, but not on the Work screen.
     assert "caldav-assistant-experimental.log" in direct
@@ -112,11 +112,12 @@ with zipfile.ZipFile(path) as z:
     assert 'id="task-view"' not in workspace_html
     assert 'id="task-calendar-filter"' not in workspace_html
     assert "AssistantExecutor.start" not in workspace
-    assert "AssistantExecutor.pause" in workspace
-    assert "AssistantExecutor.resume" in workspace
+    assert "AssistantExecutor.stop" in workspace
+    assert "AssistantExecutor.pause" not in workspace
+    assert "AssistantExecutor.resume" not in workspace
     assert "AssistantExecutor.complete" in workspace
     assert "AssistantExecutor.cancel" in workspace
-    assert "resolveWorkCalendar" in workspace
+    assert "resolveWorkCalendar" not in workspace
     assert "browser.storage.onChanged" in workspace
 
     assert "选择 Task" in task_picker_html
@@ -137,12 +138,13 @@ with zipfile.ZipFile(path) as z:
     assert "未完成" in task_picker_html
     assert "接下来七天" in task_picker_html
     assert "最近结果" not in task_picker_html
-    assert "AssistantExecutor.switchAway" in task_picker
+    assert "AssistantExecutor.switchAway" not in task_picker
+    assert "AssistantExecutor.stop" in task_picker
     assert "AssistantExecutor.start" in task_picker
-    assert "换下当前 Task" in task_picker
+    assert "换下当前 Task" not in task_picker
+    assert "结束当前 Task" in task_picker
     assert "开始这个 Task" in task_picker
-    assert "先把“" in task_picker
-    assert "resolveWorkCalendar" in task_picker
+    assert "resolveWorkCalendar" not in task_picker
     assert "listNativeTasks" in task_picker
     assert "browser.TaskFix.getSelectedTasks" in task_picker
     assert "来自 Thunderbird 当前选择" in task_picker
@@ -165,8 +167,17 @@ with zipfile.ZipFile(path) as z:
     assert "listNativeTasks" in schema
     assert "recurrenceId" in task_picker
     assert "recurrenceId" in executor
-    assert "taskBeforeStart" in executor
-    assert "switchAway" in executor
+    assert "currentWorkIdOf" in executor
+    assert "currentTask" in executor
+    assert "AssistantStorage.getCurrentWorkId" in executor
+    assert "AssistantStorage.setCurrentWorkId" in executor
+    assert "taskBeforeStart" not in executor
+    assert "switchAway" not in executor
+    assert "pause(" not in executor
+    assert "resume(" not in executor
+    assert "createEvent(" not in executor
+    assert "updateEvent(" not in executor
+    assert "deleteEvent(" not in executor
     assert '@mozilla.org/network/io-service;1' in direct
     assert '@mozilla.org/appshell/window-mediator;1' in direct
     assert "new URL(url)" not in direct
@@ -174,6 +185,12 @@ with zipfile.ZipFile(path) as z:
 
     # One simple persistence function freezes log-before-display order.
     assert "persistResult" in storage
+    assert "caldavAssistant.currentWorkId" in storage
+    assert "getCurrentWorkId" in storage
+    assert "setCurrentWorkId" in storage
+    assert "clearCurrentWorkId" in storage
+    assert "setRuntime" not in storage
+    assert "getRuntime" not in storage
     assert "saveSettingsWithUndo" in storage
     assert "undoSettings" in storage
     assert "snapshot.keys" in storage
@@ -183,8 +200,9 @@ with zipfile.ZipFile(path) as z:
 
     # Connection and settings live under Tools, not on the Work page.
     assert "默认 Task 视图" in tools_html
-    assert "默认 Task Calendar" in tools_html
-    assert "Work Calendar" in tools_html
+    assert "默认 Task Calendar" not in tools_html
+    assert "Work Calendar" not in tools_html
+    assert "测试 Calendar" in tools_html
     assert "undo-settings" in tools_html
     assert "saveSettingsWithUndo" in tools
     assert "undoSettings" in tools
@@ -240,8 +258,8 @@ with zipfile.ZipFile(path) as z:
     assert "copy-visible" in logs_html
     assert "copy-json" in logs_html
     assert "listDiagnosticsDates" in schema
-    assert "recordClosedWorkSession" in daily_log
     assert "flushOutbox" in daily_log
+    assert "AssistantDailyLog" not in executor
     assert "dailyWorkLogEnabled" in wordpress
     assert "ExtensionUtils" in direct and "ExtensionError" in direct
     assert "CalTodo.sys.mjs" in direct and "new CalTodo()" in direct
@@ -259,4 +277,4 @@ with zipfile.ZipFile(path) as z:
     assert "apply.sh" not in names
     assert "patch_omnijar.py" not in names
 
-print("caldav-assistant-experimental-0.3.15-xpi-contract: PASS")
+print("caldav-assistant-experimental-0.3.16-xpi-contract: PASS")
