@@ -265,5 +265,50 @@
   },
   "languageChineseSimplified": {
     "message": "简体中文"
+  },
+  "statusNeedsAction": {
+    "message": "待处理"
+  },
+  "statusInProgress": {
+    "message": "进行中"
+  },
+  "statusCompleted": {
+    "message": "已完成"
+  },
+  "statusCancelled": {
+    "message": "已取消"
+  },
+  "commandFailed": {
+    "message": "任务操作失败。"
+  },
+  "queryIncomplete": {
+    "message": "部分日历无法读取。"
+  },
+  "taskLoadFailed": {
+    "message": "无法加载任务。"
+  },
+  "calendarLoadFailed": {
+    "message": "无法加载任务日历。"
+  },
+  "startupNotReady": {
+    "message": "CalDAV Assistant 尚未就绪。"
+  },
+  "todayDate": {
+    "message": "日期"
+  },
+  "resultStop": {
+    "message": "已停止"
+  },
+  "resultComplete": {
+    "message": "已完成"
+  },
+  "resultCancel": {
+    "message": "已取消"
+  },
+  "sessionOpen": {
+    "message": "进行中"
+  },
+  "openSelectedTask": {
+    "message": "打开所选任务"
   }
 }
