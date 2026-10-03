@@ -289,10 +289,13 @@
       lastError: String(entry?.lastError || ""),
       payload: entry?.payload ?? entry,
     };
-    const next = Array.isArray(records) ? [...records, item] : [item];
-    if (next.length > MAX_OUTBOX_RECORDS) {
-      next.splice(0, next.length - MAX_OUTBOX_RECORDS);
+    const current = Array.isArray(records) ? records : [];
+    if (current.length >= MAX_OUTBOX_RECORDS) {
+      throw new Error(
+        "WordPress Outbox is full; no pending entry was discarded."
+      );
     }
+    const next = [...current, item];
     await setValue(KEY_WP_OUTBOX, next);
     return item;
   }
