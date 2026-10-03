@@ -3,7 +3,6 @@ import {
   StoredTaskStatus,
   WorkResult,
   WorkSession,
-  normalizePercent,
 } from "./domain";
 
 const START = "[CALDAV-ASSISTANT-WORKLOG v1]";
@@ -55,8 +54,7 @@ function validateSession(value: unknown): WorkSession | null {
     !validIso(session.start) ||
     !(session.end === null || validIso(session.end)) ||
     !isResult(session.result) ||
-    !isStatus(beforeRecord.status) ||
-    typeof beforeRecord.percentComplete !== "number"
+    !isStatus(beforeRecord.status)
   ) {
     return null;
   }
@@ -71,7 +69,6 @@ function validateSession(value: unknown): WorkSession | null {
     result: session.result,
     before: Object.freeze({
       status: beforeRecord.status,
-      percentComplete: normalizePercent(beforeRecord.percentComplete),
     }),
   });
 }
