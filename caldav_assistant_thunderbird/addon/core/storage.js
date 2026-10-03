@@ -167,24 +167,6 @@
     return setValue(KEY_CURRENT_WORK_ID, value);
   }
 
-  async function setRuntime(runtime) {
-    await browser.storage.local.set({
-      [KEY_RUNTIME]: runtime,
-      [KEY_CURRENT_WORK_ID]: makeWorkTaskId(runtime?.currentTask),
-    });
-    return runtime;
-  }
-
-  async function clearRuntime() {
-    return setRuntime({
-      state: "idle",
-      currentTask: null,
-      currentWorkEvent: null,
-      segmentStartedAtMs: null,
-      accumulatedMs: 0,
-    });
-  }
-
   async function getAuditDatesRaw() {
     const dates = await getValue(KEY_AUDIT_DATES, []);
     return Array.isArray(dates)
@@ -578,8 +560,6 @@
     getCurrentWorkId,
     setCurrentWorkId,
     getRuntime,
-    setRuntime,
-    clearRuntime,
     appendAudit,
     listAudit,
     findLatestStartSnapshot,
