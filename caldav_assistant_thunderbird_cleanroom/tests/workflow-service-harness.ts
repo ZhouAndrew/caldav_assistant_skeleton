@@ -73,6 +73,7 @@ const base: TaskSnapshot = Object.freeze({
 });
 const taskId = makeTaskId(base);
 
+async function main(): Promise<void> {
 {
   const tasks = new FakeTasks(base);
   const pointer = new FakeCurrentWork();
@@ -194,3 +195,6 @@ let started: TaskSnapshot;
 }
 
 console.log("workflow-service-harness: PASS");
+}
+
+void main();
