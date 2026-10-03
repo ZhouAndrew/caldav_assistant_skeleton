@@ -1,5 +1,5 @@
-export const LEGACY_SETTINGS_KEY = "caldavAssistant.settings";
-export const SETTINGS_KEY = "caldavAssistant.v2.settings";
+export const SETTINGS_KEY = "caldavAssistant.settings";
+export const SETTINGS_MIGRATION_KEY = "caldavAssistant.settingsMigrationV2";
 
 export interface SettingsV1 {
   readonly schemaVersion: 1;
@@ -10,9 +10,9 @@ export interface SettingsV1 {
 }
 
 /**
- * Pure one-time settings migration.
+ * Pure in-place settings schema migration.
  *
- * The legacy object is user configuration, not workflow code.  We preserve every
+ * The settings object is user configuration, not workflow code.  We preserve every
  * configuration field except the obsolete Work-Event calendar selector.
  * Secret values (including wordpress.applicationPassword) are copied as opaque
  * values and are never returned separately, logged, normalized or printed.
