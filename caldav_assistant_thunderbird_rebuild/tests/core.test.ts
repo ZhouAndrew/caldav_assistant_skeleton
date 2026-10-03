@@ -171,6 +171,27 @@ const noBlock = parseWorkDescription(userText);
 assert(noBlock.ok, "plain description failed");
 assert(serializeWorkDescription(noBlock.value) === userText, "plain description changed");
 
+const withSuffix =
+  "before user text\n\n" +
+  "[CALDAV-ASSISTANT-WORKLOG v1]\n" +
+  JSON.stringify([{
+    id: "suffix-session",
+    start: "2026-10-03T12:00:00+08:00",
+    end: "2026-10-03T12:10:00+08:00",
+    result: "stop",
+    before: {status: null, percentComplete: 42},
+  }]) +
+  "\n[/CALDAV-ASSISTANT-WORKLOG]" +
+  "\nafter user text 😀";
+const suffixParsed = parseWorkDescription(withSuffix);
+assert(suffixParsed.ok, "description with user suffix failed to parse");
+assert(suffixParsed.value.prefix === "before user text\n\n", "prefix changed");
+assert(suffixParsed.value.suffix === "\nafter user text 😀", "suffix changed");
+assert(
+  serializeWorkDescription(suffixParsed.value) === withSuffix,
+  "user text around worklog did not round-trip exactly",
+);
+
 const alreadyClosed = stoppedParsed.ok ? stoppedParsed.value : null;
 assert(alreadyClosed, "closed parse unavailable");
 const sameClose = closeSession(
