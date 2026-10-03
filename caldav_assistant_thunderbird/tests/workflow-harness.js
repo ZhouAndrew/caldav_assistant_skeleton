@@ -33,6 +33,13 @@ global.browser = {
         }
         Object.assign(storage, values);
       },
+      async remove(keys) {
+        const names = Array.isArray(keys) ? keys : [keys];
+        for (const key of names) {
+          delete storage[key];
+          operationOrder.push("storage:remove:" + key);
+        }
+      },
     },
   },
 };
@@ -312,8 +319,13 @@ async function legacyRuntimeMigration() {
     recurrenceId: "20261003T090000",
   };
   const legacyTiming = await AssistantStorage.deriveWorkTiming(legacyTask);
-  assert(legacyTiming.source === "legacy-runtime", "old session timing lost compatibility fallback");
+  assert(legacyTiming.source === "audit", "legacy timing was not migrated into immutable audit");
   assert(legacyTiming.accumulatedMs === 1234, "old session timing lost accumulated duration");
+  const migrationRows = await AssistantStorage.listAudit();
+  assert(
+    migrationRows.some(row => row.action === "legacy-runtime-baseline"),
+    "legacy currentWorkId migration did not persist an immutable timing baseline"
+  );
   const legacyWorkEvent = await AssistantStorage.findOpenWorkSessionRef(legacyTask);
   assert(legacyWorkEvent?.source === "legacy-runtime", "old Work VEVENT ref lost fallback");
   assert(legacyWorkEvent?.id === "legacy-work-event", "old Work VEVENT id was not recovered");
@@ -568,6 +580,10 @@ async function switchAwayFallsBackToLegacyRuntimeSnapshot() {
   assert(task.paused === false, "Legacy fallback invented paused state");
   assert(task.percentComplete === 41, "Legacy fallback lost original progress");
   assert(await AssistantStorage.getCurrentWorkId() === null, "Legacy fallback did not clear pointer");
+  assert(
+    storage["caldavAssistant.runtime"] === undefined,
+    "completed legacy migration left stale runtime data behind"
+  );
 }
 
 async function switchAwayRestoresExactPreStartProgress() {
