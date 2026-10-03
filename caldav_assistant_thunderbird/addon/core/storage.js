@@ -126,11 +126,21 @@
     }
 
     const legacy = values[KEY_RUNTIME_LEGACY];
+    const legacyTask = legacy?.currentTask;
+    const legacyInstanceKey =
+      legacyTask?.instanceKey ||
+      (
+        legacyTask?.id && legacyTask?.calendarId
+          ? String(legacyTask.calendarId) + "::" +
+            String(legacyTask.id) + "::" +
+            String(legacyTask.recurrenceId || "")
+          : null
+      );
     const migrated = normalizeCurrentWorkId(
       legacy?.currentWorkId ??
       legacy?.current_work_id ??
-      legacy?.currentTask?.instanceKey ??
-      legacy?.currentTask?.id
+      legacyInstanceKey ??
+      legacyTask?.id
     );
 
     await setValue(KEY_CURRENT_WORK_ID, migrated);
