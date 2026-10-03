@@ -4,6 +4,7 @@
   const KEY_SETTINGS = "caldavAssistant.settings";
   const KEY_SETTINGS_UNDO = "caldavAssistant.settingsUndo";
   const KEY_RUNTIME = "caldavAssistant.runtime";
+  const KEY_CURRENT_WORK_ID = "caldavAssistant.currentWorkId";
   const KEY_AUDIT_LEGACY = "caldavAssistant.audit";
   const KEY_AUDIT_DATES = "caldavAssistant.auditDates";
   const KEY_AUDIT_PREFIX = "caldavAssistant.audit.";
@@ -109,6 +110,30 @@
     return restored;
   }
 
+  function makeWorkTaskId(ref) {
+    if (!ref?.calendarId || !ref?.id) return null;
+    return [
+      encodeURIComponent(String(ref.calendarId)),
+      encodeURIComponent(String(ref.id)),
+      encodeURIComponent(String(ref.recurrenceId || "")),
+    ].join("|");
+  }
+
+  function parseWorkTaskId(value) {
+    if (typeof value !== "string") return null;
+    const parts = value.split("|");
+    if (parts.length !== 3) return null;
+    try {
+      return {
+        calendarId: decodeURIComponent(parts[0]),
+        id: decodeURIComponent(parts[1]),
+        recurrenceId: decodeURIComponent(parts[2]),
+      };
+    } catch (_error) {
+      return null;
+    }
+  }
+
   async function getRuntime() {
     return getValue(KEY_RUNTIME, {
       state: "idle",
@@ -119,8 +144,35 @@
     });
   }
 
+  async function getCurrentWorkId() {
+    const values = await browser.storage.local.get([
+      KEY_CURRENT_WORK_ID,
+      KEY_RUNTIME,
+    ]);
+
+    if (values[KEY_CURRENT_WORK_ID] !== undefined) {
+      const stored = values[KEY_CURRENT_WORK_ID];
+      return stored === null || parseWorkTaskId(stored) ? stored : null;
+    }
+
+    const migrated = makeWorkTaskId(values[KEY_RUNTIME]?.currentTask);
+    await setValue(KEY_CURRENT_WORK_ID, migrated);
+    return migrated;
+  }
+
+  async function setCurrentWorkId(value) {
+    if (value !== null && !parseWorkTaskId(value)) {
+      throw new Error("Invalid currentWorkId.");
+    }
+    return setValue(KEY_CURRENT_WORK_ID, value);
+  }
+
   async function setRuntime(runtime) {
-    return setValue(KEY_RUNTIME, runtime);
+    await browser.storage.local.set({
+      [KEY_RUNTIME]: runtime,
+      [KEY_CURRENT_WORK_ID]: makeWorkTaskId(runtime?.currentTask),
+    });
+    return runtime;
   }
 
   async function clearRuntime() {
@@ -335,6 +387,10 @@
     saveSettingsWithUndo,
     getSettingsUndo,
     undoSettings,
+    makeWorkTaskId,
+    parseWorkTaskId,
+    getCurrentWorkId,
+    setCurrentWorkId,
     getRuntime,
     setRuntime,
     clearRuntime,
