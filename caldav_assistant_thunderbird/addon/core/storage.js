@@ -155,8 +155,37 @@
       if (stored === null || parseWorkTaskId(stored)) return stored;
     }
 
-    const migrated = makeWorkTaskId(values[KEY_RUNTIME]?.currentTask);
+    const legacyRuntime = values[KEY_RUNTIME] || null;
+    const migrated = makeWorkTaskId(legacyRuntime?.currentTask);
     await setValue(KEY_CURRENT_WORK_ID, migrated);
+
+    if (migrated) {
+      try {
+        await appendAudit({
+          scope: "migration",
+          action: "legacy-runtime-baseline",
+          success: true,
+          summary: "Migrated active 0.3.15 work state into immutable history.",
+          details: {
+            task: {
+              id: legacyRuntime.currentTask.id,
+              calendarId: legacyRuntime.currentTask.calendarId,
+              recurrenceId: String(legacyRuntime.currentTask.recurrenceId || ""),
+              title: String(legacyRuntime.currentTask.title || ""),
+            },
+            state: String(legacyRuntime.state || ""),
+            accumulatedMs: Math.max(0, Number(legacyRuntime.accumulatedMs || 0)),
+            segmentStartedAtMs: legacyRuntime.segmentStartedAtMs
+              ? Number(legacyRuntime.segmentStartedAtMs)
+              : null,
+            currentWorkEvent: legacyRuntime.currentWorkEvent || null,
+            taskBeforeStart: legacyRuntime.taskBeforeStart || null,
+          },
+        });
+      } catch (_error) {
+        // CalDAV/currentWorkId migration must not depend on auxiliary audit I/O.
+      }
+    }
     return migrated;
   }
 
@@ -164,7 +193,15 @@
     if (value !== null && !parseWorkTaskId(value)) {
       throw new Error("Invalid currentWorkId.");
     }
-    return setValue(KEY_CURRENT_WORK_ID, value);
+    await setValue(KEY_CURRENT_WORK_ID, value);
+    if (value === null) {
+      try {
+        await browser.storage.local.remove(KEY_RUNTIME);
+      } catch (_error) {
+        // Stale legacy data is harmless once an explicit null pointer exists.
+      }
+    }
+    return value;
   }
 
   async function getAuditDatesRaw() {
@@ -385,10 +422,22 @@
     let historySeen = false;
 
     for (const record of records) {
-      if (record?.scope !== "workflow") continue;
       if (record?.success === false || record?.details?.success === false) continue;
       if (makeWorkTaskId(record?.details?.task) !== targetWorkId) continue;
 
+      if (record.action === "legacy-runtime-baseline") {
+        accumulatedMs = Math.max(0, Number(record?.details?.accumulatedMs || 0));
+        segmentStartedAtMs =
+          String(record?.details?.state || "") === "working" &&
+          Number(record?.details?.segmentStartedAtMs) > 0
+            ? Number(record.details.segmentStartedAtMs)
+            : null;
+        sessionSeen = true;
+        historySeen = true;
+        continue;
+      }
+
+      if (record?.scope !== "workflow") continue;
       const atMs = auditTimestampMs(record);
       if (atMs === null) continue;
 
@@ -436,7 +485,8 @@
       });
     }
 
-    // Compatibility for an already-active 0.3.15 session whose action history
+    // Compatibility for a profile whose currentWorkId was migrated by an
+    // earlier transitional build before immutable baseline records existed.
     // predates the new deterministic timing derivation.
     const runtime = await getLegacyRuntime();
     if (makeWorkTaskId(runtime?.currentTask) === targetWorkId) {
