@@ -88,7 +88,7 @@ function selectedCalendars(calendarIds) {
       return false;
     }
     if (wanted.size) return wanted.has(String(calendar.id || ""));
-    return calendar.getProperty?.("calendar-main-in-composite") !== false;
+    return Boolean(calendar.getProperty?.("calendar-main-in-composite"));
   });
 }
 
