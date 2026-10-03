@@ -134,7 +134,7 @@
     }
   }
 
-  async function getRuntime() {
+  async function getLegacyRuntime() {
     return getValue(KEY_RUNTIME, {
       state: "idle",
       currentTask: null,
@@ -352,7 +352,7 @@
 
     // Migration fallback for an active 0.3.15 session whose Start/Resume audit
     // predates the structured Work-session receipt.
-    const runtime = await getRuntime();
+    const runtime = await getLegacyRuntime();
     if (
       makeWorkTaskId(runtime?.currentTask) === targetWorkId &&
       runtime?.currentWorkEvent?.id &&
@@ -438,7 +438,7 @@
 
     // Compatibility for an already-active 0.3.15 session whose action history
     // predates the new deterministic timing derivation.
-    const runtime = await getRuntime();
+    const runtime = await getLegacyRuntime();
     if (makeWorkTaskId(runtime?.currentTask) === targetWorkId) {
       return Object.freeze({
         accumulatedMs: Math.max(0, Number(runtime?.accumulatedMs || 0)),
@@ -559,7 +559,7 @@
     parseWorkTaskId,
     getCurrentWorkId,
     setCurrentWorkId,
-    getRuntime,
+    getLegacyRuntime,
     appendAudit,
     listAudit,
     findLatestStartSnapshot,
