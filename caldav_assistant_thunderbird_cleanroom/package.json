@@ -5,7 +5,7 @@
   "description": "Clean-room Thunderbird-native CalDAV Assistant rebuild",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "rm -rf .build && tsc --outDir .build && node .build/tests/core-harness.js && node .build/tests/settings-migration-harness.js && node .build/tests/workflow-service-harness.js && node .build/tests/storage-runtime-harness.js",
+    "test": "rm -rf .build && tsc --outDir .build && node .build/tests/core-harness.js && node .build/tests/settings-migration-harness.js && node .build/tests/workflow-service-harness.js && node .build/tests/storage-runtime-harness.js && node .build/tests/legacy-active-migration-harness.js",
     "build:addon": "rm -rf addon/dist && tsc -p tsconfig.addon.json"
   },
   "devDependencies": {
