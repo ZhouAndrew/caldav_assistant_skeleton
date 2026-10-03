@@ -288,6 +288,34 @@
     );
   }
 
+  async function findLatestStartSnapshot(task) {
+    const targetWorkId = makeWorkTaskId(task);
+    if (!targetWorkId) return null;
+
+    const records = await listAudit();
+    for (let index = records.length - 1; index >= 0; index--) {
+      const record = records[index];
+      if (record?.scope !== "workflow" || record?.action !== "start") continue;
+      if (record?.success === false || record?.details?.success === false) continue;
+
+      const receiptTask = record?.details?.task;
+      if (makeWorkTaskId(receiptTask) !== targetWorkId) continue;
+
+      const status = String(receiptTask?.beforeStatus || "NEEDS-ACTION");
+      if (status === "COMPLETED" || status === "CANCELLED") continue;
+
+      return Object.freeze({
+        status,
+        paused: Boolean(receiptTask?.beforePaused),
+        percentComplete: Math.min(
+          99,
+          Math.max(0, Number(receiptTask?.beforePercentComplete || 0))
+        ),
+      });
+    }
+    return null;
+  }
+
   async function clearAudit(dateKey = "") {
     await migrateLegacyAudit();
     if (dateKey) {
@@ -396,6 +424,7 @@
     clearRuntime,
     appendAudit,
     listAudit,
+    findLatestStartSnapshot,
     listAuditDates,
     clearAudit,
     localDateKey,
