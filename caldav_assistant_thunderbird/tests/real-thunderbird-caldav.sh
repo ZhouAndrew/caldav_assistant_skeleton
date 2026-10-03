@@ -857,7 +857,9 @@ for key in (
     "taskWriteReadback",
     "eventCrud",
     "validation",
-    "workSessionLifecycle",
+    "minimalTaskLifecycle",
+    "currentWorkIdLifecycle",
+    "taskLifecycleDidNotTouchEvents",
     "persistentAudit",
     "spaceCreated",
     "workspaceOpened",
@@ -966,7 +968,9 @@ for key in (
     "taskWriteReadback",
     "eventCrud",
     "validation",
-    "workSessionLifecycle",
+    "minimalTaskLifecycle",
+    "currentWorkIdLifecycle",
+    "taskLifecycleDidNotTouchEvents",
     "persistentAudit",
     "spaceCreated",
     "workspaceOpened",
@@ -977,7 +981,7 @@ for key in (
     "diagnostics",
 ):
     assert data.get(key) is True, (key, data)
-assert data["calendar"]["type"] == "caldav", data
+assert data.get("restartRecovery") is True, data\nassert data.get("leftCurrentForRestart") is True, data\nassert data["calendar"]["type"] == "caldav", data
 print("real-thunderbird-restart: PASS")
 PY
 
