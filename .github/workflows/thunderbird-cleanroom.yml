@@ -24,3 +24,8 @@ jobs:
         run: npm run typecheck
       - name: Pure core tests
         run: npm test
+      - name: Native VTODO adapter boundary
+        run: |
+          node --check addon/api/ThunderbirdTasks/implementation.js
+          python3 -m json.tool addon/api/ThunderbirdTasks/schema.json >/dev/null
+          node tests/adapter-surface-harness.js
