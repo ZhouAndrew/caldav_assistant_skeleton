@@ -8,6 +8,7 @@ import {StorageAreaPort} from "./storage-runtime.js";
 import {ThunderbirdTaskPort} from "./workflow-service.js";
 
 interface ThunderbirdTasksApi {
+  listTasks(options?: Record<string, unknown>): Promise<unknown>;
   getTask(
     calendarId: string,
     uid: string,
@@ -91,6 +92,27 @@ function taskSnapshot(value: unknown): TaskSnapshot {
     status,
     percentComplete,
     description,
+  });
+}
+
+
+export interface ThunderbirdTaskQueryPort {
+  listTasks(options?: Record<string, unknown>): Promise<readonly TaskSnapshot[]>;
+}
+
+export function createThunderbirdTaskQueryPort(
+  api: ThunderbirdTasksApi
+): ThunderbirdTaskQueryPort {
+  return Object.freeze({
+    async listTasks(
+      options: Record<string, unknown> = {}
+    ): Promise<readonly TaskSnapshot[]> {
+      const value = await api.listTasks(options);
+      if (!Array.isArray(value)) {
+        throw new Error("ThunderbirdTasks.listTasks returned a non-array.");
+      }
+      return Object.freeze(value.map(taskSnapshot));
+    },
   });
 }
 
