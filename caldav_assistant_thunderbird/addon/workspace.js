@@ -94,16 +94,16 @@ function render() {
   if (!active) return;
 
   $("current-title").textContent = task.title || "(无标题)";
-  const paused = state.runtime.state === "paused";
+  const paused = Boolean(task.paused);
   $("current-state").textContent = paused ? "已暂停" : "正在进行";
   $("current-state").className = "task-state " + (paused ? "paused" : "working");
 
   const due = displayDate(task.due);
   $("current-due").textContent = due === "—" ? "没有截止日期" : "截止 " + due;
 
-  if (state.runtime.state === "working") {
+  if (task.status === "IN-PROCESS" && !paused) {
     addAction("暂停", () => runWorkflow("pause"), "primary");
-  } else if (state.runtime.state === "paused") {
+  } else if (task.status === "IN-PROCESS" && paused) {
     addAction("继续", () => runWorkflow("resume"), "primary");
   }
 
@@ -115,7 +115,7 @@ function render() {
 function updateElapsed() {
   if (!state.current || !state.currentWorkId) return;
   let ms = Number(state.runtime.accumulatedMs || 0);
-  if (state.runtime.state === "working" && state.runtime.segmentStartedAtMs) {
+  if (!state.current.paused && state.runtime.segmentStartedAtMs) {
     ms += Math.max(0, Date.now() - state.runtime.segmentStartedAtMs);
   }
   $("current-elapsed").textContent = formatDuration(ms);
