@@ -420,6 +420,52 @@ async function switchAwayPausedLifecycle() {
   assert(await AssistantStorage.getCurrentWorkId() === null, "Paused switch-away did not clear currentWorkId");
 }
 
+async function switchAwayRestoresFromAuditWithoutRuntimeSnapshot() {
+  resetAll();
+  task.status = "NEEDS-ACTION";
+  task.paused = false;
+  task.percentComplete = 37;
+
+  let receipt = await AssistantExecutor.start(clone(task), "work");
+  assert(receipt.success, "Audit restore setup Start failed");
+
+  const runtime = await AssistantStorage.getRuntime();
+  const withoutSnapshot = {...runtime};
+  delete withoutSnapshot.taskBeforeStart;
+  await AssistantStorage.setRuntime(withoutSnapshot);
+
+  receipt = await AssistantExecutor.switchAway(clone(task));
+  assert(receipt.success, "Switch-away could not restore from audit history");
+  assert(task.status === "NEEDS-ACTION", "Audit restore lost original status");
+  assert(task.paused === false, "Audit restore invented paused state");
+  assert(task.percentComplete === 37, "Audit restore lost original progress");
+}
+
+async function switchAwayFallsBackToLegacyRuntimeSnapshot() {
+  resetAll();
+  task.status = "NEEDS-ACTION";
+  task.paused = false;
+  task.percentComplete = 41;
+
+  let receipt = await AssistantExecutor.start(clone(task), "work");
+  assert(receipt.success, "Legacy restore setup Start failed");
+
+  for (const key of Object.keys(storage)) {
+    if (
+      key === "caldavAssistant.auditDates" ||
+      key.startsWith("caldavAssistant.audit.")
+    ) {
+      delete storage[key];
+    }
+  }
+
+  receipt = await AssistantExecutor.switchAway(clone(task));
+  assert(receipt.success, "Switch-away lost legacy runtime fallback");
+  assert(task.status === "NEEDS-ACTION", "Legacy fallback lost original status");
+  assert(task.paused === false, "Legacy fallback invented paused state");
+  assert(task.percentComplete === 41, "Legacy fallback lost original progress");
+}
+
 async function switchAwayRestoresExactPreStartProgress() {
   resetAll();
   task.status = "NEEDS-ACTION";
@@ -486,6 +532,8 @@ async function completeWriteRollback() {
   await resumeReadbackRollback();
   await switchAwayLifecycle();
   await switchAwayPausedLifecycle();
+  await switchAwayRestoresFromAuditWithoutRuntimeSnapshot();
+  await switchAwayFallsBackToLegacyRuntimeSnapshot();
   await switchAwayRestoresExactPreStartProgress();
   await cancelLifecycle();
   await completeWriteRollback();
