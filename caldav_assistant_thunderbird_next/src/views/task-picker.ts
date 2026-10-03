@@ -1,16 +1,20 @@
-import {TaskStatus} from "../../domain";
-
-export type PickerStatusFilter =
-  | "open"
+export type ThunderbirdTaskFilter =
   | "all"
-  | "not-started"
-  | "in-progress"
+  | "notstarted"
+  | "overdue"
+  | "open"
   | "completed"
-  | "cancelled";
+  | "throughcurrent"
+  | "throughtoday"
+  | "throughsevendays";
 
 export interface TaskPickerSettings {
+  /**
+   * Thunderbird-native filter name. The adapter owns its semantics.
+   * The page/view must not reimplement calendar-filter.js.
+   */
+  readonly filter: ThunderbirdTaskFilter;
   readonly search: string;
-  readonly status: PickerStatusFilter;
   readonly calendarIds: readonly string[];
 }
 
@@ -19,33 +23,14 @@ export interface TaskPickerItem {
   readonly calendarId: string;
   readonly calendarName: string;
   readonly title: string;
-  readonly status: TaskStatus;
-  readonly percentComplete: number;
   readonly due: string | null;
   readonly categories: readonly string[];
 }
 
 export interface TaskPickerView {
+  readonly filter: ThunderbirdTaskFilter;
   readonly items: readonly TaskPickerItem[];
   readonly emptyMessage: string | null;
-}
-
-function statusMatch(item: TaskPickerItem, filter: PickerStatusFilter): boolean {
-  switch (filter) {
-    case "all":
-      return true;
-    case "open":
-      return item.status !== "COMPLETED" && item.status !== "CANCELLED";
-    case "not-started":
-      return item.status === "NEEDS-ACTION" && item.percentComplete === 0;
-    case "in-progress":
-      return item.status === "IN-PROCESS" ||
-        (item.percentComplete > 0 && item.percentComplete < 100);
-    case "completed":
-      return item.status === "COMPLETED" || item.percentComplete === 100;
-    case "cancelled":
-      return item.status === "CANCELLED";
-  }
 }
 
 function searchable(item: TaskPickerItem): string {
@@ -56,19 +41,19 @@ function searchable(item: TaskPickerItem): string {
   ].join("\n").toLocaleLowerCase();
 }
 
+/**
+ * The source list is already filtered by Thunderbird.
+ *
+ * This pure view function only applies the page's text search and stable display
+ * ordering. It deliberately knows nothing about workflow/currentWorkId.
+ */
 export function deriveTaskPickerView(
   settings: TaskPickerSettings,
-  source: readonly TaskPickerItem[]
+  nativeFilteredSource: readonly TaskPickerItem[]
 ): TaskPickerView {
-  const calendarSet = new Set(settings.calendarIds);
   const query = settings.search.trim().toLocaleLowerCase();
-
-  const items = source
-    .filter(item =>
-      (calendarSet.size === 0 || calendarSet.has(item.calendarId)) &&
-      statusMatch(item, settings.status) &&
-      (!query || searchable(item).includes(query))
-    )
+  const items = nativeFilteredSource
+    .filter(item => !query || searchable(item).includes(query))
     .slice()
     .sort((a, b) => {
       if (a.due === null && b.due !== null) return 1;
@@ -78,6 +63,7 @@ export function deriveTaskPickerView(
     });
 
   return Object.freeze({
+    filter: settings.filter,
     items: Object.freeze(items),
     emptyMessage: items.length ? null : "No matching Tasks.",
   });
