@@ -79,7 +79,12 @@
     };
   }
 
-  function switchRestoreSnapshot(runtime, task) {
+  async function switchRestoreSnapshot(runtime, task) {
+    const audited = await AssistantStorage.findLatestStartSnapshot(task);
+    if (audited) return audited;
+
+    // Phase 2 compatibility: old 0.3.15 runtime still carries taskBeforeStart.
+    // It is a fallback only; immutable workflow history is the preferred source.
     const saved = runtime?.taskBeforeStart;
     if (saved && typeof saved === "object") {
       return {
@@ -89,9 +94,7 @@
       };
     }
 
-    // Compatibility for a work session that was started by an older add-on build.
-    // The old runtime did not persist the pre-start Task snapshot, so the safest
-    // incomplete state is NEEDS-ACTION while preserving existing progress.
+    // Oldest builds had neither immutable pre-Start history nor taskBeforeStart.
     return {
       status: "NEEDS-ACTION",
       paused: false,
@@ -508,7 +511,7 @@
       }
 
       const beforeTask = taskSnapshot(task);
-      const restoreTo = switchRestoreSnapshot(runtime, task);
+      const restoreTo = await switchRestoreSnapshot(runtime, task);
       let eventClosed = false;
       let closedEvent = null;
       let taskWritten = false;
