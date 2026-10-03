@@ -560,12 +560,61 @@ async function __runToolsAcceptance() {
       settings.workCalendarId === beforeDefaults.workCalendarId;
   }, "undo Task defaults");
 
+  // Reproduce the real Tools-page Calendar write path. core/executor.js is
+  // deliberately not loaded in this page, so this catches accidental
+  // diagnostics -> workflow coupling such as AssistantExecutor.toLocalInput().
+  __toolsAssert(
+    typeof globalThis.AssistantExecutor === "undefined",
+    "Tools page unexpectedly loaded Workflow AssistantExecutor"
+  );
+  __toolsAssert(
+    [...$("work-calendar").options].some(option => option.value === "acceptance-calendar"),
+    "Real writable acceptance Calendar is missing from Work Calendar options"
+  );
+  $("work-calendar").value = "acceptance-calendar";
+
+  const beforeWrite = await AssistantStorage.getLastReceipt();
+  $("calendar-full").click();
+  let fullWriteReceipt = null;
+  await __toolsWaitFor(async () => {
+    const current = await AssistantStorage.getLastReceipt();
+    if (
+      current &&
+      current.id !== beforeWrite?.id &&
+      current.action === "connection.full-calendar-write"
+    ) {
+      fullWriteReceipt = current;
+      return true;
+    }
+    return false;
+  }, "Calendar full write receipt", 30000);
+
+  __toolsAssert(fullWriteReceipt?.success === true, "Calendar full write test failed");
+  __toolsAssert(
+    fullWriteReceipt?.steps?.some(step => step.name === "create TEST VEVENT"),
+    "Calendar full write did not create the temporary VEVENT"
+  );
+  __toolsAssert(
+    fullWriteReceipt?.steps?.some(step => step.name === "read TEST VEVENT"),
+    "Calendar full write did not read back the temporary VEVENT"
+  );
+  __toolsAssert(
+    fullWriteReceipt?.steps?.some(step => step.name === "update + read-back TEST VEVENT"),
+    "Calendar full write did not update/read back the temporary VEVENT"
+  );
+  __toolsAssert(
+    fullWriteReceipt?.steps?.some(step => step.name === "delete + absence verification"),
+    "Calendar full write did not verify TEST VEVENT deletion"
+  );
+  __toolsAssert(fullWriteReceipt.logSaved === true, "Calendar full write receipt was not persisted");
+
   return {
     ok: true,
     navigatedToSettings: true,
     thunderbirdCalendarsReused: true,
     settingsSaved: true,
     settingsUndone: true,
+    calendarFullWrite: true,
   };
 }
 
@@ -1060,6 +1109,10 @@ async function __runRealAcceptance() {
   __acceptanceAssert(toolsResult.thunderbirdCalendarsReused, "Settings did not reuse Thunderbird Calendars");
   __acceptanceAssert(toolsResult.settingsSaved, "Task defaults did not save");
   __acceptanceAssert(toolsResult.settingsUndone, "Task defaults could not be undone");
+  __acceptanceAssert(
+    toolsResult.calendarFullWrite,
+    "Tools Calendar full write/read/update/delete human path did not pass"
+  );
   await browser.tabs.remove(toolsTab.id);
 
   __acceptanceStage = "taskfix-real-ui";
