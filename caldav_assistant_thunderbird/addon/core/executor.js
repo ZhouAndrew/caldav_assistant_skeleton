@@ -84,7 +84,7 @@
     if (audited) return audited;
 
     // Read-only migration fallback for a work session created by 0.3.15.
-    const legacyRuntime = await AssistantStorage.getRuntime();
+    const legacyRuntime = await AssistantStorage.getLegacyRuntime();
     const saved = legacyRuntime?.taskBeforeStart;
     if (
       AssistantStorage.makeWorkTaskId(legacyRuntime?.currentTask) ===
