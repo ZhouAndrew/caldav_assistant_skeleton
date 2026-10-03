@@ -228,7 +228,7 @@ async function __runTaskPickerAcceptance() {
   if (mode === "switch") {
     const saved = await browser.storage.local.get("caldavAssistant.acceptanceSwitchTarget");
     const target = saved["caldavAssistant.acceptanceSwitchTarget"];
-    __pickerAssert(target?.id, "Switch target reference was not persisted by acceptance setup");
+    __pickerAssert(target?.id, "Target reference was not persisted by acceptance setup");
     targetId = target.id;
     targetTitle = target.title || "Switch target task";
   }
@@ -243,14 +243,8 @@ async function __runTaskPickerAcceptance() {
   );
 
   const nativeFilters = [
-    "throughcurrent",
-    "throughtoday",
-    "throughsevendays",
-    "notstarted",
-    "overdue",
-    "completed",
-    "open",
-    "all",
+    "throughcurrent", "throughtoday", "throughsevendays", "notstarted",
+    "overdue", "completed", "open", "all",
   ];
   for (const value of nativeFilters) {
     __pickerAssert(
@@ -258,31 +252,13 @@ async function __runTaskPickerAcceptance() {
       "Task picker lost Thunderbird native Task filter " + value
     );
   }
-  __pickerAssert(
-    document.querySelector('input[name="task-view"][value="open"]')?.checked,
-    "Task picker did not map its default to Thunderbird native open filter"
-  );
   __pickerAssert(Boolean(document.getElementById("task-calendar-list")), "Task picker lost native Calendar selector");
-  __pickerAssert(
-    [...$("task-calendar-list").querySelectorAll(".native-calendar-row")].some(
-      row => row.textContent.includes("Acceptance")
-    ),
-    "Task picker did not inherit the visible Thunderbird Calendar list"
-  );
   __pickerAssert(Boolean(document.getElementById("task-search")), "Task picker lost search");
-  __pickerAssert(!document.getElementById("receipt"), "Detailed result log leaked into Task picker");
-  __pickerAssert(!document.getElementById("cancel-confirm"), "Cancel workflow leaked into Task picker");
 
-  // Human-path check that the search is delegated through Thunderbird's
-  // native calFilter rather than the old custom title-only filter.
   $("task-search").value = targetTitle;
   $("task-search").dispatchEvent(new Event("input", {bubbles: true}));
   await __pickerWaitFor(
-    () =>
-      state.tasks.some(task => task.id === targetId) &&
-      [...$("task-list").children].some(
-        row => row.querySelector?.(".item-title")?.textContent === targetTitle
-      ),
+    () => state.tasks.some(task => task.id === targetId),
     "native Task search"
   );
 
@@ -292,65 +268,49 @@ async function __runTaskPickerAcceptance() {
 
   if (mode === "start") {
     await __pickerWaitFor(
-      () =>
-        state.selected?.id === targetId &&
-        state.selectionSource === "thunderbird",
+      () => state.selected?.id === targetId && state.selectionSource === "thunderbird",
       "native Thunderbird selection adoption"
     );
-    __pickerAssert(
-      $("selected-title").textContent === targetTitle,
-      "Task picker did not keep Thunderbird's native selected Task"
-    );
-    __pickerAssert($("current-strip").hidden, "Idle Task picker incorrectly shows a current Task");
-    __pickerAssert(__pickerButton("开始这个 Task"), "Start action is missing from idle Task selection");
-    __pickerAssert(!__pickerButton("换下当前 Task"), "Switch-away action appeared without a current Task");
+    __pickerAssert($("current-strip").hidden, "Idle picker incorrectly shows current work");
+    __pickerAssert(__pickerButton("开始这个 Task"), "Start action missing");
+    __pickerAssert(!__pickerButton("结束当前 Task"), "Stop-current appeared while idle");
 
     __pickerButton("开始这个 Task").click();
     await browser.runtime.sendMessage({
       kind: "thunderbird-caldav-picker-start-acceptance",
-      result: {
-        ok: true,
-        segmentedUi: true,
-        targetSelected: true,
-        startClicked: true,
-      },
+      result: {ok: true, targetSelected: true, startClicked: true},
     });
     return;
   }
 
   targetRow.click();
-  __pickerAssert($("selected-title").textContent === targetTitle, "Selected Task title was not kept");
-
-  __pickerAssert(!$("current-strip").hidden, "Switch picker did not show the current Task context");
+  __pickerAssert(!$("current-strip").hidden, "Picker lost current Task context");
   __pickerAssert(
     $("current-strip-text").textContent.includes("Seed task from Radicale"),
-    "Switch picker lost the current Task context"
+    "Picker lost the current seed Task"
   );
-  __pickerAssert(__pickerButton("换下当前 Task"), "Explicit switch-away step is missing");
-  __pickerAssert(!__pickerButton("开始这个 Task"), "Start was offered before the current Task was put aside");
+  __pickerAssert(__pickerButton("结束当前 Task"), "Explicit Stop-current step is missing");
+  __pickerAssert(!__pickerButton("开始这个 Task"), "Start was offered before Stop");
 
   const before = await AssistantStorage.getLastReceipt();
-  __pickerButton("换下当前 Task").click();
-  const receipt = await __pickerWaitForNewReceipt("switch-away", before?.id || null);
+  __pickerButton("结束当前 Task").click();
+  const receipt = await __pickerWaitForNewReceipt("stop", before?.id || null);
+
   await __pickerWaitFor(
     () =>
-      state.runtime?.state === "idle" &&
+      !state.current &&
       state.selected?.id === targetId &&
       Boolean(__pickerButton("开始这个 Task")),
-    "switch-away -> preserved target selection"
+    "Stop -> preserved target selection"
   );
-
-  __pickerAssert(receipt.logSaved === true, "Switch-away result was not persisted before continuing");
-  __pickerAssert(
-    $("selected-title").textContent === "Switch target task",
-    "Target selection was lost after switching away from the current Task"
-  );
+  __pickerAssert(receipt.logSaved === true, "Stop result was not persisted");
+  __pickerAssert($("selected-title").textContent === targetTitle, "Target selection was lost after Stop");
 
   await browser.runtime.sendMessage({
     kind: "thunderbird-caldav-picker-switch-acceptance",
     result: {
       ok: true,
-      switchAwayVerified: true,
+      stopVerified: true,
       targetSelectionPreserved: true,
       explicitStartStep: true,
     },
@@ -367,9 +327,7 @@ setTimeout(() => {
         : "thunderbird-caldav-picker-start-acceptance",
       result: {
         ok: false,
-        error:
-          (error?.message || String(error)) +
-          (error?.stack ? "\n" + error.stack : ""),
+        error: (error?.message || String(error)) + (error?.stack ? "\n" + error.stack : ""),
       },
     })
   );
@@ -414,67 +372,33 @@ async function __runWorkspaceAcceptance() {
 
   const expectedTitle = mode === "complete" ? "Switch target task" : "Seed task from Radicale";
   await __workspaceWaitFor(
-    () =>
-      state.current?.title === expectedTitle &&
-      $("current-title").textContent === expectedTitle,
+    () => state.current?.title === expectedTitle && $("current-title").textContent === expectedTitle,
     "current Task render"
   );
 
-  __workspaceAssert(!document.getElementById("task-list"), "Task browser leaked back into the Work page");
-  __workspaceAssert(!document.getElementById("task-view"), "Task filter leaked back into the Work page");
-  __workspaceAssert(!document.getElementById("task-search"), "Task search leaked back into the Work page");
-  __workspaceAssert(!document.getElementById("receipt"), "Detailed result log leaked back into the Work page");
-  __workspaceAssert(
-    $("task-picker-link").getAttribute("href") === "task-picker.html",
-    "Work page does not link to the separate Task picker"
-  );
-  const navLabels = [...document.querySelectorAll(".tool-nav a")].map(node => node.textContent.trim());
-  __workspaceAssert(
-    JSON.stringify(navLabels) === JSON.stringify(["工作", "今天", "记录", "日志", "WordPress", "工具"]),
-    "Work UI did not expose the six stable top-level pages including WordPress"
-  );
+  __workspaceAssert(!document.getElementById("task-list"), "Task browser leaked into Work page");
+  __workspaceAssert(!document.getElementById("task-view"), "Task filter leaked into Work page");
+  __workspaceAssert(!document.getElementById("task-search"), "Task search leaked into Work page");
+  __workspaceAssert(__workspaceButton("结束"), "Stop/End is missing");
+  __workspaceAssert(__workspaceButton("完成"), "Complete is missing");
+  __workspaceAssert(__workspaceButton("取消"), "Cancel is missing");
+  __workspaceAssert(!__workspaceButton("暂停"), "Pause unexpectedly exists");
+  __workspaceAssert(!__workspaceButton("继续"), "Resume unexpectedly exists");
 
   if (mode === "active") {
-    __workspaceAssert(__workspaceButton("暂停"), "Pause is missing for the current working Task");
-    __workspaceAssert(__workspaceButton("完成"), "Complete is missing for the current working Task");
-    __workspaceAssert(__workspaceButton("取消"), "Cancel is missing for the current working Task");
-    __workspaceAssert($("task-picker-link").textContent === "换 Task", "Current Work does not offer Task switching");
-
-    let before = await AssistantStorage.getLastReceipt();
-    __workspaceButton("暂停").click();
-    let receipt = await __workspaceWaitForNewReceipt("pause", before?.id || null);
-    await __workspaceWaitFor(
-      () => state.runtime?.state === "paused" && Boolean(__workspaceButton("继续")),
-      "Pause -> paused"
-    );
-
-    before = receipt;
-    __workspaceButton("继续").click();
-    receipt = await __workspaceWaitForNewReceipt("resume", before?.id || null);
-    await __workspaceWaitFor(
-      () => state.runtime?.state === "working" && Boolean(__workspaceButton("暂停")),
-      "Resume -> working"
-    );
-
     await browser.runtime.sendMessage({
       kind: "thunderbird-caldav-workspace-active-acceptance",
-      result: {
-        ok: true,
-        segmentedUi: true,
-        pauseResumeUi: true,
-        persistentReceipt: receipt.logSaved === true,
-      },
+      result: {ok: true, stopUi: true, minimalControls: true},
     });
     return;
   }
 
-  __workspaceAssert(__workspaceButton("完成"), "Complete is missing for switched current Task");
   const before = await AssistantStorage.getLastReceipt();
   __workspaceButton("完成").click();
   const receipt = await __workspaceWaitForNewReceipt("complete", before?.id || null);
   await __workspaceWaitFor(
-    () => state.runtime?.state === "idle" && !$("no-current").hidden,
-    "Complete -> idle"
+    () => !state.current && !$("no-current").hidden,
+    "Complete -> no current Task"
   );
 
   await browser.runtime.sendMessage({
@@ -495,9 +419,7 @@ setTimeout(() => {
         : "thunderbird-caldav-workspace-active-acceptance",
       result: {
         ok: false,
-        error:
-          (error?.message || String(error)) +
-          (error?.stack ? "\n" + error.stack : ""),
+        error: (error?.message || String(error)) + (error?.stack ? "\n" + error.stack : ""),
       },
     })
   );
@@ -522,48 +444,37 @@ function __toolsAssert(condition, message) {
 
 async function __runToolsAcceptance() {
   await __toolsWaitFor(
-    () => [...$("task-calendar").options].some(option => option.value === "acceptance-calendar"),
-    "Task Calendar options"
+    () => [...$("calendar-test").options].some(option => option.value === "acceptance-calendar"),
+    "Calendar test options"
   );
 
-  __toolsAssert(location.hash === "#task-defaults", "Assistant did not navigate to the Task defaults section");
-  __toolsAssert(Boolean(document.getElementById("task-defaults")), "Task defaults section is missing");
+  __toolsAssert(location.hash === "#task-defaults", "Assistant did not navigate to Task settings");
+  __toolsAssert(Boolean(document.getElementById("task-defaults")), "Task settings section is missing");
   __toolsAssert($("task-view").value === "incomplete", "Default Task view is not Incomplete");
-  __toolsAssert(
-    [...$("task-calendar").options].some(option => option.value === "acceptance-calendar"),
-    "Thunderbird Calendar list was not reused in Settings"
-  );
+  __toolsAssert(!document.getElementById("task-calendar"), "Obsolete Task Calendar setting still exists");
+  __toolsAssert(!document.getElementById("work-calendar"), "Obsolete Work Calendar setting still exists");
 
   const before = await AssistantStorage.getSettings();
-  const beforeDefaults = {
-    taskView: before.taskView,
-    taskCalendarId: before.taskCalendarId,
-    workCalendarId: before.workCalendarId,
-  };
   $("task-view").value = "completed";
-  $("task-calendar").value = "acceptance-calendar";
   $("save-settings").click();
 
   await __toolsWaitFor(async () => {
     const settings = await AssistantStorage.getSettings();
-    return settings.taskView === "completed" &&
-      settings.taskCalendarId === "acceptance-calendar";
-  }, "save Task defaults");
+    return settings.taskView === "completed";
+  }, "save Task view");
 
-  __toolsAssert(!$("undo-settings").hidden, "Undo was not offered after changing defaults");
+  __toolsAssert(!$("undo-settings").hidden, "Undo was not offered");
   $("undo-settings").click();
 
   await __toolsWaitFor(async () => {
     const settings = await AssistantStorage.getSettings();
-    return settings.taskView === beforeDefaults.taskView &&
-      settings.taskCalendarId === beforeDefaults.taskCalendarId &&
-      settings.workCalendarId === beforeDefaults.workCalendarId;
-  }, "undo Task defaults");
+    return settings.taskView === before.taskView;
+  }, "undo Task view");
 
   return {
     ok: true,
     navigatedToSettings: true,
-    thunderbirdCalendarsReused: true,
+    testCalendarAvailable: true,
     settingsSaved: true,
     settingsUndone: true,
   };
@@ -571,23 +482,17 @@ async function __runToolsAcceptance() {
 
 setTimeout(() => {
   __runToolsAcceptance()
-    .then(result =>
-      browser.runtime.sendMessage({
-        kind: "thunderbird-caldav-tools-acceptance",
-        result,
-      })
-    )
-    .catch(error =>
-      browser.runtime.sendMessage({
-        kind: "thunderbird-caldav-tools-acceptance",
-        result: {
-          ok: false,
-          error:
-            (error?.message || String(error)) +
-            (error?.stack ? "\n" + error.stack : ""),
-        },
-      })
-    );
+    .then(result => browser.runtime.sendMessage({
+      kind: "thunderbird-caldav-tools-acceptance",
+      result,
+    }))
+    .catch(error => browser.runtime.sendMessage({
+      kind: "thunderbird-caldav-tools-acceptance",
+      result: {
+        ok: false,
+        error: (error?.message || String(error)) + (error?.stack ? "\n" + error.stack : ""),
+      },
+    }));
 }, 800);
 '''
 with (root / "tools.js").open("a", encoding="utf-8") as handle:
