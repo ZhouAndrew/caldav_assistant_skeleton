@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CalDAV Assistant</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <main class="page">
+    <header class="page-header">
+      <div>
+        <h1>CalDAV Assistant</h1>
+        <p>Thunderbird / CalDAV 是 Task 的事实源。</p>
+      </div>
+      <button id="retry" type="button">重新检查</button>
+    </header>
+
+    <section class="card">
+      <h2>系统状态</h2>
+      <pre id="state">正在初始化…</pre>
+    </section>
+
+    <section class="card">
+      <h2>开发中的新界面</h2>
+      <p>核心、迁移和重启恢复已经独立；Task Picker 与 Task 页面下一步接入。</p>
+    </section>
+  </main>
+  <script src="workspace.js"></script>
+</body>
+</html>
