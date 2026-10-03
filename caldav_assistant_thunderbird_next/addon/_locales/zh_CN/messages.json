@@ -1,0 +1,269 @@
+{
+  "extensionName": {
+    "message": "CalDAV Assistant 实验版"
+  },
+  "extensionDescription": {
+    "message": "Thunderbird 原生 CalDAV 助手：使用经过回读验证的 VTODO 工作流，并把工作记录保存在每个任务自己的描述中。"
+  },
+  "navTaskPicker": {
+    "message": "任务"
+  },
+  "navToday": {
+    "message": "今天"
+  },
+  "navLogs": {
+    "message": "日志"
+  },
+  "navSettings": {
+    "message": "设置"
+  },
+  "navTools": {
+    "message": "工具"
+  },
+  "navWordPress": {
+    "message": "WordPress"
+  },
+  "taskPickerTitle": {
+    "message": "选择任务"
+  },
+  "taskPageTitle": {
+    "message": "任务"
+  },
+  "todayTitle": {
+    "message": "今天"
+  },
+  "logsTitle": {
+    "message": "日志"
+  },
+  "settingsTitle": {
+    "message": "设置"
+  },
+  "toolsTitle": {
+    "message": "工具"
+  },
+  "wordpressTitle": {
+    "message": "WordPress"
+  },
+  "searchPlaceholder": {
+    "message": "搜索任务"
+  },
+  "filterLabel": {
+    "message": "筛选"
+  },
+  "filterAll": {
+    "message": "全部"
+  },
+  "filterNotStarted": {
+    "message": "未开始"
+  },
+  "filterOverdue": {
+    "message": "已逾期"
+  },
+  "filterOpen": {
+    "message": "未完成"
+  },
+  "filterCompleted": {
+    "message": "已完成"
+  },
+  "filterThroughCurrent": {
+    "message": "截至当前"
+  },
+  "filterThroughToday": {
+    "message": "截至今天"
+  },
+  "filterThroughSevenDays": {
+    "message": "未来七天"
+  },
+  "calendarLabel": {
+    "message": "日历"
+  },
+  "allCalendars": {
+    "message": "全部日历"
+  },
+  "actionStart": {
+    "message": "开始"
+  },
+  "actionStop": {
+    "message": "停止"
+  },
+  "actionComplete": {
+    "message": "完成"
+  },
+  "actionCancel": {
+    "message": "取消"
+  },
+  "actionOpenTask": {
+    "message": "打开任务"
+  },
+  "actionRefresh": {
+    "message": "刷新"
+  },
+  "actionRetry": {
+    "message": "重试"
+  },
+  "actionSave": {
+    "message": "保存"
+  },
+  "actionBack": {
+    "message": "返回"
+  },
+  "actionQuickTest": {
+    "message": "快速测试"
+  },
+  "actionFullTest": {
+    "message": "完整写入测试"
+  },
+  "loading": {
+    "message": "正在加载…"
+  },
+  "currentWork": {
+    "message": "当前工作"
+  },
+  "noCurrentWork": {
+    "message": "当前没有正在工作的任务"
+  },
+  "elapsed": {
+    "message": "已用时间"
+  },
+  "status": {
+    "message": "状态"
+  },
+  "progress": {
+    "message": "进度"
+  },
+  "description": {
+    "message": "描述"
+  },
+  "due": {
+    "message": "截止时间"
+  },
+  "calendar": {
+    "message": "日历"
+  },
+  "categories": {
+    "message": "分类"
+  },
+  "taskUntitled": {
+    "message": "（未命名任务）"
+  },
+  "noMatchingTasks": {
+    "message": "没有符合条件的任务。"
+  },
+  "taskWorkLogMalformed": {
+    "message": "这个任务中的 Assistant 工作记录格式损坏。为保护任务描述，工作流操作已禁用。"
+  },
+  "taskFinishedOpenSession": {
+    "message": "这个已结束的任务仍有未关闭的 Assistant 工作记录。必须先恢复状态，才能继续修改。"
+  },
+  "currentPointerStale": {
+    "message": "当前工作指针与任务中的未关闭工作记录不一致。必须先恢复状态。"
+  },
+  "openSessionNotCurrent": {
+    "message": "这个任务有未关闭的工作记录，但它不是当前任务。必须先恢复状态。"
+  },
+  "taskFinished": {
+    "message": "这个任务已经结束。"
+  },
+  "anotherTaskActive": {
+    "message": "当前已有另一个任务正在工作。"
+  },
+  "todayMalformedWorkLog": {
+    "message": "有一个任务的 Assistant 工作记录格式损坏，因此今天视图已跳过它。"
+  },
+  "recoveryRequired": {
+    "message": "必须先完成恢复，才能继续执行工作流操作。"
+  },
+  "startupReady": {
+    "message": "CalDAV Assistant 已就绪。"
+  },
+  "startupFailed": {
+    "message": "CalDAV Assistant 启动未完成。"
+  },
+  "settingsSaved": {
+    "message": "设置已保存。"
+  },
+  "wordpressTransport": {
+    "message": "连接方式"
+  },
+  "wordpressAuto": {
+    "message": "自动"
+  },
+  "wordpressRest": {
+    "message": "Application Password（REST）"
+  },
+  "wordpressWpCli": {
+    "message": "WP-CLI"
+  },
+  "wordpressBaseUrl": {
+    "message": "WordPress 地址"
+  },
+  "wordpressUsername": {
+    "message": "用户名"
+  },
+  "wordpressApplicationPassword": {
+    "message": "Application Password"
+  },
+  "wordpressPath": {
+    "message": "WordPress 路径"
+  },
+  "wordpressCliCommand": {
+    "message": "WP-CLI 命令"
+  },
+  "wordpressAllowUntrustedTls": {
+    "message": "允许不受信任的 TLS 证书"
+  },
+  "wordpressDailyLog": {
+    "message": "把已关闭的工作记录写入 WordPress"
+  },
+  "wordpressOutbox": {
+    "message": "WordPress 待发送队列"
+  },
+  "wordpressQueued": {
+    "message": "任务修改已经成功；WordPress 日志已加入待发送队列，稍后重试。"
+  },
+  "wordpressRetry": {
+    "message": "重试 WordPress 待发送队列"
+  },
+  "connectionReadable": {
+    "message": "Thunderbird Calendar provider 可读取。"
+  },
+  "connectionWritePassed": {
+    "message": "VTODO 写入与回读测试通过。"
+  },
+  "connectionFailed": {
+    "message": "连接测试失败。"
+  },
+  "logsEmpty": {
+    "message": "没有日志记录。"
+  },
+  "todayEmpty": {
+    "message": "今天还没有开始过工作记录。"
+  },
+  "startupStageSettings": {
+    "message": "正在迁移设置…"
+  },
+  "startupStageLegacy": {
+    "message": "正在迁移当前任务…"
+  },
+  "startupStageRecovery": {
+    "message": "正在恢复当前工作…"
+  },
+  "startupStageReady": {
+    "message": "已就绪"
+  },
+  "migratedSettings": {
+    "message": "原有设置已迁移。"
+  },
+  "migratedPassword": {
+    "message": "原有 WordPress 登录凭据已保留。"
+  },
+  "languageSystem": {
+    "message": "跟随 Thunderbird / 系统语言"
+  },
+  "languageEnglish": {
+    "message": "English"
+  },
+  "languageChineseSimplified": {
+    "message": "简体中文"
+  }
+}
