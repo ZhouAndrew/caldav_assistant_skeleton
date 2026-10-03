@@ -250,6 +250,13 @@ async function legacyRuntimeMigration() {
     storage["caldavAssistant.runtime"]?.currentWorkEvent?.id === "legacy-work-event",
     "compat migration destroyed legacy runtime too early"
   );
+
+  storage["caldavAssistant.currentWorkId"] = "corrupt";
+  const recovered = await AssistantStorage.getCurrentWorkId();
+  assert(
+    recovered === currentWorkId,
+    "corrupt currentWorkId did not recover from legacy runtime"
+  );
 }
 
 async function startReadbackRollback() {
@@ -262,6 +269,7 @@ async function startReadbackRollback() {
   assert(events.size === 0, "failed Start left an orphan Work VEVENT");
   const runtime = await AssistantStorage.getRuntime();
   assert(runtime.state === "idle", "failed Start did not restore idle runtime");
+  assert(await AssistantStorage.getCurrentWorkId() === null, "failed Start left currentWorkId set");
   assert(
     receipt.steps.some(step => step.component === "Rollback" && step.operation === "delete created VEVENT" && step.success),
     "failed Start did not record verified VEVENT cleanup"
@@ -299,6 +307,7 @@ async function pauseWriteRollback() {
   assert(events.get(workId)?.workOpen === true, "failed Pause did not reopen Work VEVENT");
   runtime = await AssistantStorage.getRuntime();
   assert(runtime.state === "working" && runtime.currentWorkEvent?.id === workId, "failed Pause changed runtime");
+  assert(await AssistantStorage.getCurrentWorkId(), "failed Pause lost currentWorkId");
 }
 
 async function resumeReadbackRollback() {
@@ -317,6 +326,7 @@ async function resumeReadbackRollback() {
   for (const id of beforeEvents) assert(events.has(id), "failed Resume removed previous Work VEVENT");
   const runtime = await AssistantStorage.getRuntime();
   assert(runtime.state === "paused" && !runtime.currentWorkEvent, "failed Resume did not restore paused runtime");
+  assert(await AssistantStorage.getCurrentWorkId(), "failed Resume lost currentWorkId");
 }
 
 async function switchAwayLifecycle() {
@@ -334,6 +344,7 @@ async function switchAwayLifecycle() {
   assert(events.get(workId)?.end && !events.get(workId)?.workOpen, "Switch-away did not close Work VEVENT");
   runtime = await AssistantStorage.getRuntime();
   assert(runtime.state === "idle" && !runtime.currentTask, "Switch-away did not release the current Task");
+  assert(await AssistantStorage.getCurrentWorkId() === null, "Switch-away did not clear currentWorkId");
 
   receipt = await AssistantExecutor.start(clone(task), "work");
   assert(receipt.success, "Task could not be started again after switch-away");
@@ -358,6 +369,7 @@ async function switchAwayPausedLifecycle() {
   assert(task.paused === false, "Paused switch-away left resumable paused state");
   const runtime = await AssistantStorage.getRuntime();
   assert(runtime.state === "idle" && !runtime.currentTask, "Paused switch-away did not release current Task");
+  assert(await AssistantStorage.getCurrentWorkId() === null, "Paused switch-away did not clear currentWorkId");
 }
 
 async function switchAwayRestoresExactPreStartProgress() {
@@ -391,6 +403,7 @@ async function cancelLifecycle() {
   assert(events.get(workId)?.end && !events.get(workId)?.workOpen, "Cancel did not close Work VEVENT");
   runtime = await AssistantStorage.getRuntime();
   assert(runtime.state === "idle" && !runtime.currentTask, "Cancel did not clear runtime");
+  assert(await AssistantStorage.getCurrentWorkId() === null, "Cancel did not clear currentWorkId");
   assert(
     receipt.steps.some(step => step.component === "WordPress" && step.operation === "not invoked"),
     "Cancel receipt must explicitly say WordPress was not invoked"
@@ -411,6 +424,7 @@ async function completeWriteRollback() {
   assert(events.get(workId)?.workOpen === true, "failed Complete did not reopen Work VEVENT");
   runtime = await AssistantStorage.getRuntime();
   assert(runtime.state === "working" && runtime.currentWorkEvent?.id === workId, "failed Complete changed runtime");
+  assert(await AssistantStorage.getCurrentWorkId(), "failed Complete lost currentWorkId");
 }
 
 (async () => {
