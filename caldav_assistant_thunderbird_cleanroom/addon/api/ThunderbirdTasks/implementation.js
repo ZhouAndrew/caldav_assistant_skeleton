@@ -9,8 +9,8 @@
  * - Thunderbird esr153 calendar/base/src/CalTodo.sys.mjs
  * - Thunderbird esr153 calendar/base/src/CalRecurrenceInfo.sys.mjs
  *
- * This API intentionally exposes VTODO operations only. Workflow state,
- * WordPress, UI state and VEVENT work-history concepts do not belong here.
+ * This API intentionally exposes VTODO provider operations only. All other
+ * product concerns stay outside this adapter.
  */
 
 var { ExtensionCommon } = ChromeUtils.importESModule(
