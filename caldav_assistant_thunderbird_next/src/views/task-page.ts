@@ -1,5 +1,5 @@
-import {TaskSnapshot, WorkIntent} from "../../domain";
-import {openWorkSession, parseWorkDescription} from "../../work-description";
+import {TaskSnapshot, WorkIntent} from "../domain";
+import {openWorkSession, parseWorkDescription} from "../work-description";
 
 export interface TaskPageView {
   readonly taskId: string;
