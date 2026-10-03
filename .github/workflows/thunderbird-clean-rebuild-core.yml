@@ -1,0 +1,28 @@
+name: thunderbird-clean-rebuild-core
+
+on:
+  push:
+    branches:
+      - "refactor/thunderbird-functional-vtodo-worklog-0.3.17"
+    paths:
+      - "caldav_assistant_thunderbird_rebuild/**"
+      - ".github/workflows/thunderbird-clean-rebuild-core.yml"
+  pull_request:
+    paths:
+      - "caldav_assistant_thunderbird_rebuild/**"
+      - ".github/workflows/thunderbird-clean-rebuild-core.yml"
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: caldav_assistant_thunderbird_rebuild
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install TypeScript
+        run: npm install --no-package-lock
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Core tests
+        run: npm test
