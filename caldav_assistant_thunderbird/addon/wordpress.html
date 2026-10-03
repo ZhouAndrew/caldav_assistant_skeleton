@@ -21,10 +21,6 @@
     <section class="card">
       <h2>WordPress 设置</h2>
       <div class="form-grid">
-        <label class="checkbox-row">
-          <input id="wp-daily-work-log" type="checkbox">
-          自动把已关闭的 Work Session 写入当天 WordPress 日志
-        </label>
         <label>连接方式
           <select id="wp-transport">
             <option value="auto">自动（优先 REST；网络失败时回退 WP-CLI）</option>
@@ -67,7 +63,7 @@
     </section>
 
     <section class="card">
-      <h2>待补写 Outbox</h2>
+      <h2>历史待补写 Outbox</h2>
       <p id="outbox-status">正在读取……</p>
       <div class="tool-actions">
         <button id="retry-outbox">立即重试</button>
