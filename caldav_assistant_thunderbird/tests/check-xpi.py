@@ -43,7 +43,7 @@ with zipfile.ZipFile(path) as z:
 
     manifest = json.loads(z.read("manifest.json"))
     assert manifest["name"] == "CalDAV Assistant Experimental"
-    assert manifest["version"] == "0.3.15"
+    assert manifest["version"] == "0.3.16"
     assert manifest["browser_specific_settings"]["gecko"]["id"] == (
         "ZhouAndrew.thunderbird-taskfix-lab@addons.thunderbird.net"
     )

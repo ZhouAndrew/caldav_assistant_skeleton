@@ -4,16 +4,33 @@ Canonical Thunderbird add-on for CalDAV Assistant.
 
 ## Current canonical version
 
-**0.3.15**
+**0.3.16**
 
-This source was migrated from the previously separate development line in
-`ZhouAndrew/thunderbird-taskfix`, branch
-`fix/caldav-assistant-switch-restore-incomplete-0.3.15`, tested head
-`81ba6042271e31857c46a50aadeec67bf82267cd`.
+0.3.16 is the reduced-lifecycle release candidate built from PR #98. It keeps
+Thunderbird/CalDAV as the Task/Event source of truth and limits Assistant-owned
+authoritative dynamic work state to `currentWorkId`.
 
-This directory is now the canonical source location. Do not use the legacy
-`integrations/thunderbird/manifest.json` (0.1.x Native Host line) to determine the
-current Thunderbird add-on version.
+The previous canonical baseline was 0.3.15, migrated from the formerly separate
+`ZhouAndrew/thunderbird-taskfix` development line. The legacy
+`integrations/thunderbird/manifest.json` 0.1.x Native Host line is not the current
+Thunderbird add-on.
+
+## 0.3.16 workflow
+
+New workflow actions:
+
+```text
+Start -> Stop | Complete | Cancel
+```
+
+Pause, Resume and Switch Away are no longer exposed as new workflow actions.
+
+Stop restores the immutable pre-Start VTODO status/progress, normalizes any legacy
+paused marker off, closes auxiliary Work history when possible, and clears
+`currentWorkId`.
+
+Old 0.3.15 runtime/audit data remains readable for migration and historical timing,
+but the new workflow never writes the legacy runtime state machine.
 
 ## Architecture
 
@@ -21,24 +38,21 @@ The add-on uses Thunderbird-native Calendar/Tasks APIs and Thunderbird's existin
 CalDAV provider connection. The legacy Native Host / Python bridge is not the normal
 Task interaction path.
 
+Work VEVENT is auxiliary history, not workflow truth. WordPress is long-form/daily
+logging, not Task state.
+
 ## Build
 
 ```bash
 cd caldav_assistant_thunderbird
 chmod +x packaging/build-xpi.sh
-packaging/build-xpi.sh dist/caldav-assistant-experimental-0.3.15.xpi
-python3 tests/check-xpi.py dist/caldav-assistant-experimental-0.3.15.xpi
+packaging/build-xpi.sh dist/caldav-assistant-experimental-0.3.16.xpi
+python3 tests/check-xpi.py dist/caldav-assistant-experimental-0.3.16.xpi
 ```
-
-## 0.3.15 result
-
-When switching away from the current Task, the add-on closes the open Work VEVENT and
-restores the original Task to the exact pre-Start status / paused marker /
-percent-complete snapshot. Switching is not Pause and does not leave the old Task
-resumable. The target Task still requires an explicit Start step.
 
 ## Release gate
 
-A release is not complete merely because the XPI builds. CI must cover syntax and
-behavior harnesses, XPI contract checks, real Thunderbird + Radicale acceptance, and
-real Thunderbird + WordPress acceptance.
+A release is not complete merely because the XPI builds. The exact 0.3.16 head must
+pass syntax/typed/behavior harnesses, XPI contract checks, real Thunderbird +
+Radicale (including same-profile restart), real Thunderbird + WordPress, connection
+diagnostics and the interactive Start/Stop/Complete/Cancel human path.
