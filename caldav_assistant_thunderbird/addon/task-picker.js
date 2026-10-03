@@ -7,7 +7,8 @@ const state = {
   calendars: [],
   tasks: [],
   selected: null,
-  runtime: null,
+  current: null,
+  currentWorkId: null,
   settings: {},
   taskView: "open",
   filtersInitialized: false,
@@ -17,10 +18,13 @@ const state = {
 function displayDate(value) {
   if (!value || !value.icalString) return "—";
   const text = value.icalString;
-  let m = /^(\d{4})(\d{2})(\d{2})$/.exec(text);
-  if (m) return m[1] + "-" + m[2] + "-" + m[3];
-  m = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/.exec(text);
-  if (m) return m[1] + "-" + m[2] + "-" + m[3] + " " + m[4] + ":" + m[5];
+  let match = /^(\d{4})(\d{2})(\d{2})$/.exec(text);
+  if (match) return match[1] + "-" + match[2] + "-" + match[3];
+  match = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})/.exec(text);
+  if (match) {
+    return match[1] + "-" + match[2] + "-" + match[3] +
+      " " + match[4] + ":" + match[5];
+  }
   return text;
 }
 
@@ -31,6 +35,14 @@ function sameTaskRef(ref, task) {
     ref.id === task.id &&
     ref.calendarId === task.calendarId &&
     String(ref.recurrenceId || "") === String(task.recurrenceId || "")
+  );
+}
+
+function sameCurrentTask(task) {
+  return Boolean(
+    task &&
+    state.currentWorkId &&
+    AssistantExecutor.currentWorkIdOf(task) === state.currentWorkId
   );
 }
 
@@ -60,38 +72,15 @@ function taskByRef(ref) {
 
 function taskState(task) {
   if (!task) return {label: "未选择", css: ""};
-  if (sameTaskRef(state.runtime?.currentTask, task) && state.runtime.state === "working") {
-    return {label: "正在进行", css: "working"};
-  }
-  if (sameTaskRef(state.runtime?.currentTask, task) && state.runtime.state === "paused") {
-    return {label: "已暂停", css: "paused"};
-  }
+  if (sameCurrentTask(task)) return {label: "正在进行", css: "working"};
   if (task.status === "COMPLETED") return {label: "已完成", css: "completed"};
   if (task.status === "CANCELLED") return {label: "已取消", css: "cancelled"};
-  if (task.paused) return {label: "已暂停", css: "paused"};
   if (task.status === "IN-PROCESS") return {label: "进行中", css: "working"};
   return {label: "未开始", css: ""};
 }
 
 function enabledTaskCalendars() {
   return state.calendars.filter(calendar => calendar.supportsTasks && !calendar.disabled);
-}
-
-function writableEventCalendars() {
-  return state.calendars.filter(calendar =>
-    calendar.supportsEvents && !calendar.disabled && !calendar.readOnly
-  );
-}
-
-async function resolveWorkCalendar(task) {
-  const candidates = writableEventCalendars();
-  const configured = candidates.find(calendar => calendar.id === state.settings.workCalendarId);
-  if (configured) return configured.id;
-
-  const sameCalendar = candidates.find(calendar => calendar.id === task.calendarId);
-  const chosen = sameCalendar || candidates[0];
-  if (!chosen) throw new Error("没有可写的 Work Calendar。请到“工具”设置。");
-  return chosen.id;
 }
 
 function showNotice(message, error = false) {
@@ -140,22 +129,19 @@ function renderFilters() {
 }
 
 function renderCurrentStrip() {
-  const task = taskByRef(state.runtime?.currentTask);
   const strip = $("current-strip");
-  if (!task) {
+  if (!state.current) {
     strip.hidden = true;
     return;
   }
-  const stateText = state.runtime.state === "paused" ? "已暂停" : "正在进行";
   $("current-strip-text").textContent =
-    "当前：" + (task.title || "(无标题)") + " · " + stateText;
+    "当前：" + (state.current.title || "(无标题)") + " · 正在进行";
   strip.hidden = false;
 }
 
 function renderTasks() {
   $("task-list").replaceChildren();
-  const tasks = state.tasks;
-  if (!tasks.length) {
+  if (!state.tasks.length) {
     const empty = document.createElement("div");
     empty.className = "empty";
     empty.textContent = "没有匹配的 Task";
@@ -163,7 +149,7 @@ function renderTasks() {
     return;
   }
 
-  for (const task of tasks) {
+  for (const task of state.tasks) {
     const row = document.createElement("div");
     row.className = "item" + (sameTaskRef(state.selected, task) ? " selected" : "");
 
@@ -216,23 +202,22 @@ function renderSelection() {
   $("selected-due").textContent = due === "—" ? "没有截止日期" : "截止 " + due;
 
   const finished = task.status === "COMPLETED" || task.status === "CANCELLED";
-  const current = taskByRef(state.runtime?.currentTask);
-
   if (finished) {
     $("flow-note").textContent = [sourceNote, "这个 Task 已结束。"].filter(Boolean).join(" ");
     return;
   }
 
-  if (sameTaskRef(state.runtime?.currentTask, task)) {
+  if (sameCurrentTask(task)) {
+    addAction("结束这个 Task", runStopCurrent, "primary");
     $("flow-note").textContent = [sourceNote, "这个 Task 就是当前工作。"].filter(Boolean).join(" ");
     return;
   }
 
-  if (current) {
-    addAction("换下当前 Task", runPutAside, "primary");
+  if (state.current) {
+    addAction("结束当前 Task", runStopCurrent, "primary");
     $("flow-note").textContent = [
       sourceNote,
-      "先把“" + (current.title || "(无标题)") + "”换下来；完成后再开始这个 Task。",
+      "先结束“" + (state.current.title || "(无标题)") + "”，然后再开始这个 Task。",
     ].filter(Boolean).join(" ");
     return;
   }
@@ -247,36 +232,43 @@ async function persistUiFailure(action, task, error) {
     success: false,
     startedAt: new Date().toISOString(),
     completedAt: new Date().toISOString(),
-    task: task ? {id: task.id, calendarId: task.calendarId, title: task.title} : null,
+    task: task ? {
+      id: task.id,
+      currentWorkId: AssistantExecutor.currentWorkIdOf(task),
+      title: task.title,
+    } : null,
     steps: [],
     error: String(error?.message || error || "Unknown error"),
   }, "workflow");
 }
 
-async function runPutAside() {
+async function runStopCurrent() {
   const target = state.selected;
-  const current = taskByRef(state.runtime?.currentTask);
-  if (!target || !current) return;
+  const current = state.current;
+  if (!current) return;
 
   actionRunning = true;
   $("actions").querySelectorAll("button").forEach(button => { button.disabled = true; });
+
   let receipt;
   try {
-    receipt = await AssistantExecutor.switchAway(current);
+    receipt = await AssistantExecutor.stop(current);
   } catch (error) {
-    receipt = await persistUiFailure("switch-away", current, error);
+    receipt = await persistUiFailure("stop", current, error);
   }
 
-  // Keep the user's target choice across provider notifications from putting
-  // the current Task aside. The steps remain separate; this does not start it.
   state.selected = target;
   await refreshAll(true);
   actionRunning = false;
 
   if (receipt.success) {
-    showNotice("已结束当前工作，并把原 Task 恢复到开始前的未完成状态。现在可以开始“" + (target.title || "(无标题)") + "”。");
+    showNotice(
+      target && !sameTaskRef(target, current)
+        ? "当前 Task 已结束。现在可以开始“" + (target.title || "(无标题)") + "”。"
+        : "当前 Task 已结束。"
+    );
   } else {
-    showNotice(receipt.error || receipt.summary || "换下当前 Task 失败。", true);
+    showNotice(receipt.error || receipt.summary || "结束当前 Task 失败。", true);
   }
 }
 
@@ -286,9 +278,10 @@ async function runStart() {
 
   actionRunning = true;
   $("actions").querySelectorAll("button").forEach(button => { button.disabled = true; });
+
   let receipt;
   try {
-    receipt = await AssistantExecutor.start(task, await resolveWorkCalendar(task));
+    receipt = await AssistantExecutor.start(task);
   } catch (error) {
     receipt = await persistUiFailure("start", task, error);
   }
@@ -315,8 +308,11 @@ async function refreshAll(preserveSelection = true) {
       : null;
 
     state.calendars = await browser.ThunderbirdCalDAV.listCalendars();
-    state.runtime = await AssistantStorage.getRuntime();
     state.settings = await AssistantStorage.getSettings();
+    state.current = await AssistantExecutor.currentTask();
+    state.currentWorkId = state.current
+      ? AssistantExecutor.currentWorkIdOf(state.current)
+      : null;
 
     if (!state.filtersInitialized) {
       state.taskView = normalizeTaskView(state.settings.taskView);
@@ -392,11 +388,13 @@ browser.ThunderbirdCalDAV.onItemsChanged.addListener(() => {
 
 if (browser.storage?.onChanged) {
   browser.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== "local" || !changes["caldavAssistant.settings"]) return;
-    state.settings = changes["caldavAssistant.settings"].newValue || {};
-    state.taskView = normalizeTaskView(state.settings.taskView);
-    state.filtersInitialized = true;
-    refreshAll(true);
+    if (areaName !== "local" || actionRunning) return;
+    if (
+      !changes["caldavAssistant.currentWorkId"] &&
+      !changes["caldavAssistant.settings"]
+    ) return;
+    clearTimeout(window.__caldavAssistantStorageRefresh);
+    window.__caldavAssistantStorageRefresh = setTimeout(() => refreshAll(true), 100);
   });
 }
 
