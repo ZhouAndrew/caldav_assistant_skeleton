@@ -139,6 +139,24 @@ class FakeNativeTasks implements NativeTasksApi {
       failures: [],
     } as const;
   }
+
+  async queryTasks() {
+    return {
+      tasks: [{
+        calendarId: this.task.calendarId,
+        calendarName: "Tasks",
+        uid: this.task.uid,
+        recurrenceId: this.task.recurrenceId,
+        title: this.task.title,
+        status: this.task.status,
+        percentComplete: this.task.percentComplete,
+        due: "2026-10-04T12:00:00+08:00",
+        categories: ["study"],
+      }],
+      complete: true,
+      failures: [],
+    } as const;
+  }
 }
 
 async function testThunderbirdRepositoryIdentity(): Promise<void> {
@@ -177,6 +195,18 @@ async function testThunderbirdRepositoryIdentity(): Promise<void> {
   assert(scan.complete, "complete native scan became incomplete");
   assert(scan.tasks.length === 1, "native scan lost Task");
   assert(scan.tasks[0]?.taskId === taskId, "native scan changed Task identity");
+
+  const query = await repo.query({
+    filter: "open",
+    search: "Native",
+    calendarIds: ["cal/1"],
+  });
+  assert(query.complete, "native query became incomplete");
+  assert(query.items.length === 1, "native query lost Task");
+  assert(query.items[0]?.taskId === taskId, "native query changed recurring identity");
+  assert(query.items[0]?.status === "NEEDS-ACTION", "native query lost status");
+  assert(query.items[0]?.percentComplete === 40, "native query lost progress");
+  assert(query.items[0]?.categories[0] === "study", "native query lost categories");
 }
 
 (async () => {
