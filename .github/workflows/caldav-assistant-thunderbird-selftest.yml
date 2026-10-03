@@ -18,6 +18,14 @@ jobs:
         working-directory: caldav_assistant_thunderbird
     steps:
       - uses: actions/checkout@v4
+      - name: Install typed development tooling
+        run: npm install --no-package-lock
+
+      - name: Strict TypeScript core
+        run: |
+          npm run typecheck
+          npm run test:typed
+
       - name: Syntax and behavior
         run: |
           node --check addon/content/taskfix-window.js
