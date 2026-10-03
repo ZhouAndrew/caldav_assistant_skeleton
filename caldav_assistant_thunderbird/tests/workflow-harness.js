@@ -266,6 +266,33 @@ async function reconciliationClearsStalePointer() {
   );
 }
 
+async function outboxNeverDropsPendingHistory() {
+  resetAll();
+
+  for (let index = 0; index < 500; index++) {
+    await AssistantStorage.enqueueWordPressOutbox({
+      id: "pending-" + index,
+      payload: {content: "entry-" + index},
+    });
+  }
+
+  let rejected = false;
+  try {
+    await AssistantStorage.enqueueWordPressOutbox({
+      id: "pending-overflow",
+      payload: {content: "must-not-displace-oldest"},
+    });
+  } catch (error) {
+    rejected = /Outbox is full/i.test(String(error?.message || error));
+  }
+  assert(rejected, "full Outbox did not reject overflow explicitly");
+
+  const records = await AssistantStorage.listWordPressOutbox();
+  assert(records.length === 500, "full Outbox changed size after rejected enqueue");
+  assert(records[0].id === "pending-0", "full Outbox silently discarded oldest pending history");
+  assert(!records.some(item => item.id === "pending-overflow"), "rejected overflow was persisted");
+}
+
 async function legacyRuntimeMigratesToOneId() {
   resetAll();
   storage["caldavAssistant.runtime"] = {
@@ -300,6 +327,7 @@ async function legacyRuntimeMigratesToOneId() {
   await completeAndCancelDoNotRequireCurrentTask();
   await failedStartRollsBackSinglePointer();
   await reconciliationClearsStalePointer();
+  await outboxNeverDropsPendingHistory();
   await legacyRuntimeMigratesToOneId();
   console.log("workflow-harness: PASS");
 })().catch(error => {
