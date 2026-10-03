@@ -67,6 +67,13 @@ const calendar = {
   id: "cal-1",
   master: null,
   lastModify: null,
+  getProperty(name) {
+    if (name === "capabilities.tasks.supported") return true;
+    return null;
+  },
+  async getItemsAsArray() {
+    return this.master ? [this.master] : [];
+  },
   async getItem(uid) {
     return this.master?.id === uid ? this.master : null;
   },
@@ -90,6 +97,12 @@ const master = createTodo(calendar, {
   description: "Master description",
 });
 master.recurrenceInfo = {
+  getExceptionIds() {
+    return [{icalString: "20261003T090000"}];
+  },
+  getExceptionFor(value) {
+    return value.icalString === "20261003T090000" ? occurrence : null;
+  },
   getOccurrenceFor(value) {
     assert(
       value.icalString === "20261003T090000",
@@ -104,6 +117,9 @@ const cal = {
   manager: {
     getCalendarById(id) {
       return id === calendar.id ? calendar : null;
+    },
+    getCalendars() {
+      return [calendar];
     },
   },
   createDateTime(value) {
@@ -209,6 +225,38 @@ async function main() {
     invalidRejected = true;
   }
   assert(invalidRejected, "non-completed 100% VTODO was accepted");
+
+  const scan = await api.scanStoredTasks();
+  assert(scan.complete === true, "stored task scan unexpectedly incomplete");
+  assert(scan.failures.length === 0, "stored task scan reported a false failure");
+  assert(scan.tasks.length === 2, "stored task scan must include master + exception");
+  assert(
+    scan.tasks.some(item =>
+      item.uid === "uid-1" &&
+      item.recurrenceId === "20261003T090000"
+    ),
+    "stored recurring exception was omitted from scan"
+  );
+
+  const failingCalendar = {
+    id: "broken-cal",
+    getProperty() {
+      return true;
+    },
+    async getItemsAsArray() {
+      throw new Error("provider read failed");
+    },
+  };
+  cal.manager.getCalendars = () => [calendar, failingCalendar];
+
+  const partial = await api.scanStoredTasks();
+  assert(partial.complete === false, "partial scan was marked complete");
+  assert(partial.tasks.length === 2, "healthy calendar Tasks were lost on partial scan");
+  assert(partial.failures.length === 1, "provider failure was not surfaced");
+  assert(
+    partial.failures[0].calendarId === "broken-cal",
+    "scan failure lost calendar identity"
+  );
 
   console.log("native-tasks harness: PASS");
 }
