@@ -13,8 +13,7 @@ function localDay(iso) {
 function actionLabel(action) {
   return {
     start: "开始",
-    pause: "暂停",
-    resume: "继续",
+    stop: "结束",
     complete: "完成",
     cancel: "取消",
   }[action] || action;
