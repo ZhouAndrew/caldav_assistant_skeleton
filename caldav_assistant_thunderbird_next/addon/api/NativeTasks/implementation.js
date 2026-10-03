@@ -158,6 +158,22 @@ var NativeTasks = class extends ExtensionCommon.ExtensionAPI {
   getAPI() {
     return {
       NativeTasks: {
+        async listTaskCalendars() {
+          return cal.manager.getCalendars()
+            .filter(calendar =>
+              calendar.getProperty?.("capabilities.tasks.supported") !== false
+            )
+            .map(calendar => ({
+              id: String(calendar.id || ""),
+              name: String(calendar.name || ""),
+              disabled: Boolean(calendar.getProperty?.("disabled")),
+              inComposite: Boolean(
+                calendar.getProperty?.("calendar-main-in-composite")
+              ),
+              readOnly: Boolean(calendar.readOnly),
+            }));
+        },
+
         async queryTasks(options) {
           const filterName = String(options?.filter || "open");
           if (!TASK_FILTERS.has(filterName)) {
