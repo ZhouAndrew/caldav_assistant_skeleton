@@ -315,7 +315,7 @@ async function __runTaskPickerAcceptance() {
     );
     __pickerAssert($("current-strip").hidden, "Idle Task picker incorrectly shows a current Task");
     __pickerAssert(__pickerButton("开始这个 Task"), "Start action is missing from idle Task selection");
-    __pickerAssert(!__pickerButton("换下当前 Task"), "Switch-away action appeared without a current Task");
+    __pickerAssert(!__pickerButton("停止当前 Task"), "Stop action appeared without a current Task");
 
     __pickerButton("开始这个 Task").click();
     await browser.runtime.sendMessage({
@@ -338,31 +338,31 @@ async function __runTaskPickerAcceptance() {
     $("current-strip-text").textContent.includes("Seed task from Radicale"),
     "Switch picker lost the current Task context"
   );
-  __pickerAssert(__pickerButton("换下当前 Task"), "Explicit switch-away step is missing");
-  __pickerAssert(!__pickerButton("开始这个 Task"), "Start was offered before the current Task was put aside");
+  __pickerAssert(__pickerButton("停止当前 Task"), "Explicit Stop step is missing");
+  __pickerAssert(!__pickerButton("开始这个 Task"), "Start was offered before the current Task was stopped");
 
   const before = await AssistantStorage.getLastReceipt();
-  __pickerButton("换下当前 Task").click();
-  const receipt = await __pickerWaitForNewReceipt("switch-away", before?.id || null);
+  __pickerButton("停止当前 Task").click();
+  const receipt = await __pickerWaitForNewReceipt("stop", before?.id || null);
   await __pickerWaitFor(
     () =>
       state.currentWorkId === null &&
       state.selected?.id === targetId &&
       Boolean(__pickerButton("开始这个 Task")),
-    "switch-away -> preserved target selection"
+    "stop -> preserved target selection"
   );
 
-  __pickerAssert(receipt.logSaved === true, "Switch-away result was not persisted before continuing");
+  __pickerAssert(receipt.logSaved === true, "Stop result was not persisted before continuing");
   __pickerAssert(
     $("selected-title").textContent === "Switch target task",
-    "Target selection was lost after switching away from the current Task"
+    "Target selection was lost after stopping the current Task"
   );
 
   await browser.runtime.sendMessage({
     kind: "thunderbird-caldav-picker-switch-acceptance",
     result: {
       ok: true,
-      switchAwayVerified: true,
+      stopVerified: true,
       targetSelectionPreserved: true,
       explicitStartStep: true,
     },
@@ -447,42 +447,22 @@ async function __runWorkspaceAcceptance() {
   );
 
   if (mode === "active") {
-    __workspaceAssert(__workspaceButton("暂停"), "Pause is missing for the current working Task");
+    __workspaceAssert(__workspaceButton("停止"), "Stop is missing for the current working Task");
     __workspaceAssert(__workspaceButton("完成"), "Complete is missing for the current working Task");
     __workspaceAssert(__workspaceButton("取消"), "Cancel is missing for the current working Task");
-    __workspaceAssert($("task-picker-link").textContent === "换 Task", "Current Work does not offer Task switching");
-
-    let before = await AssistantStorage.getLastReceipt();
-    __workspaceButton("暂停").click();
-    let receipt = await __workspaceWaitForNewReceipt("pause", before?.id || null);
-    await __workspaceWaitFor(
-      () =>
-        state.currentWorkId !== null &&
-        state.current?.status === "IN-PROCESS" &&
-        state.current?.paused === true &&
-        Boolean(__workspaceButton("继续")),
-      "Pause -> paused"
-    );
-
-    before = receipt;
-    __workspaceButton("继续").click();
-    receipt = await __workspaceWaitForNewReceipt("resume", before?.id || null);
-    await __workspaceWaitFor(
-      () =>
-        state.currentWorkId !== null &&
-        state.current?.status === "IN-PROCESS" &&
-        state.current?.paused === false &&
-        Boolean(__workspaceButton("暂停")),
-      "Resume -> working"
-    );
+    __workspaceAssert(!__workspaceButton("暂停"), "Pause leaked into the reduced lifecycle");
+    __workspaceAssert(!__workspaceButton("继续"), "Resume leaked into the reduced lifecycle");
+    __workspaceAssert(typeof AssistantExecutor.pause === "undefined", "Pause API is still exposed");
+    __workspaceAssert(typeof AssistantExecutor.resume === "undefined", "Resume API is still exposed");
+    __workspaceAssert(typeof AssistantExecutor.switchAway === "undefined", "Switch Away API is still exposed");
+    __workspaceAssert($("task-picker-link").textContent === "换 Task", "Current Work does not offer Task selection");
 
     await browser.runtime.sendMessage({
       kind: "thunderbird-caldav-workspace-active-acceptance",
       result: {
         ok: true,
         segmentedUi: true,
-        pauseResumeUi: true,
-        persistentReceipt: receipt.logSaved === true,
+        reducedLifecycleUi: true,
       },
     });
     return;
@@ -811,8 +791,8 @@ async function __runRealAcceptance() {
   let restartRecovery = false;
 
   // A real restart gate: the previous Thunderbird process deliberately leaves
-  // one paused current Task. The new process must recover the same opaque
-  // currentWorkId and the authoritative VTODO facts before normal acceptance.
+  // one started current Task. The new process must recover the same opaque
+  // currentWorkId and authoritative VTODO facts before normal acceptance.
   __acceptanceStage = "restart-current-work-recovery";
   const persistedAtStartup = await AssistantStorage.getCurrentWorkId();
   if (persistedAtStartup) {
@@ -833,16 +813,16 @@ async function __runRealAcceptance() {
       "Restart-recovered Task is not IN-PROCESS"
     );
     __acceptanceAssert(
-      persistedTask.paused === true,
-      "Restart-recovered Task did not preserve Pause"
+      persistedTask.paused === false,
+      "Restart-recovered Task unexpectedly has a legacy paused marker"
     );
     __acceptanceAssert(
       AssistantStorage.makeWorkTaskId(persistedTask) === persistedAtStartup,
       "Persisted currentWorkId does not match the recovered Thunderbird Task"
     );
 
-    const restored = await AssistantExecutor.switchAway(persistedTask);
-    __acceptanceAssert(restored.success, "Could not restore restart-recovered Task");
+    const restored = await AssistantExecutor.stop(persistedTask);
+    __acceptanceAssert(restored.success, "Could not Stop restart-recovered Task");
     __acceptanceAssert(
       await AssistantStorage.getCurrentWorkId() === null,
       "Restart recovery did not clear currentWorkId"
@@ -978,8 +958,7 @@ async function __runRealAcceptance() {
     "Active Work UI acceptance failed: " + (workspaceActiveResult?.error || "unknown")
   );
   __acceptanceAssert(workspaceActiveResult.segmentedUi, "Work page is not segmented");
-  __acceptanceAssert(workspaceActiveResult.pauseResumeUi, "Pause/Resume human path did not pass");
-  __acceptanceAssert(workspaceActiveResult.persistentReceipt, "Pause/Resume receipt persistence failed");
+  __acceptanceAssert(workspaceActiveResult.reducedLifecycleUi, "Reduced Start/Stop/Complete/Cancel Work UI contract did not pass");
   await browser.tabs.remove(workspaceTab.id);
 
   __acceptanceStage = "create-switch-target";
@@ -1019,10 +998,10 @@ async function __runRealAcceptance() {
     pickerSwitchResult?.ok,
     "Task picker switch acceptance failed: " + (pickerSwitchResult?.error || "unknown")
   );
-  __acceptanceAssert(pickerSwitchResult.switchAwayVerified, "Switch-away human path did not pass");
+  __acceptanceAssert(pickerSwitchResult.stopVerified, "Stop human path did not pass");
   __acceptanceAssert(
     pickerSwitchResult.targetSelectionPreserved,
-    "Target selection was not preserved across the switch-away step"
+    "Target selection was not preserved across the Stop step"
   );
   __acceptanceAssert(pickerSwitchResult.explicitStartStep, "Switch flow auto-chained instead of staying segmented");
 
@@ -1126,8 +1105,8 @@ async function __runRealAcceptance() {
 
   __acceptanceStage = "verify-workflow-task";
   let workflowTask = await browser.ThunderbirdCalDAV.getTask(calendar.id, "seed-task");
-  __acceptanceAssert(workflowTask.status === "NEEDS-ACTION", "Switch-away did not restore seed Task to its pre-start incomplete status");
-  __acceptanceAssert(workflowTask.paused === false, "Switch-away incorrectly left seed Task paused/resumable");
+  __acceptanceAssert(workflowTask.status === "NEEDS-ACTION", "Stop did not restore seed Task to its pre-start incomplete status");
+  __acceptanceAssert(workflowTask.paused === false, "Stop left a legacy paused marker on the seed Task");
 
   const switchedTask = await browser.ThunderbirdCalDAV.getTask(calendar.id, switchTarget.id);
   __acceptanceAssert(switchedTask.status === "COMPLETED", "Switched Task Complete was not persisted to CalDAV");
@@ -1140,10 +1119,10 @@ async function __runRealAcceptance() {
   const switchWorkEvents = (await browser.ThunderbirdCalDAV.listEvents(calendar.id, "", "")).filter(
     item => item.workSession && item.taskUid === switchTarget.id
   );
-  __acceptanceAssert(seedWorkEvents.length >= 2, "Start/Resume did not create separate seed Work VEVENTs");
+  __acceptanceAssert(seedWorkEvents.length >= 1, "Start did not create a seed Work VEVENT");
   __acceptanceAssert(
     seedWorkEvents.every(item => item.end && !item.workOpen),
-    "Switch-away left a seed Work VEVENT open"
+    "Stop left a seed Work VEVENT open"
   );
   __acceptanceAssert(switchWorkEvents.length >= 1, "Switched Task Start did not create a Work VEVENT");
   __acceptanceAssert(
@@ -1157,7 +1136,7 @@ async function __runRealAcceptance() {
   const workflowActions = auditRows
     .filter(row => row.scope === "workflow")
     .map(row => row.action);
-  for (const expected of ["start", "pause", "resume", "switch-away", "complete"]) {
+  for (const expected of ["start", "stop", "complete"]) {
     __acceptanceAssert(workflowActions.includes(expected), "Persistent audit missing " + expected);
   }
 
@@ -1267,10 +1246,10 @@ async function __runRealAcceptance() {
   __acceptanceAssert(logsResult.emptyStateCorrect, "Cleared log empty state is incorrect");
   await browser.tabs.remove(logsTab.id);
 
-  // Leave one paused current Task for the real same-profile Thunderbird restart.
-  // Pause closes the Work VEVENT, and the closed test VEVENT is then deleted so
-  // the server fixture remains clean while currentWorkId still persists.
-  __acceptanceStage = "leave-paused-current-for-restart";
+  // Leave one started current Task for the real same-profile Thunderbird restart.
+  // Work VEVENT history is auxiliary, so remove the test event while preserving
+  // currentWorkId; the next process must still recover and Stop the VTODO safely.
+  __acceptanceStage = "leave-current-for-restart";
   const eventsBeforeRestartFixture = new Set(
     (await browser.ThunderbirdCalDAV.listEvents(calendar.id, "", "")).map(item => item.id)
   );
@@ -1278,15 +1257,13 @@ async function __runRealAcceptance() {
   const restartStart = await AssistantExecutor.start(seedFinal, calendar.id);
   __acceptanceAssert(restartStart.success, "Could not Start restart recovery fixture");
   const seedStarted = await browser.ThunderbirdCalDAV.getTask(calendar.id, "seed-task");
-  const restartPause = await AssistantExecutor.pause(seedStarted);
-  __acceptanceAssert(restartPause.success, "Could not Pause restart recovery fixture");
 
   const restartWorkId = AssistantStorage.makeWorkTaskId(seedStarted);
-  await __waitForCurrentWorkId(restartWorkId, "paused restart fixture");
-  const pausedForRestart = await browser.ThunderbirdCalDAV.getTask(calendar.id, "seed-task");
+  await __waitForCurrentWorkId(restartWorkId, "started restart fixture");
+  const startedForRestart = await browser.ThunderbirdCalDAV.getTask(calendar.id, "seed-task");
   __acceptanceAssert(
-    pausedForRestart.status === "IN-PROCESS" && pausedForRestart.paused === true,
-    "Restart fixture did not preserve IN-PROCESS + paused VTODO facts"
+    startedForRestart.status === "IN-PROCESS" && startedForRestart.paused === false,
+    "Restart fixture did not preserve IN-PROCESS VTODO facts"
   );
 
   for (const eventItem of await browser.ThunderbirdCalDAV.listEvents(calendar.id, "", "")) {
@@ -1300,7 +1277,7 @@ async function __runRealAcceptance() {
   }
   __acceptanceAssert(
     await AssistantStorage.getCurrentWorkId() === restartWorkId,
-    "Cleaning the closed test Work VEVENT changed currentWorkId"
+    "Cleaning auxiliary test Work VEVENT changed currentWorkId"
   );
 
   return {
