@@ -1,174 +1,94 @@
 "use strict";
 
-const assert = (condition, message) => {
-  if (!condition) throw new Error(message);
-};
 const fs = require("fs");
 const vm = require("vm");
 
-global.window = global;
-
-const outbox = [];
-const calls = [];
-let failWrites = false;
-let enabled = true;
-
-function localDateKey(value = new Date()) {
-  const date = value instanceof Date ? value : new Date(value);
-  return (
-    String(date.getFullYear()).padStart(4, "0") + "-" +
-    String(date.getMonth() + 1).padStart(2, "0") + "-" +
-    String(date.getDate()).padStart(2, "0")
-  );
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
 }
 
-global.AssistantStorage = {
-  localDateKey,
-  async enqueueWordPressOutbox(entry) {
-    const item = {
-      id: "outbox-" + (outbox.length + 1),
-      attempts: Number(entry.attempts || 0),
-      lastError: entry.lastError || "",
-      payload: entry.payload,
-    };
-    outbox.push(item);
-    return item;
+const outbox = [
+  {
+    id: "legacy-1",
+    attempts: 1,
+    payload: {
+      content: "09:00–09:30 Legacy queued entry",
+      startIso: "2026-10-03T09:00:00.000Z",
+      marker: "legacy-marker-1",
+    },
   },
+  {
+    id: "legacy-2",
+    attempts: 2,
+    payload: {
+      content: "10:00–10:10 Legacy queued entry 2",
+      startIso: "2026-10-03T10:00:00.000Z",
+      marker: "legacy-marker-2",
+    },
+  },
+];
+
+global.AssistantStorage = {
   async listWordPressOutbox() {
-    return outbox.map(item => ({...item}));
+    return outbox.map(item => ({...item, payload: {...item.payload}}));
   },
   async updateWordPressOutbox(id, patch) {
     const item = outbox.find(row => row.id === id);
-    Object.assign(item, patch || {});
+    if (!item) return null;
+    Object.assign(item, patch);
     return item;
   },
   async removeWordPressOutbox(id) {
     const index = outbox.findIndex(row => row.id === id);
-    if (index >= 0) outbox.splice(index, 1);
-    return index >= 0;
+    if (index < 0) return false;
+    outbox.splice(index, 1);
+    return true;
   },
 };
 
+const calls = [];
+let failMarker = "legacy-marker-2";
 global.AssistantWordPress = {
-  async getConfig() {
-    return {dailyWorkLogEnabled: enabled};
-  },
-  async createLog(options) {
-    calls.push({
-      content: options.content,
-      date: options.date,
-      prefixTime: options.prefixTime,
-      marker: options.marker,
-    });
-    if (failWrites) {
-      return {success: false, summary: "simulated WordPress offline"};
+  async createLog(payload) {
+    calls.push({...payload});
+    if (payload.marker === failMarker) {
+      return {success: false, summary: "simulated WordPress failure"};
     }
-    return {
-      success: true,
-      deduplicated: false,
-      post: {
-        id: 123,
-        title:
-          options.date.getDate() === 2
-            ? "October 2 Friday 2026"
-            : "October 3 Saturday 2026",
-      },
-    };
+    return {success: true, post: {id: 123}};
   },
 };
 
+global.window = global;
 vm.runInThisContext(
   fs.readFileSync("addon/core/daily-log.js", "utf8"),
   {filename: "addon/core/daily-log.js"}
 );
 
 (async () => {
-  const receipt = {steps: []};
-  const task = {id: "task-anki", title: "Anki"};
-
-  let result = await AssistantDailyLog.recordClosedWorkSession(
-    task,
-    {
-      id: "work-one",
-      taskUid: "task-anki",
-      start: {icalString: "20261002T123054"},
-      end: {icalString: "20261002T123157"},
-    },
-    receipt
-  );
-  assert(result.success, "normal Work Session did not reach WordPress");
-  assert(calls.length === 1, "normal Work Session wrote more than once");
-  assert(calls[0].content === "12:30–12:31 Anki", "work range text is wrong");
-  assert(calls[0].prefixTime === false, "work range received an extra clock prefix");
   assert(
-    calls[0].marker.includes("work-one") && calls[0].marker.includes("2026-10-02"),
-    "work marker is not stable by Work UID/date"
+    typeof AssistantWordPressOutbox.flushOutbox === "function",
+    "WordPress Outbox retry service is missing"
   );
   assert(
-    receipt.steps.some(step =>
-      step.component === "WordPress" &&
-      step.operation === "append daily work log" &&
-      step.details.postId === 123
-    ),
-    "workflow receipt did not expose verified WordPress target"
+    typeof AssistantWordPressOutbox.recordClosedWorkSession === "undefined",
+    "Work Session Event lifecycle leaked back into Outbox service"
   );
 
-  calls.length = 0;
-  result = await AssistantDailyLog.recordClosedWorkSession(
-    task,
-    {
-      id: "work-midnight",
-      taskUid: "task-anki",
-      start: {icalString: "20261002T235900"},
-      end: {icalString: "20261003T000100"},
-    },
-    {steps: []}
-  );
-  assert(result.success, "midnight Work Session failed");
-  assert(calls.length === 2, "midnight Work Session was not split by date");
-  assert(localDateKey(calls[0].date) === "2026-10-02", "first split date is wrong");
-  assert(localDateKey(calls[1].date) === "2026-10-03", "second split date is wrong");
-  assert(calls[0].marker !== calls[1].marker, "split entries reused one marker");
+  let result = await AssistantWordPressOutbox.flushOutbox();
+  assert(result.processed === 2, "first retry did not inspect both legacy items");
+  assert(result.sent === 1 && result.failed === 1, "first retry counts are wrong");
+  assert(outbox.length === 1 && outbox[0].id === "legacy-2", "failed pending entry was lost");
+  assert(outbox[0].attempts === 3, "failed entry attempt count was not updated");
+  assert(calls[0].marker === "legacy-marker-1", "legacy idempotency marker changed");
 
-  calls.length = 0;
-  outbox.length = 0;
-  failWrites = true;
-  result = await AssistantDailyLog.recordClosedWorkSession(
-    task,
-    {
-      id: "work-offline",
-      taskUid: "task-anki",
-      start: {icalString: "20261002T130000"},
-      end: {icalString: "20261002T131000"},
-    },
-    {steps: []}
-  );
-  assert(!result.success && result.queued, "offline WordPress was not queued");
-  assert(outbox.length === 1, "offline WordPress did not create one Outbox item");
-
-  const queuedMarker = outbox[0].payload.marker;
-  failWrites = false;
-  const flushed = await AssistantDailyLog.flushOutbox();
-  assert(flushed.sent === 1 && flushed.failed === 0, "Outbox retry did not succeed");
-  assert(outbox.length === 0, "successful Outbox item was not removed");
+  failMarker = "";
+  result = await AssistantWordPressOutbox.flushOutbox();
+  assert(result.sent === 1 && result.failed === 0, "second retry did not succeed");
+  assert(outbox.length === 0, "successful legacy Outbox entry was not removed");
   assert(
-    calls[calls.length - 1].marker === queuedMarker,
-    "Outbox retry changed the idempotency marker"
+    calls.some(call => call.marker === "legacy-marker-2"),
+    "second legacy marker was not preserved"
   );
-
-  enabled = false;
-  calls.length = 0;
-  result = await AssistantDailyLog.recordClosedWorkSession(
-    task,
-    {
-      id: "work-disabled",
-      start: {icalString: "20261002T140000"},
-      end: {icalString: "20261002T141000"},
-    },
-    {steps: []}
-  );
-  assert(result.skipped, "disabled daily logging did not skip");
-  assert(calls.length === 0, "disabled daily logging still wrote WordPress");
 
   console.log("daily-log-harness: PASS");
 })().catch(error => {
