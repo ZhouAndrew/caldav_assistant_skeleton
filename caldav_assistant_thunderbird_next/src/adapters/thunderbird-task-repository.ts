@@ -1,6 +1,6 @@
 import {TaskPatch, TaskSnapshot, TaskStatus} from "../domain";
 import {TaskCatalog, TaskRepository, TaskScanResult, TaskWriteExpectation} from "../ports";
-import {TaskListItem, TaskQuery, TaskQueryOptions, TaskQueryResult} from "../task-query";
+import {TaskCalendarInfo, TaskListItem, TaskQuery, TaskQueryOptions, TaskQueryResult} from "../task-query";
 import {decodeTaskId, encodeTaskId} from "../task-id";
 
 export interface NativeTaskView {
@@ -20,6 +20,14 @@ export interface NativeTaskScanResult {
     readonly calendarId: string;
     readonly message: string;
   }[];
+}
+
+export interface NativeTaskCalendar {
+  readonly id: string;
+  readonly name: string;
+  readonly disabled: boolean;
+  readonly inComposite: boolean;
+  readonly readOnly: boolean;
 }
 
 export interface NativeTaskListItem {
@@ -61,6 +69,8 @@ export interface NativeTasksApi {
   scanStoredTasks(): Promise<NativeTaskScanResult>;
 
   queryTasks(options: TaskQueryOptions): Promise<NativeTaskQueryResult>;
+
+  listTaskCalendars(): Promise<readonly NativeTaskCalendar[]>;
 }
 
 function snapshot(native: NativeTaskView): TaskSnapshot {
@@ -135,6 +145,13 @@ export class ThunderbirdTaskRepository
       complete: result.complete,
       failures: Object.freeze(result.failures.map(item => Object.freeze({...item}))),
     });
+  }
+
+  async listCalendars(): Promise<readonly TaskCalendarInfo[]> {
+    const calendars = await this.api.listTaskCalendars();
+    return Object.freeze(
+      calendars.map(calendar => Object.freeze({...calendar}))
+    );
   }
 
   async query(options: TaskQueryOptions): Promise<TaskQueryResult> {
