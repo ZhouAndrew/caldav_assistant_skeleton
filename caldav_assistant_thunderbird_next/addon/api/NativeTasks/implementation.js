@@ -28,9 +28,9 @@ function normalizedStatus(item) {
   return item.isCompleted ? "COMPLETED" : "NEEDS-ACTION";
 }
 
-function view(item) {
+function view(item, calendarId = "") {
   return {
-    calendarId: String(item.calendar?.id || ""),
+    calendarId: String(calendarId || item.calendar?.id || ""),
     uid: String(item.id || ""),
     recurrenceId: String(item.recurrenceId?.icalString || ""),
     title: String(item.title || ""),
@@ -94,7 +94,7 @@ var NativeTasks = class extends ExtensionCommon.ExtensionAPI {
       NativeTasks: {
         async getTask(calendarId, uid, recurrenceId) {
           const item = await resolveTask(calendarId, uid, recurrenceId);
-          return item ? view(item) : null;
+          return item ? view(item, calendarId) : null;
         },
 
         async updateTask(calendarId, uid, recurrenceId, patch) {
@@ -106,7 +106,58 @@ var NativeTasks = class extends ExtensionCommon.ExtensionAPI {
           const nextItem = oldItem.clone();
           applyPatch(nextItem, patch);
           const stored = await oldItem.calendar.modifyItem(nextItem, oldItem);
-          return view(stored);
+          return view(stored, calendarId);
+        },
+
+        async scanStoredTasks() {
+          const tasks = [];
+          const failures = [];
+          const filter =
+            Ci.calICalendar.ITEM_FILTER_TYPE_TODO |
+            Ci.calICalendar.ITEM_FILTER_COMPLETED_ALL;
+
+          for (const calendar of cal.manager.getCalendars()) {
+            const calendarId = String(calendar.id || "");
+            try {
+              if (calendar.getProperty?.("capabilities.tasks.supported") === false) {
+                continue;
+              }
+
+              const parents = await calendar.getItemsAsArray(
+                filter,
+                0,
+                null,
+                null
+              );
+
+              for (const parent of parents) {
+                if (!parent?.isTodo?.()) continue;
+                tasks.push(view(parent, calendarId));
+
+                const recurrenceInfo = parent.recurrenceInfo;
+                if (!recurrenceInfo) continue;
+
+                for (const recurrenceId of recurrenceInfo.getExceptionIds()) {
+                  const exception =
+                    recurrenceInfo.getExceptionFor(recurrenceId);
+                  if (exception?.isTodo?.()) {
+                    tasks.push(view(exception, calendarId));
+                  }
+                }
+              }
+            } catch (error) {
+              failures.push({
+                calendarId,
+                message: String(error?.message || error),
+              });
+            }
+          }
+
+          return {
+            tasks,
+            complete: failures.length === 0,
+            failures,
+          };
         },
       },
     };
