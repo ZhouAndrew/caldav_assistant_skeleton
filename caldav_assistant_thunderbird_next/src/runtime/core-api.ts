@@ -33,3 +33,7 @@ export {
   classifyRestFailure,
   shouldFallbackToWpCli,
 } from "../wordpress/policy";
+export {
+  runWordPressQuickTest,
+  runWordPressFullWriteTest,
+} from "../wordpress/service";
