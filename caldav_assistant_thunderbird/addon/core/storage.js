@@ -326,6 +326,66 @@
     return Number.isFinite(parsed) ? parsed : null;
   }
 
+  async function findOpenWorkSessionRef(task) {
+    const targetWorkId = makeWorkTaskId(task);
+    if (!targetWorkId) return null;
+
+    const records = await listAudit();
+    for (let index = records.length - 1; index >= 0; index--) {
+      const record = records[index];
+      if (record?.scope !== "workflow") continue;
+      if (record?.success === false || record?.details?.success === false) continue;
+      if (makeWorkTaskId(record?.details?.task) !== targetWorkId) continue;
+
+      if (
+        record.action === "pause" ||
+        record.action === "complete" ||
+        record.action === "cancel" ||
+        record.action === "switch-away"
+      ) {
+        return null;
+      }
+
+      if (record.action !== "start" && record.action !== "resume") continue;
+
+      const steps = Array.isArray(record?.details?.steps)
+        ? record.details.steps
+        : [];
+      const created = steps.find(step =>
+        step?.component === "Work Session" &&
+        step?.operation === "create VEVENT" &&
+        step?.success !== false &&
+        step?.details?.uid &&
+        step?.details?.calendarId
+      );
+      if (created) {
+        return Object.freeze({
+          id: String(created.details.uid),
+          calendarId: String(created.details.calendarId),
+          source: "audit",
+        });
+      }
+      break;
+    }
+
+    // Migration fallback for an active 0.3.15 session whose Start/Resume audit
+    // predates the structured Work-session receipt.
+    const runtime = await getRuntime();
+    if (
+      makeWorkTaskId(runtime?.currentTask) === targetWorkId &&
+      runtime?.currentWorkEvent?.id &&
+      runtime?.currentWorkEvent?.calendarId
+    ) {
+      return Object.freeze({
+        id: String(runtime.currentWorkEvent.id),
+        calendarId: String(runtime.currentWorkEvent.calendarId),
+        source: "legacy-runtime",
+      });
+    }
+
+    return null;
+  }
+
   async function deriveWorkTiming(task) {
     const targetWorkId = makeWorkTaskId(task);
     if (!targetWorkId) {
@@ -523,6 +583,7 @@
     appendAudit,
     listAudit,
     findLatestStartSnapshot,
+    findOpenWorkSessionRef,
     deriveWorkTiming,
     listAuditDates,
     clearAudit,
