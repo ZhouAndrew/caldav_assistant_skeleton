@@ -26,7 +26,16 @@ jobs:
         run: npm run typecheck
       - name: Core tests
         run: npm test
-      - name: Bridge syntax
+      - name: Build production core
+        run: npm run build
+      - name: Production syntax
         run: |
+          node --check addon/generated/core.js
           node --check addon/api/TaskBridge/implementation.js
+          node --check addon/storage.js
+          node --check addon/task-port.js
+          node --check addon/legacy-store.js
+          node --check addon/background.js
+          node --check addon/workspace.js
           node -e 'JSON.parse(require("fs").readFileSync("addon/api/TaskBridge/schema.json", "utf8"))'
+          node -e 'JSON.parse(require("fs").readFileSync("addon/manifest.json", "utf8"))'
