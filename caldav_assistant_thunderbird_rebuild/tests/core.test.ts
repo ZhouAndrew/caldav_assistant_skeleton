@@ -128,6 +128,36 @@ const otherView = deriveTaskPage({
 assert(otherView.actions.length === 0, "non-current page offered Start");
 assert(otherView.anotherTaskIsCurrent, "current-task conflict not exposed");
 
+const recoveringView = deriveTaskPage({
+  task: base,
+  currentWorkId: id,
+});
+assert(recoveringView.mode === "recovering", "reserved/stale pointer not marked recovering");
+assert(recoveringView.actions.length === 0, "recovering Task exposed a workflow command");
+
+const orphanView = deriveTaskPage({
+  task: started,
+  currentWorkId: null,
+});
+assert(orphanView.mode === "orphan-session", "open session without pointer was not blocked");
+assert(orphanView.actions.length === 0, "orphan session exposed Start");
+
+const externallyCompletedCurrent: TaskSnapshot = Object.freeze({
+  ...started,
+  status: "COMPLETED",
+  completed: true,
+  percentComplete: 100,
+});
+const terminalCurrentView = deriveTaskPage({
+  task: externallyCompletedCurrent,
+  currentWorkId: id,
+});
+assert(terminalCurrentView.mode === "active", "terminal current session disappeared");
+assert(
+  terminalCurrentView.actions.join(",") === "stop",
+  "terminal current Task should only allow closing the work session",
+);
+
 
 const noStatus: TaskSnapshot = Object.freeze({
   ...base,
@@ -227,6 +257,14 @@ const malformedPlan = planTaskAction({
 assert(
   !malformedPlan.ok && malformedPlan.reason === "description-invalid",
   "malformed worklog allowed destructive write",
+);
+const malformedView = deriveTaskPage({
+  task: malformed,
+  currentWorkId: null,
+});
+assert(
+  malformedView.mode === "description-invalid" && malformedView.actions.length === 0,
+  "malformed worklog page was not read-only blocked",
 );
 
 const userText = "line 1\n\nline 2 中文 😀\n";
