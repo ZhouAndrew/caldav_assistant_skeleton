@@ -1,6 +1,7 @@
 import {
   AcceptedTransition,
   PlannedTransition,
+  RejectionReason,
   TaskSnapshot,
   WorkIntent,
   WorkSession,
@@ -13,7 +14,7 @@ import {
   serializeWorkDescription,
 } from "./work-description";
 
-function reject(intent: WorkIntent, reason: PlannedTransition extends infer _ ? any : never): PlannedTransition {
+function reject(intent: WorkIntent, reason: RejectionReason): PlannedTransition {
   return Object.freeze({ok: false, intent, reason});
 }
 
