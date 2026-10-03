@@ -99,6 +99,35 @@ export function createTaskWorkflowService(
     return result;
   }
 
+  async function pointerFailure(
+    intent: WorkIntent,
+    committed: boolean,
+  ): Promise<WorkflowServiceResult> {
+    return Object.freeze({
+      ok: false,
+      intent,
+      reason: "pointer-write-failed",
+      committed,
+    });
+  }
+
+  async function clearStartReservation(
+    intent: WorkIntent,
+    reason: WorkflowFailureReason,
+  ): Promise<WorkflowServiceResult> {
+    try {
+      await dependencies.currentWork.set(null);
+    } catch {
+      return pointerFailure(intent, false);
+    }
+    return Object.freeze({
+      ok: false,
+      intent,
+      reason,
+      committed: false,
+    });
+  }
+
   async function execute(
     intent: WorkIntent,
     ref: TaskRef,
@@ -106,6 +135,7 @@ export function createTaskWorkflowService(
     const now = dependencies.now();
     const sessionId =
       intent === "start" ? dependencies.newSessionId() : undefined;
+    let startReserved = false;
 
     for (let attempt = 0; attempt <= retryLimit; attempt++) {
       const task = await dependencies.tasks.getTask(ref);
@@ -119,12 +149,37 @@ export function createTaskWorkflowService(
       });
 
       if (!plan.ok) {
+        if (intent === "start" && startReserved) {
+          // If an open session appeared after our reservation, a Task commit
+          // may have happened despite a lost response. Keep the pointer so
+          // reconciliation can validate it instead of orphaning the session.
+          if (plan.reason === "open-session-exists") {
+            return Object.freeze({
+              ok: false,
+              intent,
+              reason: plan.reason,
+              committed: true,
+            });
+          }
+          return clearStartReservation(intent, plan.reason);
+        }
         return Object.freeze({
           ok: false,
           intent,
           reason: plan.reason,
           committed: false,
         });
+      }
+
+      if (intent === "start" && !startReserved) {
+        if (currentWorkId === null) {
+          try {
+            await dependencies.currentWork.set(plan.nextCurrentWorkId);
+          } catch {
+            return pointerFailure(intent, false);
+          }
+        }
+        startReserved = true;
       }
 
       const written = await dependencies.tasks.updateTask(
@@ -136,6 +191,9 @@ export function createTaskWorkflowService(
       if (!written.ok) {
         if (written.reason === "changed" && attempt < retryLimit) {
           continue;
+        }
+        if (intent === "start" && startReserved) {
+          return clearStartReservation(intent, written.reason);
         }
         return Object.freeze({
           ok: false,
@@ -154,17 +212,14 @@ export function createTaskWorkflowService(
         });
       }
 
-      try {
-        await dependencies.currentWork.set(plan.nextCurrentWorkId);
-      } catch {
-        // The VTODO is already durably committed.  Do not roll it back; startup
-        // reconciliation repairs the pointer from the Description work-log.
-        return Object.freeze({
-          ok: false,
-          intent,
-          reason: "pointer-write-failed",
-          committed: true,
-        });
+      if (intent !== "start") {
+        try {
+          await dependencies.currentWork.set(plan.nextCurrentWorkId);
+        } catch {
+          // The VTODO close/final state is already durable. Reconciliation
+          // clears the stale pointer from the now-closed Description session.
+          return pointerFailure(intent, true);
+        }
       }
 
       return Object.freeze({
@@ -173,6 +228,10 @@ export function createTaskWorkflowService(
         task: written.task,
         closedSession: plan.closedSession,
       });
+    }
+
+    if (intent === "start" && startReserved) {
+      return clearStartReservation(intent, "changed");
     }
 
     return Object.freeze({
