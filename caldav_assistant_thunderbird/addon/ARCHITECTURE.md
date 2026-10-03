@@ -1,112 +1,84 @@
-# CalDAV Assistant Experimental 0.3.7 — simple program boundary
+# CalDAV Assistant Experimental 0.3.16 — minimal Task boundary
 
-The design goal is deliberately ordinary: a small UI, a set of plain functions, a few plain objects, strict read-back checks, and persistent logs.
+The add-on deliberately keeps Task control smaller than Thunderbird itself.
 
-## Work
+## Ownership
 
-`workspace.html + workspace.js` only does this:
+Thunderbird owns the Calendar/Tasks provider objects and CalDAV synchronization:
 
-existing Task -> select -> Start -> Working -> Pause/Resume -> Complete or Cancel
+- VTODO fields and STATUS;
+- VEVENT objects;
+- recurrence expansion;
+- Calendar selection and visibility;
+- provider read/write behavior.
 
-Rules:
+CalDAV Assistant does not maintain a second copy of those objects.
 
-- the Work page defaults to the Incomplete view;
-- completed/cancelled Tasks remain available through explicit views instead of being deleted;
-- the Work page may temporarily switch view/Calendar without changing persistent defaults;
-- the Work page never creates a Task;
-- before a Task is selected there are no workflow buttons;
-- only actions valid for the current state are shown;
-- completed/cancelled Tasks show no workflow buttons;
-- UID, raw VTODO status, Work Calendar, provider IDs and JSON details do not appear on the Work page;
-- the Work page keeps only a short human-readable recent result.
+The only persistent Assistant runtime fact is:
 
-## Plain action functions
+```text
+current_work_id = <one Thunderbird Task instance id> | null
+```
 
-`core/executor.js` is intentionally a file of plain functions. It does not define a class hierarchy or workflow framework.
+Settings are persisted separately. Audit/WordPress records are history, not runtime state.
 
-The public operations are:
+For recurring tasks, `current_work_id` is still one opaque string: Thunderbird's stable instance key. No status, Calendar id, recurrence id, event id or timer state is persisted beside it.
 
-- `start(task, workCalendarId)`
-- `pause(task)`
-- `resume(task, workCalendarId)`
-- `complete(task)`
-- `cancel(task)`
+## Task lifecycle
 
-Data-changing paths use:
+The user-visible operations are exactly:
 
-write -> read back -> compare -> Result
+```text
+Start    -> STATUS:IN-PROCESS
+Stop     -> STATUS:NEEDS-ACTION
+Complete -> STATUS:COMPLETED
+Cancel   -> STATUS:CANCELLED
+```
 
-Start/Resume create Work VEVENTs. Pause/Complete/Cancel close the current Work VEVENT. Rollback code exists only where a partial remote write could otherwise leave inconsistent data.
+There is no Assistant-defined Pause, Resume, Switch Away, Put Aside or paused marker.
 
-## Small data objects
+Start persists `current_work_id` and then asks Thunderbird to write `IN-PROCESS`. Stop writes `NEEDS-ACTION` and clears `current_work_id`. Complete and Cancel update the VTODO through Thunderbird and clear `current_work_id` only when that Task is current.
 
-Runtime data is ordinary JavaScript objects:
+A non-current Task may still be completed or cancelled. Starting a different Task requires stopping the current Task first.
 
-- Task view
-- Work event reference
-- Runtime state
-- Result/receipt
-- Settings
+## Event boundary
 
-There is no domain class hierarchy.
+VEVENT remains a Thunderbird Calendar object. Task lifecycle code does not create, close, reopen or persist a Work VEVENT reference.
 
-## Logging rule
+The Calendar connection test may create a temporary TEST VEVENT because it is testing Thunderbird's Event provider, not because Task lifecycle depends on VEVENT.
 
-Every user-visible success/failure result is sent to `AssistantStorage.persistResult()` before the function returns it to the UI.
+## Reliability
 
-That function attempts:
+Every Task mutation follows:
 
-Result -> append persistent audit -> cache latest Result -> return to UI
+```text
+Assistant action
+-> Thunderbird provider write
+-> Thunderbird provider read-back
+-> compare expected standard STATUS
+-> persistent audit receipt
+```
 
-If the persistent audit write fails, `logSaved=false` and the UI must say so instead of pretending the result was safely logged.
+`current_work_id` is reconciled against Thunderbird on read. If it points to a missing Task or a Task that is no longer `IN-PROCESS`, it is cleared.
 
-The Logs page owns full technical detail. The Work page only shows a short result plus a link to Logs.
+Legacy 0.3.15 runtime objects are migrated once to the single id and then removed.
 
-## Guided defaults and Tools
+## Logging
 
-`tools.html` owns settings and connection tests.
+User actions are transient commands. Their durable history is an Activity/Audit record containing timestamp, action, Task id and result.
 
-The default Task view and default Task Calendar are ordinary `browser.storage.local` settings. The Calendar value is Thunderbird's existing Calendar id; the add-on does not maintain a second Calendar registry.
+WordPress remains a long-term record path. A WordPress or audit failure must not become a second Task state source.
 
-Saving those defaults writes one settings undo snapshot. Undo restores the previous Assistant settings object. If a configured Task Calendar disappears, Work temporarily shows All Calendars and links the user back to Tools; it never silently replaces the saved preference.
+## UI
 
-A missing Work Calendar may be inferred for one workflow action, but that inferred choice is not persisted automatically.
+Work shows only the current Task and the controls valid for it:
 
+- End;
+- Complete;
+- Cancel.
 
-Calendar full test:
-
-temporary TEST VEVENT -> read -> update -> read -> delete -> verify absence
-
-It never creates a VTODO.
-
-WordPress full test:
-
-temporary Draft Post -> read -> update -> read -> temporary media -> read -> delete media -> delete post
-
-## WordPress
-
-`record.html` is an append-only daily log UI. It has no per-entry title or post-status fields.
-
-Normal Record flow:
-
-today's exact daily title -> find published post -> create it only if absent -> upload optional media to that post -> append one Gutenberg log entry -> read back and verify marker
-
-New daily posts use the existing helper title shape, for example `October 1  Thursday  2026`. Lookup remains compatible with older helper-created titles: full or abbreviated month, the day as a numeric token, weekday and year are matched without depending on spacing or token order.
-
-Each text entry is appended as a new Gutenberg paragraph prefixed with local `HH:MM`. Attachments are parented to the same daily post and appended as native Gutenberg blocks: image, video, audio or file/PDF according to MIME type. Multiple Record submissions on the same day reuse the same Post ID.
-
-The visible result reports the daily Post ID / Media ID values; the full request/result record stays in Logs. Completing a Task still does not implicitly create a WordPress post.
-
-## Data ownership
-
-- Thunderbird/CalDAV = Task and Event facts.
-- browser.storage.local = small Assistant runtime/settings/audit state only.
-- WordPress = explicit long-form records.
+Task Picker handles browsing, Thunderbird-native filters and Start. If another Task is current, the picker offers End current Task first; it does not invent a switch state.
 
 ## Top-level UI
 
-Exactly five ordinary pages:
-
-Work | Today | Record | Logs | Tools
-
-The internal implementation may have supporting files, but those are not additional user workflows.
+Work | Today | Record | Logs | WordPress | Tools
