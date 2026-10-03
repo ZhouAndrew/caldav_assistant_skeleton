@@ -265,5 +265,50 @@
   },
   "languageChineseSimplified": {
     "message": "简体中文"
+  },
+  "statusNeedsAction": {
+    "message": "Needs Action"
+  },
+  "statusInProgress": {
+    "message": "In Progress"
+  },
+  "statusCompleted": {
+    "message": "Completed"
+  },
+  "statusCancelled": {
+    "message": "Cancelled"
+  },
+  "commandFailed": {
+    "message": "Task action failed."
+  },
+  "queryIncomplete": {
+    "message": "Some calendars could not be read."
+  },
+  "taskLoadFailed": {
+    "message": "Task could not be loaded."
+  },
+  "calendarLoadFailed": {
+    "message": "Task calendars could not be loaded."
+  },
+  "startupNotReady": {
+    "message": "CalDAV Assistant is not ready yet."
+  },
+  "todayDate": {
+    "message": "Date"
+  },
+  "resultStop": {
+    "message": "Stopped"
+  },
+  "resultComplete": {
+    "message": "Completed"
+  },
+  "resultCancel": {
+    "message": "Cancelled"
+  },
+  "sessionOpen": {
+    "message": "In progress"
+  },
+  "openSelectedTask": {
+    "message": "Open selected Task"
   }
 }
