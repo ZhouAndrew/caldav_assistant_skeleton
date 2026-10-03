@@ -177,6 +177,15 @@ with zipfile.ZipFile(path) as z:
     assert "saveSettingsWithUndo" in storage
     assert "undoSettings" in storage
     assert "snapshot.keys" in storage
+    assert 'KEY_CURRENT_WORK_ID = "caldavAssistant.currentWorkId"' in storage
+    assert "getCurrentWorkId" in storage
+    assert "setCurrentWorkId" in storage
+    assert "makeWorkTaskId" in storage
+    assert "parseWorkTaskId" in storage
+    # Phase 1 compatibility: existing 0.3.15 runtime API remains until all
+    # consumers have moved behind the one-id boundary.
+    assert "getRuntime" in storage
+    assert "setRuntime" in storage
     assert 'persistResult(receipt, "workflow")' in executor
     assert 'persistResult(result, "connection")' in connection
     assert 'persistResult(result, "wordpress")' in wordpress
