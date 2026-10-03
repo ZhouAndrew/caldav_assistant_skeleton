@@ -9,6 +9,7 @@ const state = {
   selected: null,
   currentWorkId: null,
   currentRef: null,
+  current: null,
   settings: {},
   taskView: "open",
   filtersInitialized: false,
@@ -136,14 +137,16 @@ function renderFilters() {
 }
 
 function renderCurrentStrip() {
-  const task = taskByRef(state.currentRef);
   const strip = $("current-strip");
-  if (!task) {
+  if (!state.currentWorkId) {
     strip.hidden = true;
     return;
   }
-  $("current-strip-text").textContent =
-    "当前：" + (task.title || "(无标题)") + " · 正在进行";
+
+  const task = state.current;
+  $("current-strip-text").textContent = task
+    ? "当前：" + (task.title || "(无标题)") + " · 正在进行"
+    : "当前工作已锁定，但 Task 暂时无法从 Calendar 读取";
   strip.hidden = false;
 }
 
@@ -211,7 +214,7 @@ function renderSelection() {
   $("selected-due").textContent = due === "—" ? "没有截止日期" : "截止 " + due;
 
   const finished = task.status === "COMPLETED" || task.status === "CANCELLED";
-  const current = taskByRef(state.currentRef);
+  const current = state.current;
 
   if (finished) {
     $("flow-note").textContent = [sourceNote, "这个 Task 已结束。"].filter(Boolean).join(" ");
@@ -223,12 +226,19 @@ function renderSelection() {
     return;
   }
 
-  if (current) {
-    addAction("停止当前 Task", runStop, "primary");
-    $("flow-note").textContent = [
-      sourceNote,
-      "先停止“" + (current.title || "(无标题)") + "”；完成后再开始这个 Task。",
-    ].filter(Boolean).join(" ");
+  if (state.currentWorkId) {
+    if (current) {
+      addAction("停止当前 Task", runStop, "primary");
+      $("flow-note").textContent = [
+        sourceNote,
+        "先停止“" + (current.title || "(无标题)") + "”；完成后再开始这个 Task。",
+      ].filter(Boolean).join(" ");
+    } else {
+      $("flow-note").textContent = [
+        sourceNote,
+        "已有当前工作，但当前 Task 暂时无法从 Calendar 读取。为避免覆盖，不提供 Start。",
+      ].filter(Boolean).join(" ");
+    }
     return;
   }
 
@@ -237,20 +247,27 @@ function renderSelection() {
 }
 
 async function persistUiFailure(action, task, error) {
+  const message = String(error?.message || error || "Unknown error");
   return AssistantStorage.persistResult({
     action,
     success: false,
     startedAt: new Date().toISOString(),
     completedAt: new Date().toISOString(),
+    summary: action + " failed: " + message,
     task: task ? {id: task.id, calendarId: task.calendarId, title: task.title} : null,
-    steps: [],
-    error: String(error?.message || error || "Unknown error"),
+    steps: [{
+      component: "UI",
+      operation: action,
+      success: false,
+      error: message,
+    }],
+    error: message,
   }, "workflow");
 }
 
 async function runStop() {
   const target = state.selected;
-  const current = taskByRef(state.currentRef);
+  const current = state.current;
   if (!target || !current) return;
 
   actionRunning = true;
@@ -314,6 +331,7 @@ async function refreshAll(preserveSelection = true) {
     state.currentRef = state.currentWorkId
       ? AssistantStorage.parseWorkTaskId(state.currentWorkId)
       : null;
+    state.current = null;
     state.settings = await AssistantStorage.getSettings();
 
     if (!state.filtersInitialized) {
@@ -325,6 +343,18 @@ async function refreshAll(preserveSelection = true) {
       filter: state.taskView,
       searchText: $("task-search").value,
     });
+
+    if (state.currentRef) {
+      try {
+        state.current = await browser.ThunderbirdCalDAV.getTask(
+          state.currentRef.calendarId,
+          state.currentRef.id,
+          state.currentRef.recurrenceId || ""
+        );
+      } catch (_error) {
+        state.current = taskByRef(state.currentRef);
+      }
+    }
 
     if (selectedRef) {
       state.selected = taskByRef(selectedRef);
@@ -390,7 +420,7 @@ browser.ThunderbirdCalDAV.onItemsChanged.addListener(() => {
 
 if (browser.storage?.onChanged) {
   browser.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName !== "local") return;
+    if (areaName !== "local" || actionRunning) return;
     if (changes["caldavAssistant.settings"]) {
       state.settings = changes["caldavAssistant.settings"].newValue || {};
       state.taskView = normalizeTaskView(state.settings.taskView);
