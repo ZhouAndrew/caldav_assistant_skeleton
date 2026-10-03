@@ -18,6 +18,10 @@ import {
   fallbackRestoreSnapshot,
   restoreSnapshotFromStartReceipt,
 } from "../src/restore-snapshot";
+import {
+  deriveWorkTiming,
+  elapsedWorkMs,
+} from "../src/work-timing";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -135,5 +139,32 @@ const conservative = fallbackRestoreSnapshot({
 assert(conservative.status === "NEEDS-ACTION", "fallback must remain incomplete");
 assert(conservative.paused === false, "fallback must release Assistant pause state");
 assert(conservative.percentComplete === 42, "fallback should preserve existing progress");
+
+const timing = deriveWorkTiming([
+  {action: "start", success: true, timestampMs: 1000},
+  {action: "pause", success: true, timestampMs: 6000},
+  {action: "resume", success: true, timestampMs: 10000},
+]);
+assert(timing.accumulatedMs === 5000, "audit timing lost the first work segment");
+assert(timing.runningSinceMs === 10000, "audit timing did not keep resumed segment open");
+assert(elapsedWorkMs(timing, 16000) === 11000, "live elapsed timing is wrong");
+
+const closedTiming = deriveWorkTiming([
+  {action: "start", success: true, timestampMs: 1000},
+  {action: "pause", success: true, timestampMs: 4000},
+  {action: "resume", success: true, timestampMs: 7000},
+  {action: "switch-away", success: true, timestampMs: 9000},
+]);
+assert(closedTiming.accumulatedMs === 5000, "closed timing lost accumulated work");
+assert(closedTiming.runningSinceMs === null, "closed timing left a segment running");
+
+const failedActionsIgnored = deriveWorkTiming([
+  {action: "start", success: true, timestampMs: 1000},
+  {action: "pause", success: false, timestampMs: 2000},
+]);
+assert(
+  elapsedWorkMs(failedActionsIgnored, 4000) === 3000,
+  "failed history entry changed timing"
+);
 
 console.log("typed-core-harness: PASS");
