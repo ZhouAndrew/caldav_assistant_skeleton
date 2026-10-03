@@ -28,3 +28,8 @@ export {deriveTaskPickerView} from "../views/task-picker";
 export {deriveTodayView} from "../views/today";
 export {deriveLogsView} from "../views/logs";
 export {migrateLegacyActiveSession} from "../migration/legacy-active-session";
+export {
+  planWordPressTransport,
+  classifyRestFailure,
+  shouldFallbackToWpCli,
+} from "../wordpress/policy";
