@@ -284,11 +284,19 @@ export async function migrateLegacyActiveSession(
     return {ok: false, migrated: false, reason: "cannot-open-migrated-session"};
   }
 
-  await tasks.update(currentWorkId, {
-    description: serializeWorkDescription(opened),
-    status: task.status,
-    percentComplete: task.percentComplete,
-  });
+  await tasks.update(
+    currentWorkId,
+    {
+      description: serializeWorkDescription(opened),
+      status: task.status,
+      percentComplete: task.percentComplete,
+    },
+    {
+      description: task.description,
+      status: task.status,
+      percentComplete: task.percentComplete,
+    }
+  );
 
   const verified = await tasks.get(currentWorkId);
   if (
