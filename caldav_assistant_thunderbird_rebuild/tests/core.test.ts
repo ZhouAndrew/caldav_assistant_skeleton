@@ -44,6 +44,14 @@ const start = planTaskAction({
 });
 assert(start.ok, "start rejected");
 assert(start.nextCurrentWorkId === id, "start pointer wrong");
+const reservedStart = planTaskAction({
+  intent: "start",
+  task: base,
+  currentWorkId: id,
+  now: "2026-10-03T16:00:00+08:00",
+  sessionId: "session-reserved",
+});
+assert(reservedStart.ok, "reserved Start pointer could not finish VTODO write");
 assert(start.taskPatch.status === "IN-PROCESS", "start status wrong");
 assert(typeof start.taskPatch.description === "string", "start missing description");
 
