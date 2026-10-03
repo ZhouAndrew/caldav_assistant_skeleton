@@ -10,6 +10,7 @@ export interface WordPressSettings {
 }
 
 export interface CleanSettings {
+  readonly schemaVersion: 1;
   readonly taskView: string;
   readonly taskCalendarId: string;
   readonly wordpress: WordPressSettings;
@@ -71,6 +72,7 @@ export function migrateLegacySettings(value: unknown): SettingsMigration {
   });
 
   const settings: CleanSettings = Object.freeze({
+    schemaVersion: 1,
     taskView: text(legacy.taskView).trim() || "incomplete",
     taskCalendarId: text(legacy.taskCalendarId),
     wordpress,
