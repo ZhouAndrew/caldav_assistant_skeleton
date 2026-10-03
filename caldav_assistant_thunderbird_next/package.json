@@ -5,7 +5,7 @@
   "description": "Clean-room Thunderbird implementation of CalDAV Assistant",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "rm -rf .build && tsc --outDir .build && node .build/tests/core.test.js && node .build/tests/service.test.js"
+    "test": "rm -rf .build && tsc --outDir .build && node .build/tests/core.test.js && node .build/tests/service.test.js && node .build/tests/adapters.test.js && node --check addon/api/NativeTasks/implementation.js && node tests/native-tasks-harness.js"
   },
   "devDependencies": {
     "typescript": "5.9.3"
