@@ -97,7 +97,16 @@ export function planTaskAction(args: {
   if (open.length !== 1) return reject(intent, "open-session-ambiguous");
 
   const active = open[0];
+  if (!active) return reject(intent, "open-session-missing");
+
   const result = closeResult(intent);
+  const closed: WorkSession = Object.freeze({
+    id: active.id,
+    start: active.start,
+    end: now,
+    result,
+    before: active.before,
+  });
   const next = closeSession(parsed.value, active.id, now, result);
   if (!next) return reject(intent, "description-invalid");
   const description = serializeWorkDescription(next);
@@ -111,7 +120,7 @@ export function planTaskAction(args: {
         description,
       },
       null,
-      Object.freeze({...active, end: now, result}),
+      closed,
     );
   }
 
@@ -120,7 +129,7 @@ export function planTaskAction(args: {
       intent,
       {status: "COMPLETED", percentComplete: 100, description},
       null,
-      Object.freeze({...active, end: now, result}),
+      closed,
     );
   }
 
@@ -128,7 +137,7 @@ export function planTaskAction(args: {
     intent,
     {status: "CANCELLED", description},
     null,
-    Object.freeze({...active, end: now, result}),
+    closed,
   );
 }
 
