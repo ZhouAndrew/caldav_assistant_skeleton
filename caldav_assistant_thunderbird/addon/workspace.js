@@ -62,8 +62,7 @@ async function resolveWorkCalendar(task) {
 
   const sameCalendar = candidates.find(calendar => calendar.id === task.calendarId);
   const chosen = sameCalendar || candidates[0];
-  if (!chosen) throw new Error("没有可写的 Work Calendar。请到“工具”设置。");
-  return chosen.id;
+  return chosen?.id || null;
 }
 
 function showNotice(message, error = false) {
