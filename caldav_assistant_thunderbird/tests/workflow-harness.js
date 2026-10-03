@@ -280,7 +280,7 @@ async function legacyRuntimeMigration() {
       calendarId: "tasks",
       recurrenceId: "20261003T090000",
     },
-    currentWorkEvent: {id: "legacy-work-event"},
+    currentWorkEvent: {id: "legacy-work-event", calendarId: "work"},
     segmentStartedAtMs: null,
     accumulatedMs: 1234,
   };
@@ -297,13 +297,18 @@ async function legacyRuntimeMigration() {
     storage["caldavAssistant.runtime"]?.currentWorkEvent?.id === "legacy-work-event",
     "compat migration destroyed legacy runtime too early"
   );
-  const legacyTiming = await AssistantStorage.deriveWorkTiming({
+  const legacyTask = {
     id: "seed-task",
     calendarId: "tasks",
     recurrenceId: "20261003T090000",
-  });
+  };
+  const legacyTiming = await AssistantStorage.deriveWorkTiming(legacyTask);
   assert(legacyTiming.source === "legacy-runtime", "old session timing lost compatibility fallback");
   assert(legacyTiming.accumulatedMs === 1234, "old session timing lost accumulated duration");
+  const legacyWorkEvent = await AssistantStorage.findOpenWorkSessionRef(legacyTask);
+  assert(legacyWorkEvent?.source === "legacy-runtime", "old Work VEVENT ref lost fallback");
+  assert(legacyWorkEvent?.id === "legacy-work-event", "old Work VEVENT id was not recovered");
+  assert(legacyWorkEvent?.calendarId === "work", "old Work VEVENT calendar was not recovered");
 
   storage["caldavAssistant.currentWorkId"] = "corrupt";
   const recovered = await AssistantStorage.getCurrentWorkId();
@@ -373,6 +378,34 @@ async function uncertainCreateRollback() {
     receipt.steps.some(step => step.operation === "delete created VEVENT" && step.success),
     "known Work UID did not allow cleanup after uncertain create"
   );
+}
+
+async function pauseDerivesWorkEventWithoutRuntimeRef() {
+  resetAll();
+
+  let receipt = await AssistantExecutor.start(clone(task), "work");
+  assert(receipt.success, "derived Work-event setup Start failed");
+
+  let runtime = await AssistantStorage.getRuntime();
+  const workId = runtime.currentWorkEvent?.id;
+  assert(workId && events.has(workId), "setup did not create Work VEVENT");
+
+  await AssistantStorage.setRuntime({
+    ...runtime,
+    currentWorkEvent: null,
+  });
+
+  const derived = await AssistantStorage.findOpenWorkSessionRef(clone(task));
+  assert(derived?.source === "audit", "open Work VEVENT was not derived from audit");
+  assert(derived?.id === workId, "audit derived the wrong Work VEVENT");
+
+  receipt = await AssistantExecutor.pause(clone(task));
+  assert(receipt.success, "Pause still depended on runtime.currentWorkEvent");
+  assert(events.get(workId)?.end, "Pause did not close audit-derived Work VEVENT");
+  assert(events.get(workId)?.workOpen === false, "Pause left audit-derived Work VEVENT open");
+
+  receipt = await AssistantExecutor.switchAway(clone(task));
+  assert(receipt.success, "derived Work-event cleanup Switch Away failed");
 }
 
 async function pauseWriteRollback() {
@@ -562,6 +595,7 @@ async function completeWriteRollback() {
   await legacyRuntimeStateIsNotWorkflowTruth();
   await startReadbackRollback();
   await uncertainCreateRollback();
+  await pauseDerivesWorkEventWithoutRuntimeRef();
   await pauseWriteRollback();
   await resumeReadbackRollback();
   await switchAwayLifecycle();
