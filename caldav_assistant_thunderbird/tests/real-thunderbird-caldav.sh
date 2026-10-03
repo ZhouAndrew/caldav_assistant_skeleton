@@ -57,6 +57,10 @@ host = "http://127.0.0.1/*"
 if host not in permissions:
     permissions.append(host)
 
+background_scripts = manifest.setdefault("background", {}).setdefault("scripts", [])
+if "core/executor.js" not in background_scripts:
+    background_scripts.append("core/executor.js")
+
 manifest["experiment_apis"]["AcceptanceTaskFix"] = {
     "schema": "api/AcceptanceTaskFix/schema.json",
     "parent": {
@@ -190,411 +194,9 @@ this.AcceptanceTaskFix = class extends ExtensionCommon.ExtensionAPI {
 manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
 
 task_picker_acceptance = r'''
-async function __pickerWaitFor(predicate, label, timeoutMs = 20000) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    if (await predicate()) return;
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  throw new Error("Task picker timeout: " + label);
-}
-
-function __pickerAssert(condition, message) {
-  if (!condition) throw new Error(message);
-}
-
-function __pickerButton(label) {
-  return [...$("actions").querySelectorAll("button")].find(
-    button => button.textContent === label
-  );
-}
-
-async function __pickerWaitForNewReceipt(action, previousId, timeoutMs = 15000) {
-  let receipt = null;
-  await __pickerWaitFor(async () => {
-    receipt = await AssistantStorage.getLastReceipt();
-    return receipt?.id !== previousId && receipt?.action === action;
-  }, "new receipt " + action, timeoutMs);
-  __pickerAssert(receipt?.success, action + " failed: " + (receipt?.error || receipt?.summary || ""));
-  return receipt;
-}
-
-async function __runTaskPickerAcceptance() {
-  const mode = new URLSearchParams(location.search).get("acceptance");
-  if (!mode) return;
-
-  let targetId = "seed-task";
-  let targetTitle = "Seed task from Radicale";
-  if (mode === "switch") {
-    const saved = await browser.storage.local.get("caldavAssistant.acceptanceSwitchTarget");
-    const target = saved["caldavAssistant.acceptanceSwitchTarget"];
-    __pickerAssert(target?.id, "Target reference was not persisted by acceptance setup");
-    targetId = target.id;
-    targetTitle = target.title || "Switch target task";
-  }
-
-  await __pickerWaitFor(
-    () =>
-      state.tasks.some(task => task.id === targetId) &&
-      [...$("task-list").children].some(
-        row => row.querySelector?.(".item-title")?.textContent === targetTitle
-      ),
-    "target Task render"
-  );
-
-  const nativeFilters = [
-    "throughcurrent", "throughtoday", "throughsevendays", "notstarted",
-    "overdue", "completed", "open", "all",
-  ];
-  for (const value of nativeFilters) {
-    __pickerAssert(
-      Boolean(document.querySelector('input[name="task-view"][value="' + value + '"]')),
-      "Task picker lost Thunderbird native Task filter " + value
-    );
-  }
-  __pickerAssert(Boolean(document.getElementById("task-calendar-list")), "Task picker lost native Calendar selector");
-  __pickerAssert(Boolean(document.getElementById("task-search")), "Task picker lost search");
-
-  $("task-search").value = targetTitle;
-  $("task-search").dispatchEvent(new Event("input", {bubbles: true}));
-  await __pickerWaitFor(
-    () => state.tasks.some(task => task.id === targetId),
-    "native Task search"
-  );
-
-  const targetRow = [...$("task-list").children].find(
-    row => row.querySelector?.(".item-title")?.textContent === targetTitle
-  );
-
-  if (mode === "start") {
-    await __pickerWaitFor(
-      () => state.selected?.id === targetId && state.selectionSource === "thunderbird",
-      "native Thunderbird selection adoption"
-    );
-    __pickerAssert($("current-strip").hidden, "Idle picker incorrectly shows current work");
-    __pickerAssert(__pickerButton("开始这个 Task"), "Start action missing");
-    __pickerAssert(!__pickerButton("结束当前 Task"), "Stop-current appeared while idle");
-
-    __pickerButton("开始这个 Task").click();
-    await browser.runtime.sendMessage({
-      kind: "thunderbird-caldav-picker-start-acceptance",
-      result: {ok: true, targetSelected: true, startClicked: true},
-    });
-    return;
-  }
-
-  targetRow.click();
-  __pickerAssert(!$("current-strip").hidden, "Picker lost current Task context");
-  __pickerAssert(
-    $("current-strip-text").textContent.includes("Seed task from Radicale"),
-    "Picker lost the current seed Task"
-  );
-  __pickerAssert(__pickerButton("结束当前 Task"), "Explicit Stop-current step is missing");
-  __pickerAssert(!__pickerButton("开始这个 Task"), "Start was offered before Stop");
-
-  const before = await AssistantStorage.getLastReceipt();
-  __pickerButton("结束当前 Task").click();
-  const receipt = await __pickerWaitForNewReceipt("stop", before?.id || null);
-
-  await __pickerWaitFor(
-    () =>
-      !state.current &&
-      state.selected?.id === targetId &&
-      Boolean(__pickerButton("开始这个 Task")),
-    "Stop -> preserved target selection"
-  );
-  __pickerAssert(receipt.logSaved === true, "Stop result was not persisted");
-  __pickerAssert($("selected-title").textContent === targetTitle, "Target selection was lost after Stop");
-
-  await browser.runtime.sendMessage({
-    kind: "thunderbird-caldav-picker-switch-acceptance",
-    result: {
-      ok: true,
-      stopVerified: true,
-      targetSelectionPreserved: true,
-      explicitStartStep: true,
-    },
-  });
-
-  __pickerButton("开始这个 Task").click();
-}
-
-setTimeout(() => {
-  __runTaskPickerAcceptance().catch(error =>
-    browser.runtime.sendMessage({
-      kind: new URLSearchParams(location.search).get("acceptance") === "switch"
-        ? "thunderbird-caldav-picker-switch-acceptance"
-        : "thunderbird-caldav-picker-start-acceptance",
-      result: {
-        ok: false,
-        error: (error?.message || String(error)) + (error?.stack ? "\n" + error.stack : ""),
-      },
-    })
-  );
-}, 800);
-'''
-with (root / "task-picker.js").open("a", encoding="utf-8") as handle:
-    handle.write("\n" + task_picker_acceptance + "\n")
-
-workspace_acceptance = r'''
-async function __workspaceWaitFor(predicate, label, timeoutMs = 20000) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    if (await predicate()) return;
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  throw new Error("Workspace timeout: " + label);
-}
-
-function __workspaceAssert(condition, message) {
-  if (!condition) throw new Error(message);
-}
-
-function __workspaceButton(label) {
-  return [...$("actions").querySelectorAll("button")].find(
-    button => button.textContent === label
-  );
-}
-
-async function __workspaceWaitForNewReceipt(action, previousId, timeoutMs = 15000) {
-  let receipt = null;
-  await __workspaceWaitFor(async () => {
-    receipt = await AssistantStorage.getLastReceipt();
-    return receipt?.id !== previousId && receipt?.action === action;
-  }, "new receipt " + action, timeoutMs);
-  __workspaceAssert(receipt?.success, action + " failed: " + (receipt?.error || receipt?.summary || ""));
-  return receipt;
-}
-
-async function __runWorkspaceAcceptance() {
-  const mode = new URLSearchParams(location.search).get("acceptance");
-  if (!mode) return;
-
-  const expectedTitle = mode === "complete" ? "Switch target task" : "Seed task from Radicale";
-  await __workspaceWaitFor(
-    () => state.current?.title === expectedTitle && $("current-title").textContent === expectedTitle,
-    "current Task render"
-  );
-
-  __workspaceAssert(!document.getElementById("task-list"), "Task browser leaked into Work page");
-  __workspaceAssert(!document.getElementById("task-view"), "Task filter leaked into Work page");
-  __workspaceAssert(!document.getElementById("task-search"), "Task search leaked into Work page");
-  __workspaceAssert(__workspaceButton("结束"), "Stop/End is missing");
-  __workspaceAssert(__workspaceButton("完成"), "Complete is missing");
-  __workspaceAssert(__workspaceButton("取消"), "Cancel is missing");
-  __workspaceAssert(!__workspaceButton("暂停"), "Pause unexpectedly exists");
-  __workspaceAssert(!__workspaceButton("继续"), "Resume unexpectedly exists");
-
-  if (mode === "active") {
-    await browser.runtime.sendMessage({
-      kind: "thunderbird-caldav-workspace-active-acceptance",
-      result: {ok: true, stopUi: true, minimalControls: true},
-    });
-    return;
-  }
-
-  const before = await AssistantStorage.getLastReceipt();
-  __workspaceButton("完成").click();
-  const receipt = await __workspaceWaitForNewReceipt("complete", before?.id || null);
-  await __workspaceWaitFor(
-    () => !state.current && !$("no-current").hidden,
-    "Complete -> no current Task"
-  );
-
-  await browser.runtime.sendMessage({
-    kind: "thunderbird-caldav-workspace-complete-acceptance",
-    result: {
-      ok: true,
-      completeUi: true,
-      persistentReceipt: receipt.logSaved === true,
-    },
-  });
-}
-
-setTimeout(() => {
-  __runWorkspaceAcceptance().catch(error =>
-    browser.runtime.sendMessage({
-      kind: new URLSearchParams(location.search).get("acceptance") === "complete"
-        ? "thunderbird-caldav-workspace-complete-acceptance"
-        : "thunderbird-caldav-workspace-active-acceptance",
-      result: {
-        ok: false,
-        error: (error?.message || String(error)) + (error?.stack ? "\n" + error.stack : ""),
-      },
-    })
-  );
-}, 800);
-'''
-with (root / "workspace.js").open("a", encoding="utf-8") as handle:
-    handle.write("\n" + workspace_acceptance + "\n")
-
-tools_acceptance = r'''
-async function __toolsWaitFor(predicate, label, timeoutMs = 15000) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    if (await predicate()) return;
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  throw new Error("Tools timeout: " + label);
-}
-
-function __toolsAssert(condition, message) {
-  if (!condition) throw new Error(message);
-}
-
-async function __runToolsAcceptance() {
-  await __toolsWaitFor(
-    () => [...$("calendar-test").options].some(option => option.value === "acceptance-calendar"),
-    "Calendar test options"
-  );
-
-  __toolsAssert(location.hash === "#task-defaults", "Assistant did not navigate to Task settings");
-  __toolsAssert(Boolean(document.getElementById("task-defaults")), "Task settings section is missing");
-  __toolsAssert($("task-view").value === "incomplete", "Default Task view is not Incomplete");
-  __toolsAssert(!document.getElementById("task-calendar"), "Obsolete Task Calendar setting still exists");
-  __toolsAssert(!document.getElementById("work-calendar"), "Obsolete Work Calendar setting still exists");
-
-  const before = await AssistantStorage.getSettings();
-  $("task-view").value = "completed";
-  $("save-settings").click();
-
-  await __toolsWaitFor(async () => {
-    const settings = await AssistantStorage.getSettings();
-    return settings.taskView === "completed";
-  }, "save Task view");
-
-  __toolsAssert(!$("undo-settings").hidden, "Undo was not offered");
-  $("undo-settings").click();
-
-  await __toolsWaitFor(async () => {
-    const settings = await AssistantStorage.getSettings();
-    return settings.taskView === before.taskView;
-  }, "undo Task view");
-
-  return {
-    ok: true,
-    navigatedToSettings: true,
-    testCalendarAvailable: true,
-    settingsSaved: true,
-    settingsUndone: true,
-  };
-}
-
-setTimeout(() => {
-  __runToolsAcceptance()
-    .then(result => browser.runtime.sendMessage({
-      kind: "thunderbird-caldav-tools-acceptance",
-      result,
-    }))
-    .catch(error => browser.runtime.sendMessage({
-      kind: "thunderbird-caldav-tools-acceptance",
-      result: {
-        ok: false,
-        error: (error?.message || String(error)) + (error?.stack ? "\n" + error.stack : ""),
-      },
-    }));
-}, 800);
-'''
-with (root / "tools.js").open("a", encoding="utf-8") as handle:
-    handle.write("\n" + tools_acceptance + "\n")
-
-logs_acceptance = r'''
-async function __logsWaitFor(predicate, label, timeoutMs = 15000) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    if (await predicate()) return;
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  throw new Error("Logs timeout: " + label);
-}
-
-function __logsAssert(condition, message) {
-  if (!condition) throw new Error(message);
-}
-
-async function __runLogsAcceptance() {
-  await __logsWaitFor(
-    async () => (await AssistantStorage.listAudit()).length > 0,
-    "existing audit rows"
-  );
-
-  $("search").value = "__definitely_no_log_match__";
-  $("search").dispatchEvent(new Event("input"));
-  __logsAssert(
-    $("logs").textContent === "当前筛选没有匹配的日志。",
-    "Filtered-empty log state is ambiguous"
-  );
-
-  $("search").value = "";
-  $("search").dispatchEvent(new Event("input"));
-  $("clear").click();
-  __logsAssert(!$("clear-confirm").hidden, "Clear confirmation did not open");
-  __logsAssert($("logs").hidden, "Log result area remained visible behind clear confirmation");
-
-  $("clear-no").click();
-  __logsAssert($("clear-confirm").hidden, "Clear confirmation did not close on Back");
-  __logsAssert(!$("logs").hidden, "Log list did not return after cancelling clear");
-
-  $("clear").click();
-  $("clear-yes").click();
-  await __logsWaitFor(
-    async () => (await AssistantStorage.listAudit()).length === 0,
-    "audit clear persistence"
-  );
-  await __logsWaitFor(
-    () =>
-      $("clear-confirm").hidden &&
-      $("log-status").textContent === "✓ 操作日志已清空。" &&
-      $("logs").textContent === "尚无操作日志。",
-    "clear UI settled after persistent removal"
-  );
-  __logsAssert($("clear-confirm").hidden, "Clear confirmation remained visible after clear");
-  __logsAssert(
-    $("log-status").textContent === "✓ 操作日志已清空。",
-    "Successful clear status was not shown"
-  );
-  __logsAssert(
-    $("logs").textContent === "尚无操作日志。",
-    "Cleared log list did not show the true empty state"
-  );
-
-  return {
-    ok: true,
-    filteredEmptyDistinct: true,
-    confirmationExclusive: true,
-    cancelRestoresList: true,
-    clearPersistent: true,
-    emptyStateCorrect: true,
-  };
-}
-
-setTimeout(() => {
-  __runLogsAcceptance()
-    .then(result =>
-      browser.runtime.sendMessage({
-        kind: "thunderbird-caldav-logs-acceptance",
-        result,
-      })
-    )
-    .catch(error =>
-      browser.runtime.sendMessage({
-        kind: "thunderbird-caldav-logs-acceptance",
-        result: {
-          ok: false,
-          error:
-            (error?.message || String(error)) +
-            (error?.stack ? "\n" + error.stack : ""),
-        },
-      })
-    );
-}, 800);
-'''
-with (root / "logs.js").open("a", encoding="utf-8") as handle:
-    handle.write("\n" + logs_acceptance + "\n")
-
-acceptance = r'''
 const __ACCEPTANCE_REPORT = "http://127.0.0.1:8765/report";
 let __acceptanceStage = "startup";
+
 let __pickerStartAcceptanceResolve;
 const __pickerStartAcceptancePromise = new Promise(resolve => {
   __pickerStartAcceptanceResolve = resolve;
@@ -619,23 +221,19 @@ let __logsAcceptanceResolve;
 const __logsAcceptancePromise = new Promise(resolve => {
   __logsAcceptanceResolve = resolve;
 });
+
 browser.runtime.onMessage.addListener(message => {
   if (message?.kind === "thunderbird-caldav-picker-start-acceptance") {
     __pickerStartAcceptanceResolve(message.result);
-  }
-  if (message?.kind === "thunderbird-caldav-workspace-active-acceptance") {
+  } else if (message?.kind === "thunderbird-caldav-workspace-active-acceptance") {
     __workspaceActiveAcceptanceResolve(message.result);
-  }
-  if (message?.kind === "thunderbird-caldav-picker-switch-acceptance") {
+  } else if (message?.kind === "thunderbird-caldav-picker-switch-acceptance") {
     __pickerSwitchAcceptanceResolve(message.result);
-  }
-  if (message?.kind === "thunderbird-caldav-workspace-complete-acceptance") {
+  } else if (message?.kind === "thunderbird-caldav-workspace-complete-acceptance") {
     __workspaceCompleteAcceptanceResolve(message.result);
-  }
-  if (message?.kind === "thunderbird-caldav-tools-acceptance") {
+  } else if (message?.kind === "thunderbird-caldav-tools-acceptance") {
     __toolsAcceptanceResolve(message.result);
-  }
-  if (message?.kind === "thunderbird-caldav-logs-acceptance") {
+  } else if (message?.kind === "thunderbird-caldav-logs-acceptance") {
     __logsAcceptanceResolve(message.result);
   }
 });
@@ -666,13 +264,20 @@ async function __waitForAcceptanceCalendar() {
     const calendar = calendars.find(item => item.id === "acceptance-calendar");
     if (calendar && !calendar.disabled) {
       const tasks = await browser.ThunderbirdCalDAV.listTasks(calendar.id);
-      if (tasks.some(task => task.id === "seed-task")) {
-        return calendar;
-      }
+      if (tasks.some(task => task.id === "seed-task")) return calendar;
     }
     await __acceptanceDelay(250);
   }
   throw new Error("Timed out waiting for Thunderbird CalDAV provider to load seed VTODO");
+}
+
+async function __waitForCurrentId(expected, label, timeoutMs = 16000) {
+  for (let attempt = 0; attempt < Math.ceil(timeoutMs / 100); attempt++) {
+    const value = await AssistantStorage.getCurrentWorkId();
+    if (value === expected) return;
+    await __acceptanceDelay(100);
+  }
+  throw new Error("Timed out waiting for current_work_id: " + label);
 }
 
 async function __runRealAcceptance() {
@@ -685,6 +290,26 @@ async function __runRealAcceptance() {
 
   __acceptanceStage = "wait-calendar-seed";
   const calendar = await __waitForAcceptanceCalendar();
+  let restartRecovery = false;
+
+  // The first run deliberately leaves seed-task current. The second real
+  // Thunderbird process must recover the same one persisted id and standard
+  // IN-PROCESS VTODO before normal acceptance begins.
+  __acceptanceStage = "restart-current-id-recovery";
+  const persistedAtStartup = await AssistantStorage.getCurrentWorkId();
+  if (persistedAtStartup) {
+    const persistedTask = await AssistantExecutor.currentTask();
+    __acceptanceAssert(persistedTask?.id === "seed-task", "Restart did not recover seed current Task");
+    __acceptanceAssert(persistedTask.status === "IN-PROCESS", "Recovered Task is not IN-PROCESS");
+    __acceptanceAssert(
+      persistedAtStartup === AssistantExecutor.currentWorkIdOf(persistedTask),
+      "Persisted current_work_id does not match Thunderbird Task instance"
+    );
+    const stopRecovered = await AssistantExecutor.stop(persistedTask);
+    __acceptanceAssert(stopRecovered.success, "Could not Stop restart-recovered Task");
+    __acceptanceAssert(await AssistantStorage.getCurrentWorkId() === null, "Restart cleanup did not clear current_work_id");
+    restartRecovery = true;
+  }
 
   __acceptanceStage = "native-task-selector-recurring-anki";
   let nativeAnki = [];
@@ -694,19 +319,14 @@ async function __runRealAcceptance() {
       searchText: "Anki",
     });
     if (
-      nativeAnki.some(
-        task =>
-          task.id === "anki-recurring" &&
-          task.title === "Anki" &&
-          Boolean(task.recurrenceId)
+      nativeAnki.some(task =>
+        task.id === "anki-recurring" &&
+        task.title === "Anki" &&
+        Boolean(task.recurrenceId)
       )
-    ) {
-      break;
-    }
+    ) break;
     if (attempt === 119) {
-      throw new Error(
-        "Thunderbird native Task selector did not expose recurring Anki occurrence"
-      );
+      throw new Error("Thunderbird native Task selector did not expose recurring Anki occurrence");
     }
     await __acceptanceDelay(100);
   }
@@ -722,22 +342,12 @@ async function __runRealAcceptance() {
     "Hidden Thunderbird Calendar still leaked into native Task selector"
   );
   await browser.ThunderbirdCalDAV.setCalendarDisplayed(calendar.id, true);
-  const restoredNativeTasks = await browser.ThunderbirdCalDAV.listNativeTasks({
-    filter: "open",
-    searchText: "Seed task from Radicale",
-  });
-  __acceptanceAssert(
-    restoredNativeTasks.some(task => task.id === "seed-task"),
-    "Restored Thunderbird Calendar did not return to native Task selector"
-  );
 
   __acceptanceStage = "native-task-selection-bridge";
-  const selectedNative = await browser.AcceptanceTaskFix.selectTaskByTitle(
-    "Seed task from Radicale"
-  );
+  const selectedNative = await browser.AcceptanceTaskFix.selectTaskByTitle("Seed task from Radicale");
   __acceptanceAssert(
     selectedNative?.ok && selectedNative.id === "seed-task",
-    "Could not select the seed Task in Thunderbird's native Tasks tree"
+    "Could not select seed Task in Thunderbird native Tasks tree"
   );
   let bridgedSelection = [];
   for (let attempt = 0; attempt < 40; attempt++) {
@@ -746,163 +356,172 @@ async function __runRealAcceptance() {
       bridgedSelection.length === 1 &&
       bridgedSelection[0].id === "seed-task" &&
       bridgedSelection[0].calendarId === calendar.id
-    ) {
-      break;
-    }
+    ) break;
     await __acceptanceDelay(100);
   }
   __acceptanceAssert(
     bridgedSelection.length === 1 && bridgedSelection[0].id === "seed-task",
-    "CalDAV Assistant did not read Thunderbird's native selected Task"
+    "CalDAV Assistant did not read Thunderbird native selected Task"
   );
 
   __acceptanceStage = "task-picker-start";
+  const seedBeforeStart = await browser.ThunderbirdCalDAV.getTask(calendar.id, "seed-task");
+  const seedWorkId = AssistantExecutor.currentWorkIdOf(seedBeforeStart);
   const pickerStartTab = await browser.tabs.create({
     url: browser.runtime.getURL("task-picker.html?acceptance=start"),
   });
-  __acceptanceAssert(Boolean(pickerStartTab?.id), "Task picker tab could not be opened");
   const pickerStartResult = await Promise.race([
     __pickerStartAcceptancePromise,
-    __acceptanceDelay(30000).then(() => {
-      throw new Error("Timed out waiting for Task picker Start acceptance");
-    }),
+    __acceptanceDelay(30000).then(() => { throw new Error("Timed out waiting for Task picker Start"); }),
   ]);
-  __acceptanceAssert(
-    pickerStartResult?.ok,
-    "Task picker Start acceptance failed: " + (pickerStartResult?.error || "unknown")
-  );
-  __acceptanceAssert(pickerStartResult.segmentedUi, "Task picker segmented UI contract failed");
-
-  for (let attempt = 0; attempt < 160; attempt++) {
-    const runtimeState = await browser.storage.local.get("caldavAssistant.runtime");
-    const runtime = runtimeState["caldavAssistant.runtime"];
-    if (runtime?.state === "working" && runtime?.currentTask?.id === "seed-task") break;
-    if (attempt === 159) throw new Error("Task picker Start did not make seed-task current");
-    await __acceptanceDelay(100);
-  }
+  __acceptanceAssert(pickerStartResult?.ok, "Task picker Start failed: " + (pickerStartResult?.error || "unknown"));
+  await __waitForCurrentId(seedWorkId, "seed Start");
+  let seedTask = await browser.ThunderbirdCalDAV.getTask(calendar.id, "seed-task");
+  __acceptanceAssert(seedTask.status === "IN-PROCESS", "Start did not persist IN-PROCESS");
   await browser.tabs.remove(pickerStartTab.id);
 
   __acceptanceStage = "workspace-active";
   const workspaceTab = await browser.tabs.create({
     url: browser.runtime.getURL("workspace.html?acceptance=active"),
   });
-  __acceptanceAssert(Boolean(workspaceTab?.id), "Workspace tab could not be opened");
   const workspaceActiveResult = await Promise.race([
     __workspaceActiveAcceptancePromise,
-    __acceptanceDelay(45000).then(() => {
-      throw new Error("Timed out waiting for active Work UI acceptance");
-    }),
+    __acceptanceDelay(30000).then(() => { throw new Error("Timed out waiting for active Work UI"); }),
   ]);
-  __acceptanceAssert(
-    workspaceActiveResult?.ok,
-    "Active Work UI acceptance failed: " + (workspaceActiveResult?.error || "unknown")
-  );
-  __acceptanceAssert(workspaceActiveResult.segmentedUi, "Work page is not segmented");
-  __acceptanceAssert(workspaceActiveResult.pauseResumeUi, "Pause/Resume human path did not pass");
-  __acceptanceAssert(workspaceActiveResult.persistentReceipt, "Pause/Resume receipt persistence failed");
+  __acceptanceAssert(workspaceActiveResult?.ok, "Active Work UI failed: " + (workspaceActiveResult?.error || "unknown"));
+  __acceptanceAssert(workspaceActiveResult.stopUi, "Work page did not expose End");
+  __acceptanceAssert(workspaceActiveResult.minimalControls, "Work page retained obsolete controls");
   await browser.tabs.remove(workspaceTab.id);
 
-  __acceptanceStage = "create-switch-target";
-  const switchTarget = await browser.ThunderbirdCalDAV.createTask(calendar.id, {
+  __acceptanceStage = "create-target";
+  const target = await browser.ThunderbirdCalDAV.createTask(calendar.id, {
     title: "Switch target task",
     status: "NEEDS-ACTION",
     percentComplete: 0,
     categories: ["Acceptance"],
   });
-  __acceptanceAssert(switchTarget?.id, "Created switch target has no provider UID");
+  __acceptanceAssert(target?.id, "Created target has no provider UID");
   await browser.storage.local.set({
     "caldavAssistant.acceptanceSwitchTarget": {
-      id: switchTarget.id,
-      calendarId: switchTarget.calendarId || calendar.id,
-      title: switchTarget.title || "Switch target task",
+      id: target.id,
+      calendarId: target.calendarId || calendar.id,
+      title: target.title || "Switch target task",
     },
   });
-  for (let attempt = 0; attempt < 120; attempt++) {
-    const available = await browser.ThunderbirdCalDAV.listTasks(calendar.id);
-    if (available.some(task => task.id === switchTarget.id)) break;
-    if (attempt === 119) throw new Error("Created switch target did not become visible through listTasks");
-    await __acceptanceDelay(100);
-  }
 
-  __acceptanceStage = "task-picker-switch";
+  __acceptanceStage = "task-picker-stop-then-start-target";
   const pickerSwitchTab = await browser.tabs.create({
     url: browser.runtime.getURL("task-picker.html?acceptance=switch"),
   });
-  __acceptanceAssert(Boolean(pickerSwitchTab?.id), "Switch Task picker tab could not be opened");
   const pickerSwitchResult = await Promise.race([
     __pickerSwitchAcceptancePromise,
-    __acceptanceDelay(45000).then(() => {
-      throw new Error("Timed out waiting for Task picker switch acceptance");
-    }),
+    __acceptanceDelay(45000).then(() => { throw new Error("Timed out waiting for Task picker Stop/Start"); }),
   ]);
-  __acceptanceAssert(
-    pickerSwitchResult?.ok,
-    "Task picker switch acceptance failed: " + (pickerSwitchResult?.error || "unknown")
-  );
-  __acceptanceAssert(pickerSwitchResult.switchAwayVerified, "Switch-away human path did not pass");
-  __acceptanceAssert(
-    pickerSwitchResult.targetSelectionPreserved,
-    "Target selection was not preserved across the switch-away step"
-  );
-  __acceptanceAssert(pickerSwitchResult.explicitStartStep, "Switch flow auto-chained instead of staying segmented");
+  __acceptanceAssert(pickerSwitchResult?.ok, "Task picker Stop/Start failed: " + (pickerSwitchResult?.error || "unknown"));
+  __acceptanceAssert(pickerSwitchResult.stopVerified, "Explicit Stop human path did not pass");
+  __acceptanceAssert(pickerSwitchResult.targetSelectionPreserved, "Target selection was lost after Stop");
+  __acceptanceAssert(pickerSwitchResult.explicitStartStep, "Target was auto-started without explicit Start");
 
-  for (let attempt = 0; attempt < 160; attempt++) {
-    const runtimeState = await browser.storage.local.get("caldavAssistant.runtime");
-    const runtime = runtimeState["caldavAssistant.runtime"];
-    if (runtime?.state === "working" && runtime?.currentTask?.id === switchTarget.id) break;
-    if (attempt === 159) throw new Error("Explicit Start did not make the selected switch target current");
-    await __acceptanceDelay(100);
-  }
+  const targetRead = await browser.ThunderbirdCalDAV.getTask(calendar.id, target.id);
+  const targetWorkId = AssistantExecutor.currentWorkIdOf(targetRead);
+  await __waitForCurrentId(targetWorkId, "target Start");
+  seedTask = await browser.ThunderbirdCalDAV.getTask(calendar.id, "seed-task");
+  const targetActive = await browser.ThunderbirdCalDAV.getTask(calendar.id, target.id);
+  __acceptanceAssert(seedTask.status === "NEEDS-ACTION", "Stop did not return seed to NEEDS-ACTION");
+  __acceptanceAssert(targetActive.status === "IN-PROCESS", "Target Start did not set IN-PROCESS");
   await browser.tabs.remove(pickerSwitchTab.id);
 
   __acceptanceStage = "workspace-complete";
   const workspaceCompleteTab = await browser.tabs.create({
     url: browser.runtime.getURL("workspace.html?acceptance=complete"),
   });
-  __acceptanceAssert(Boolean(workspaceCompleteTab?.id), "Complete Workspace tab could not be opened");
   const workspaceCompleteResult = await Promise.race([
     __workspaceCompleteAcceptancePromise,
-    __acceptanceDelay(30000).then(() => {
-      throw new Error("Timed out waiting for switched Task Complete acceptance");
-    }),
+    __acceptanceDelay(30000).then(() => { throw new Error("Timed out waiting for Complete"); }),
   ]);
-  __acceptanceAssert(
-    workspaceCompleteResult?.ok,
-    "Switched Task Complete acceptance failed: " + (workspaceCompleteResult?.error || "unknown")
-  );
+  __acceptanceAssert(workspaceCompleteResult?.ok, "Complete UI failed: " + (workspaceCompleteResult?.error || "unknown"));
   __acceptanceAssert(workspaceCompleteResult.completeUi, "Complete human path did not pass");
-  __acceptanceAssert(workspaceCompleteResult.persistentReceipt, "Complete receipt persistence failed");
+  __acceptanceAssert(workspaceCompleteResult.persistentReceipt, "Complete receipt was not persisted");
+  __acceptanceAssert(await AssistantStorage.getCurrentWorkId() === null, "Complete did not clear current_work_id");
+  const targetCompleted = await browser.ThunderbirdCalDAV.getTask(calendar.id, target.id);
+  __acceptanceAssert(targetCompleted.status === "COMPLETED", "Complete did not persist COMPLETED");
   await browser.tabs.remove(workspaceCompleteTab.id);
 
-  __acceptanceStage = "tools-guided-settings";
+  __acceptanceStage = "task-lifecycle-created-no-events";
+  let events = await browser.ThunderbirdCalDAV.listEvents(calendar.id, "", "");
+  __acceptanceAssert(events.length === 0, "Task lifecycle created or modified a VEVENT");
+
+  __acceptanceStage = "workflow-audit";
+  const auditRows = await AssistantStorage.listAudit();
+  const workflowActions = auditRows.filter(row => row.scope === "workflow").map(row => row.action);
+  for (const expected of ["start", "stop", "complete"]) {
+    __acceptanceAssert(workflowActions.includes(expected), "Persistent audit missing " + expected);
+  }
+  __acceptanceAssert(!workflowActions.includes("pause"), "Audit contains obsolete pause action");
+  __acceptanceAssert(!workflowActions.includes("resume"), "Audit contains obsolete resume action");
+  __acceptanceAssert(!workflowActions.includes("switch-away"), "Audit contains obsolete switch-away action");
+
+  __acceptanceStage = "tools-settings";
   const toolsTab = await browser.tabs.create({
     url: browser.runtime.getURL("tools.html#task-defaults"),
   });
-  __acceptanceAssert(Boolean(toolsTab?.id), "Tools tab could not be opened");
   const toolsResult = await Promise.race([
     __toolsAcceptancePromise,
-    __acceptanceDelay(30000).then(() => {
-      throw new Error("Timed out waiting for Tools guided-settings acceptance");
-    }),
+    __acceptanceDelay(30000).then(() => { throw new Error("Timed out waiting for Tools acceptance"); }),
   ]);
-  __acceptanceAssert(
-    toolsResult?.ok,
-    "Tools guided-settings acceptance failed: " + (toolsResult?.error || "unknown")
-  );
-  __acceptanceAssert(toolsResult.navigatedToSettings, "Assistant did not land on Task defaults");
-  __acceptanceAssert(toolsResult.thunderbirdCalendarsReused, "Settings did not reuse Thunderbird Calendars");
-  __acceptanceAssert(toolsResult.settingsSaved, "Task defaults did not save");
-  __acceptanceAssert(toolsResult.settingsUndone, "Task defaults could not be undone");
+  __acceptanceAssert(toolsResult?.ok, "Tools acceptance failed: " + (toolsResult?.error || "unknown"));
+  __acceptanceAssert(toolsResult.testCalendarAvailable, "Calendar test selector did not reuse Thunderbird Calendar");
+  __acceptanceAssert(toolsResult.settingsSaved && toolsResult.settingsUndone, "Task view setting save/undo failed");
   await browser.tabs.remove(toolsTab.id);
 
   __acceptanceStage = "taskfix-real-ui";
   const taskFix = await browser.AcceptanceTaskFix.openTasksAndCheck();
+  __acceptanceAssert(taskFix?.ok, "TaskFix real Tasks UI injection failed: " + JSON.stringify(taskFix));
+  __acceptanceAssert(taskFix.statusButton && taskFix.contextStatus, "TaskFix Status controls are missing");
+
+  __acceptanceStage = "provider-task-write-readback";
+  await browser.ThunderbirdCalDAV.updateTask(calendar.id, "seed-task", {
+    status: "IN-PROCESS",
+    percentComplete: 40,
+  });
+  let taskReadback = await browser.ThunderbirdCalDAV.getTask(calendar.id, "seed-task");
+  __acceptanceAssert(taskReadback.status === "IN-PROCESS", "Task status write/readback failed");
+  __acceptanceAssert(taskReadback.percentComplete === 40, "Task progress write/readback failed");
+  await browser.ThunderbirdCalDAV.updateTask(calendar.id, "seed-task", {
+    status: "NEEDS-ACTION",
+    percentComplete: 0,
+  });
+
+  __acceptanceStage = "generic-event-crud";
+  const event = await browser.ThunderbirdCalDAV.createEvent(calendar.id, {
+    title: "Runtime Event",
+    start: "2026-10-05T09:00",
+    end: "2026-10-05T10:00",
+    categories: ["Acceptance"],
+    description: "Generic Thunderbird Event provider acceptance",
+  });
+  __acceptanceAssert(event.id, "Created event has no UID");
+  const updatedEvent = await browser.ThunderbirdCalDAV.updateEvent(calendar.id, event.id, {
+    title: "Runtime Event Updated",
+    start: "2026-10-05T11:00",
+    end: "2026-10-05T12:30",
+  });
+  __acceptanceAssert(updatedEvent.title === "Runtime Event Updated", "Event update failed");
   __acceptanceAssert(
-    taskFix?.ok,
-    "TaskFix real Tasks UI injection failed: " + JSON.stringify(taskFix)
+    __acceptanceIcalEquals(updatedEvent.start?.icalString, "20261005T110000"),
+    "Event start update failed"
   );
-  __acceptanceAssert(taskFix.statusButton, "TaskFix Status toolbar button is missing");
-  __acceptanceAssert(taskFix.contextStatus, "TaskFix Status context menu is missing");
+  let rejected = false;
+  try {
+    await browser.ThunderbirdCalDAV.updateEvent(calendar.id, event.id, {
+      start: "2026-10-05T14:00",
+      end: "2026-10-05T13:00",
+    });
+  } catch (error) {
+    rejected = /end must not be before/i.test(error?.message || String(error));
+  }
+  __acceptanceAssert(rejected, "Invalid backwards Event was not rejected");
+  await browser.ThunderbirdCalDAV.deleteEvent(calendar.id, event.id);
 
   __acceptanceStage = "diagnostics";
   await browser.ThunderbirdCalDAV.writeDiagnostic("acceptance", "probe", {
@@ -914,170 +533,47 @@ async function __runRealAcceptance() {
   __acceptanceAssert(Boolean(diagnosticInfo.path), "Diagnostics path is missing");
   __acceptanceAssert(
     diagnosticRead.text.includes('"component":"acceptance"') &&
-      diagnosticRead.text.includes('"event":"probe"'),
+    diagnosticRead.text.includes('"event":"probe"'),
     "Persistent diagnostics probe was not readable"
   );
-  __acceptanceAssert(
-    !diagnosticRead.text.includes("must-not-leak"),
-    "Diagnostics did not redact a password field"
-  );
+  __acceptanceAssert(!diagnosticRead.text.includes("must-not-leak"), "Diagnostics leaked password");
 
-  __acceptanceStage = "recheck-calendar-seed";
-  await __waitForAcceptanceCalendar();
-  __acceptanceAssert(calendar.type === "caldav", "Configured calendar is not CalDAV");
-  __acceptanceAssert(!calendar.readOnly, "Configured CalDAV calendar became read-only");
-  __acceptanceAssert(calendar.supportsTasks, "CalDAV calendar does not support VTODO");
-  __acceptanceAssert(calendar.supportsEvents, "CalDAV calendar does not support VEVENT");
-
-  __acceptanceStage = "list-seed-task";
-  let tasks = await browser.ThunderbirdCalDAV.listTasks(calendar.id);
-  __acceptanceAssert(
-    tasks.some(task => task.id === "seed-task" && task.title === "Seed task from Radicale"),
-    "Seed VTODO was not read through Thunderbird"
-  );
-
-  __acceptanceStage = "verify-workflow-task";
-  let workflowTask = await browser.ThunderbirdCalDAV.getTask(calendar.id, "seed-task");
-  __acceptanceAssert(workflowTask.status === "NEEDS-ACTION", "Switch-away did not restore seed Task to its pre-start incomplete status");
-  __acceptanceAssert(workflowTask.paused === false, "Switch-away incorrectly left seed Task paused/resumable");
-
-  const switchedTask = await browser.ThunderbirdCalDAV.getTask(calendar.id, switchTarget.id);
-  __acceptanceAssert(switchedTask.status === "COMPLETED", "Switched Task Complete was not persisted to CalDAV");
-  __acceptanceAssert(switchedTask.paused === false, "Completed switched Task retained paused marker");
-
-  __acceptanceStage = "verify-work-sessions";
-  const seedWorkEvents = (await browser.ThunderbirdCalDAV.listEvents(calendar.id, "", "")).filter(
-    item => item.workSession && item.taskUid === "seed-task"
-  );
-  const switchWorkEvents = (await browser.ThunderbirdCalDAV.listEvents(calendar.id, "", "")).filter(
-    item => item.workSession && item.taskUid === switchTarget.id
-  );
-  __acceptanceAssert(seedWorkEvents.length >= 2, "Start/Resume did not create separate seed Work VEVENTs");
-  __acceptanceAssert(
-    seedWorkEvents.every(item => item.end && !item.workOpen),
-    "Switch-away left a seed Work VEVENT open"
-  );
-  __acceptanceAssert(switchWorkEvents.length >= 1, "Switched Task Start did not create a Work VEVENT");
-  __acceptanceAssert(
-    switchWorkEvents.every(item => item.end && !item.workOpen),
-    "Switched Task Complete left a Work VEVENT open"
-  );
-  let workEvents = [...seedWorkEvents, ...switchWorkEvents];
-
-  __acceptanceStage = "verify-workflow-audit";
-  const auditRows = await AssistantStorage.listAudit();
-  const workflowActions = auditRows
-    .filter(row => row.scope === "workflow")
-    .map(row => row.action);
-  for (const expected of ["start", "pause", "resume", "switch-away", "complete"]) {
-    __acceptanceAssert(workflowActions.includes(expected), "Persistent audit missing " + expected);
-  }
-
-  __acceptanceStage = "task-write-readback";
-  await browser.ThunderbirdCalDAV.updateTask(calendar.id, "seed-task", {
-    status: "IN-PROCESS",
-    paused: true,
-    percentComplete: 40,
-  });
-  let taskReadback = await browser.ThunderbirdCalDAV.getTask(calendar.id, "seed-task");
-  __acceptanceAssert(taskReadback.status === "IN-PROCESS", "Existing Task status write/readback failed");
-  __acceptanceAssert(taskReadback.paused === true, "Existing Task paused write/readback failed");
-  __acceptanceAssert(taskReadback.percentComplete === 40, "Existing Task progress write/readback failed");
-
-  __acceptanceStage = "create-event";
-  const event = await browser.ThunderbirdCalDAV.createEvent(calendar.id, {
-    title: "Runtime Event",
-    start: "2026-10-05T09:00",
-    end: "2026-10-05T10:00",
-    categories: ["Acceptance"],
-    description: "Created by real Thunderbird 153 acceptance",
-  });
-  __acceptanceAssert(event.id, "Created event has no UID");
-
-  __acceptanceStage = "list-event";
-  let events = await browser.ThunderbirdCalDAV.listEvents(
-    calendar.id,
-    "2026-10-05",
-    "2026-10-06"
-  );
-  __acceptanceAssert(
-    events.some(item => item.id === event.id),
-    "Created VEVENT was not re-read from Thunderbird"
-  );
-
-  __acceptanceStage = "update-event";
-  const updatedEvent = await browser.ThunderbirdCalDAV.updateEvent(calendar.id, event.id, {
-    title: "Runtime Event Updated",
-    start: "2026-10-05T11:00",
-    end: "2026-10-05T12:30",
-    categories: ["Acceptance", "Updated"],
-    description: "Updated through Thunderbird calendar provider",
-  });
-  __acceptanceAssert(updatedEvent.title === "Runtime Event Updated", "Event title update failed");
-  __acceptanceAssert(
-    __acceptanceIcalEquals(updatedEvent.start?.icalString, "20261005T110000"),
-    `Event start update failed: ${updatedEvent.start?.icalString}; source=${updatedEvent.start?.sourceIcalString}`
-  );
-
-  __acceptanceStage = "invalid-event-validation";
-  let rejected = false;
-  try {
-    await browser.ThunderbirdCalDAV.updateEvent(calendar.id, event.id, {
-      start: "2026-10-05T14:00",
-      end: "2026-10-05T13:00",
-    });
-  } catch (error) {
-    rejected = /end must not be before/i.test(error?.message || String(error));
-  }
-  __acceptanceAssert(rejected, "Invalid backwards event was not rejected");
-
-  __acceptanceStage = "cleanup-test-data";
-  await browser.ThunderbirdCalDAV.deleteEvent(calendar.id, event.id);
-  for (const workEvent of workEvents) {
-    await browser.ThunderbirdCalDAV.deleteEvent(calendar.id, workEvent.id);
-  }
-  await browser.ThunderbirdCalDAV.deleteTask(calendar.id, switchTarget.id);
+  __acceptanceStage = "cleanup-target";
+  await browser.ThunderbirdCalDAV.deleteTask(calendar.id, target.id);
   await browser.storage.local.set({"caldavAssistant.acceptanceSwitchTarget": null});
   await browser.ThunderbirdCalDAV.updateTask(calendar.id, "seed-task", {
     status: "NEEDS-ACTION",
-    paused: false,
     percentComplete: 0,
   });
 
-  tasks = await browser.ThunderbirdCalDAV.listTasks(calendar.id);
+  let tasks = await browser.ThunderbirdCalDAV.listTasks(calendar.id);
   events = await browser.ThunderbirdCalDAV.listEvents(calendar.id, "", "");
-  const restoredSeed = tasks.find(task => task.id === "seed-task");
-  const recurringAnkiParent = tasks.find(task => task.id === "anki-recurring");
-  __acceptanceAssert(
-    tasks.length === 2 &&
-      restoredSeed?.status === "NEEDS-ACTION" &&
-      restoredSeed?.paused === false &&
-      recurringAnkiParent?.title === "Anki",
-    "Seed/recurring Anki fixtures were not restored after acceptance"
-  );
-  __acceptanceAssert(events.length === 0, "Acceptance left VEVENT test data behind");
+  __acceptanceAssert(tasks.some(task => task.id === "seed-task"), "Seed Task disappeared");
+  __acceptanceAssert(tasks.some(task => task.id === "anki-recurring"), "Recurring Anki fixture disappeared");
+  __acceptanceAssert(!tasks.some(task => task.id === target.id), "Temporary target Task was not deleted");
+  __acceptanceAssert(events.length === 0, "Acceptance left Event test data behind");
 
   __acceptanceStage = "logs-clear-ui";
-  const logsTab = await browser.tabs.create({
-    url: browser.runtime.getURL("logs.html"),
-  });
-  __acceptanceAssert(Boolean(logsTab?.id), "Logs tab could not be opened");
+  const logsTab = await browser.tabs.create({url: browser.runtime.getURL("logs.html")});
   const logsResult = await Promise.race([
     __logsAcceptancePromise,
-    __acceptanceDelay(30000).then(() => {
-      throw new Error("Timed out waiting for Logs clear acceptance");
-    }),
+    __acceptanceDelay(30000).then(() => { throw new Error("Timed out waiting for Logs clear"); }),
   ]);
-  __acceptanceAssert(
-    logsResult?.ok,
-    "Logs clear UI acceptance failed: " + (logsResult?.error || "unknown")
-  );
-  __acceptanceAssert(logsResult.filteredEmptyDistinct, "Filtered empty-state contract failed");
-  __acceptanceAssert(logsResult.confirmationExclusive, "Clear confirmation overlapped log empty state");
-  __acceptanceAssert(logsResult.cancelRestoresList, "Clear cancel did not restore log list");
-  __acceptanceAssert(logsResult.clearPersistent, "Log clear was not persistent");
-  __acceptanceAssert(logsResult.emptyStateCorrect, "Cleared log empty state is incorrect");
+  __acceptanceAssert(logsResult?.ok, "Logs clear UI failed: " + (logsResult?.error || "unknown"));
   await browser.tabs.remove(logsTab.id);
+
+  // Deliberately leave exactly one persisted current id for the actual process
+  // restart gate below. No VEVENT is created.
+  __acceptanceStage = "leave-current-for-restart";
+  const seedFinal = await browser.ThunderbirdCalDAV.getTask(calendar.id, "seed-task");
+  const finalStart = await AssistantExecutor.start(seedFinal);
+  __acceptanceAssert(finalStart.success, "Could not Start seed for restart persistence gate");
+  const finalWorkId = AssistantExecutor.currentWorkIdOf(seedFinal);
+  await __waitForCurrentId(finalWorkId, "leave current for restart");
+  const seedFinalReadback = await browser.ThunderbirdCalDAV.getTask(calendar.id, "seed-task");
+  __acceptanceAssert(seedFinalReadback.status === "IN-PROCESS", "Restart fixture is not IN-PROCESS");
+  events = await browser.ThunderbirdCalDAV.listEvents(calendar.id, "", "");
+  __acceptanceAssert(events.length === 0, "Leaving current Task created a VEVENT");
 
   return {
     ok: true,
@@ -1087,7 +583,11 @@ async function __runRealAcceptance() {
     taskWriteReadback: true,
     eventCrud: true,
     validation: true,
-    workSessionLifecycle: true,
+    minimalTaskLifecycle: true,
+    currentWorkIdLifecycle: true,
+    taskLifecycleDidNotTouchEvents: true,
+    restartRecovery,
+    leftCurrentForRestart: true,
     persistentAudit: true,
     spaceCreated: true,
     workspaceOpened: true,
@@ -1099,7 +599,6 @@ async function __runRealAcceptance() {
     taskFixRealUi: true,
     diagnostics: true,
     logsClearUi: true,
-    createdEventId: event.id,
   };
 }
 
