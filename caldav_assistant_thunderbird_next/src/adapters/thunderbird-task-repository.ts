@@ -1,5 +1,6 @@
 import {TaskPatch, TaskSnapshot, TaskStatus} from "../domain";
 import {TaskCatalog, TaskRepository, TaskScanResult} from "../ports";
+import {TaskListItem, TaskQuery, TaskQueryOptions, TaskQueryResult} from "../task-query";
 import {decodeTaskId, encodeTaskId} from "../task-id";
 
 export interface NativeTaskView {
@@ -14,6 +15,27 @@ export interface NativeTaskView {
 
 export interface NativeTaskScanResult {
   readonly tasks: readonly NativeTaskView[];
+  readonly complete: boolean;
+  readonly failures: readonly {
+    readonly calendarId: string;
+    readonly message: string;
+  }[];
+}
+
+export interface NativeTaskListItem {
+  readonly calendarId: string;
+  readonly calendarName: string;
+  readonly uid: string;
+  readonly recurrenceId: string;
+  readonly title: string;
+  readonly status: TaskStatus;
+  readonly percentComplete: number;
+  readonly due: string | null;
+  readonly categories: readonly string[];
+}
+
+export interface NativeTaskQueryResult {
+  readonly tasks: readonly NativeTaskListItem[];
   readonly complete: boolean;
   readonly failures: readonly {
     readonly calendarId: string;
@@ -36,6 +58,8 @@ export interface NativeTasksApi {
   ): Promise<NativeTaskView>;
 
   scanStoredTasks(): Promise<NativeTaskScanResult>;
+
+  queryTasks(options: TaskQueryOptions): Promise<NativeTaskQueryResult>;
 }
 
 function snapshot(native: NativeTaskView): TaskSnapshot {
@@ -54,7 +78,26 @@ function snapshot(native: NativeTaskView): TaskSnapshot {
   });
 }
 
-export class ThunderbirdTaskRepository implements TaskRepository, TaskCatalog {
+function listItem(native: NativeTaskListItem): TaskListItem {
+  const identity = {
+    calendarId: native.calendarId,
+    uid: native.uid,
+    recurrenceId: native.recurrenceId,
+  };
+  return Object.freeze({
+    taskId: encodeTaskId(identity),
+    calendarId: native.calendarId,
+    calendarName: native.calendarName,
+    title: native.title,
+    status: native.status,
+    percentComplete: native.percentComplete,
+    due: native.due,
+    categories: Object.freeze([...native.categories]),
+  });
+}
+
+export class ThunderbirdTaskRepository
+  implements TaskRepository, TaskCatalog, TaskQuery {
   constructor(private readonly api: NativeTasksApi) {}
 
   async get(taskId: string): Promise<TaskSnapshot | null> {
@@ -85,6 +128,17 @@ export class ThunderbirdTaskRepository implements TaskRepository, TaskCatalog {
       tasks: Object.freeze(result.tasks.map(snapshot)),
       complete: result.complete,
       failures: Object.freeze(result.failures.map(item => Object.freeze({...item}))),
+    });
+  }
+
+  async query(options: TaskQueryOptions): Promise<TaskQueryResult> {
+    const result = await this.api.queryTasks(options);
+    return Object.freeze({
+      items: Object.freeze(result.tasks.map(listItem)),
+      complete: result.complete,
+      failures: Object.freeze(
+        result.failures.map(item => Object.freeze({...item}))
+      ),
     });
   }
 }
