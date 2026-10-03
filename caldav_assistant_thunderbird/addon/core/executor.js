@@ -79,14 +79,19 @@
     };
   }
 
-  async function switchRestoreSnapshot(runtime, task) {
+  async function switchRestoreSnapshot(task) {
     const audited = await AssistantStorage.findLatestStartSnapshot(task);
     if (audited) return audited;
 
-    // Phase 2 compatibility: old 0.3.15 runtime still carries taskBeforeStart.
-    // It is a fallback only; immutable workflow history is the preferred source.
-    const saved = runtime?.taskBeforeStart;
-    if (saved && typeof saved === "object") {
+    // Read-only migration fallback for a work session created by 0.3.15.
+    const legacyRuntime = await AssistantStorage.getRuntime();
+    const saved = legacyRuntime?.taskBeforeStart;
+    if (
+      AssistantStorage.makeWorkTaskId(legacyRuntime?.currentTask) ===
+        AssistantStorage.makeWorkTaskId(task) &&
+      saved &&
+      typeof saved === "object"
+    ) {
       return {
         status: saved.status || null,
         paused: Boolean(saved.paused),
@@ -333,17 +338,15 @@
     }
   }
 
-  async function restoreRuntime(runtime, receipt) {
+  async function restoreCurrentWorkId(currentWorkId, receipt) {
     try {
-      await AssistantStorage.setRuntime(runtime);
-      step(receipt, "Rollback", "restore runtime state", true, {
-        state: runtime.state,
-        taskUid: runtime.currentTask?.id || null,
-        workEventUid: runtime.currentWorkEvent?.id || null,
+      await AssistantStorage.setCurrentWorkId(currentWorkId);
+      step(receipt, "Rollback", "restore currentWorkId", true, {
+        currentWorkId,
       });
       return true;
     } catch (error) {
-      step(receipt, "Rollback", "restore runtime state", false, {
+      step(receipt, "Rollback", "restore currentWorkId", false, {
         message: errorText(error),
       });
       return false;
@@ -399,15 +402,15 @@
   async function start(task, workCalendarId) {
     return runAction("start", task, async receipt => {
       ensureMutableTask(task);
-      const runtime = await AssistantStorage.getRuntime();
-      const currentWorkId = await AssistantStorage.getCurrentWorkId();
-      if (currentWorkId) {
+      const previousCurrentWorkId = await AssistantStorage.getCurrentWorkId();
+      if (previousCurrentWorkId) {
         throw new Error("Another task is already active.");
       }
 
       const beforeTask = taskSnapshot(task);
       let taskWritten = false;
       let workEvent = null;
+      let currentWorkPublished = false;
 
       try {
         taskWritten = true;
@@ -420,31 +423,21 @@
 
         workEvent = await createWorkEvent(task, workCalendarId, toLocalInput(), receipt);
 
-        await AssistantStorage.setRuntime({
-          state: "working",
-          currentTask: {
-            id: task.id,
-            calendarId: task.calendarId,
-            title: task.title,
-            recurrenceId: String(task.recurrenceId || ""),
-          },
-          currentWorkEvent: {
-            id: workEvent.id,
-            calendarId: workEvent.calendarId,
-          },
-          segmentStartedAtMs: Date.now(),
-          accumulatedMs: 0,
-          taskBeforeStart: beforeTask,
-        });
-        step(receipt, "Runtime", "set current task", true, {
-          state: "working",
+        await AssistantStorage.setCurrentWorkId(
+          AssistantStorage.makeWorkTaskId(task)
+        );
+        currentWorkPublished = true;
+        step(receipt, "Current Work", "publish currentWorkId", true, {
+          currentWorkId: AssistantStorage.makeWorkTaskId(task),
           taskUid: task.id,
           workEventUid: workEvent.id,
         });
       } catch (error) {
         if (workEvent) await deleteWorkEvent(workEvent, receipt);
         if (taskWritten) await restoreTask(task, beforeTask, receipt);
-        await restoreRuntime(runtime, receipt);
+        if (currentWorkPublished) {
+          await restoreCurrentWorkId(previousCurrentWorkId, receipt);
+        }
         throw error;
       }
     });
@@ -453,7 +446,6 @@
   async function pause(task) {
     return runAction("pause", task, async receipt => {
       ensureMutableTask(task);
-      const runtime = await AssistantStorage.getRuntime();
       if (
         !(await isCurrentTask(task)) ||
         task.status !== "IN-PROCESS" ||
@@ -482,24 +474,14 @@
           receipt
         );
 
-        const elapsed = runtime.segmentStartedAtMs
-          ? Math.max(0, Date.now() - runtime.segmentStartedAtMs)
-          : 0;
-        await AssistantStorage.setRuntime({
-          ...runtime,
-          state: "paused",
-          currentWorkEvent: null,
-          segmentStartedAtMs: null,
-          accumulatedMs: Number(runtime.accumulatedMs || 0) + elapsed,
-        });
-        step(receipt, "Runtime", "set paused state", true, {
-          accumulatedMs: Number(runtime.accumulatedMs || 0) + elapsed,
+        step(receipt, "Current Work", "keep currentWorkId", true, {
+          currentWorkId: AssistantStorage.makeWorkTaskId(task),
+          paused: true,
         });
         await logClosedWorkSession(task, closedEvent, receipt);
       } catch (error) {
         if (taskWritten) await restoreTask(task, beforeTask, receipt);
         if (eventClosed) await reopenWorkEvent(workEvent, receipt);
-        await restoreRuntime(runtime, receipt);
         throw error;
       }
     });
@@ -508,17 +490,18 @@
   async function switchAway(task) {
     return runAction("switch-away", task, async receipt => {
       ensureMutableTask(task);
-      const runtime = await AssistantStorage.getRuntime();
       if (!(await isCurrentTask(task))) {
         throw new Error("The selected task is not the current task.");
       }
 
+      const currentWorkId = AssistantStorage.makeWorkTaskId(task);
       const beforeTask = taskSnapshot(task);
-      const restoreTo = await switchRestoreSnapshot(runtime, task);
+      const restoreTo = await switchRestoreSnapshot(task);
       const workEvent = await AssistantStorage.findOpenWorkSessionRef(task);
       let eventClosed = false;
       let closedEvent = null;
       let taskWritten = false;
+      let currentWorkCleared = false;
 
       try {
         if (workEvent) {
@@ -538,9 +521,9 @@
           receipt
         );
 
-        await AssistantStorage.clearRuntime();
-        step(receipt, "Runtime", "release current task", true, {
-          state: "idle",
+        await AssistantStorage.setCurrentWorkId(null);
+        currentWorkCleared = true;
+        step(receipt, "Current Work", "clear currentWorkId", true, {
           taskUid: task.id,
           restoredStatus: restoreTo.status || "",
           restoredPaused: Boolean(restoreTo.paused),
@@ -550,7 +533,9 @@
       } catch (error) {
         if (taskWritten) await restoreTask(task, beforeTask, receipt);
         if (eventClosed) await reopenWorkEvent(workEvent, receipt);
-        await restoreRuntime(runtime, receipt);
+        if (currentWorkCleared) {
+          await restoreCurrentWorkId(currentWorkId, receipt);
+        }
         throw error;
       }
     });
@@ -563,7 +548,6 @@
   async function resume(task, workCalendarId) {
     return runAction("resume", task, async receipt => {
       ensureMutableTask(task);
-      const runtime = await AssistantStorage.getRuntime();
       if (
         !(await isCurrentTask(task)) ||
         task.status !== "IN-PROCESS" ||
@@ -587,22 +571,14 @@
 
         workEvent = await createWorkEvent(task, workCalendarId, toLocalInput(), receipt);
 
-        await AssistantStorage.setRuntime({
-          ...runtime,
-          state: "working",
-          currentWorkEvent: {
-            id: workEvent.id,
-            calendarId: workEvent.calendarId,
-          },
-          segmentStartedAtMs: Date.now(),
-        });
-        step(receipt, "Runtime", "set working state", true, {
+        step(receipt, "Current Work", "keep currentWorkId", true, {
+          currentWorkId: AssistantStorage.makeWorkTaskId(task),
           workEventUid: workEvent.id,
+          paused: false,
         });
       } catch (error) {
         if (workEvent) await deleteWorkEvent(workEvent, receipt);
         if (taskWritten) await restoreTask(task, beforeTask, receipt);
-        await restoreRuntime(runtime, receipt);
         throw error;
       }
     });
@@ -613,16 +589,17 @@
 
     return runAction(action, task, async receipt => {
       ensureMutableTask(task);
-      const runtime = await AssistantStorage.getRuntime();
       if (!(await isCurrentTask(task))) {
         throw new Error("The selected task is not the current task.");
       }
 
+      const currentWorkId = AssistantStorage.makeWorkTaskId(task);
       const beforeTask = taskSnapshot(task);
       const workEvent = await AssistantStorage.findOpenWorkSessionRef(task);
       let eventClosed = false;
       let closedEvent = null;
       let taskWritten = false;
+      let currentWorkCleared = false;
 
       try {
         if (workEvent) {
@@ -638,13 +615,19 @@
         taskWritten = true;
         await updateAndVerifyTask(task, changes, {status, paused: false}, receipt);
 
-        await AssistantStorage.clearRuntime();
-        step(receipt, "Runtime", "clear current task", true, {state: "idle"});
+        await AssistantStorage.setCurrentWorkId(null);
+        currentWorkCleared = true;
+        step(receipt, "Current Work", "clear currentWorkId", true, {
+          taskUid: task.id,
+          status,
+        });
         await logClosedWorkSession(task, closedEvent, receipt);
       } catch (error) {
         if (taskWritten) await restoreTask(task, beforeTask, receipt);
         if (eventClosed) await reopenWorkEvent(workEvent, receipt);
-        await restoreRuntime(runtime, receipt);
+        if (currentWorkCleared) {
+          await restoreCurrentWorkId(currentWorkId, receipt);
+        }
         throw error;
       }
     });
