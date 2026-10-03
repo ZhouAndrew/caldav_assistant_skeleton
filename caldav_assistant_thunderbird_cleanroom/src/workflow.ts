@@ -1,5 +1,6 @@
 import {
   AcceptedPlan,
+  RejectedPlan,
   TaskSnapshot,
   WorkIntent,
   WorkPlan,
@@ -21,8 +22,11 @@ export function makeWorkId(task: TaskSnapshot): string {
   ].join("|");
 }
 
-function reject(intent: WorkIntent, reason: WorkPlan extends {ok:false; reason: infer R} ? R : never): WorkPlan {
-  return Object.freeze({ok: false, intent, reason}) as WorkPlan;
+function reject(
+  intent: WorkIntent,
+  reason: RejectedPlan["reason"]
+): RejectedPlan {
+  return Object.freeze({ok: false, intent, reason});
 }
 
 function accept(
