@@ -19,8 +19,6 @@ export type ActionPlanRejection =
   | "finished"
   | "current-work-exists"
   | "not-current"
-  | "not-working"
-  | "not-paused"
   | "restore-required";
 
 export interface WorkActionPlan {
@@ -62,11 +60,11 @@ function accept(
 }
 
 /**
- * Pure workflow decision.
+ * Pure workflow decision for the reduced lifecycle:
+ * Start / Stop / Complete / Cancel.
  *
- * It contains no Thunderbird, storage, clock, WordPress or notification I/O.
- * The imperative shell executes the returned VTODO/currentWorkId/history effects
- * and verifies each authoritative write by read-back.
+ * Stop restores the pre-Start status/progress from immutable history while
+ * normalizing any old paused marker off. No new Pause/Resume state is created.
  */
 export function planWorkAction(
   action: WorkAction,
@@ -92,28 +90,18 @@ export function planWorkAction(
         "open",
       );
 
-    case "pause":
+    case "stop":
       if (!current) return reject(action, "not-current");
-      if (task.status !== "IN-PROCESS" || task.paused) {
-        return reject(action, "not-working");
-      }
+      if (!restoreSnapshot) return reject(action, "restore-required");
       return accept(
         action,
-        {status: "IN-PROCESS", paused: true},
-        task.workTaskId,
+        {
+          status: restoreSnapshot.status,
+          paused: false,
+          percentComplete: restoreSnapshot.percentComplete,
+        },
+        null,
         "close",
-      );
-
-    case "resume":
-      if (!current) return reject(action, "not-current");
-      if (task.status !== "IN-PROCESS" || !task.paused) {
-        return reject(action, "not-paused");
-      }
-      return accept(
-        action,
-        {status: "IN-PROCESS", paused: false},
-        task.workTaskId,
-        "open",
       );
 
     case "complete":
@@ -130,20 +118,6 @@ export function planWorkAction(
       return accept(
         action,
         {status: "CANCELLED", paused: false},
-        null,
-        "close",
-      );
-
-    case "switch-away":
-      if (!current) return reject(action, "not-current");
-      if (!restoreSnapshot) return reject(action, "restore-required");
-      return accept(
-        action,
-        {
-          status: restoreSnapshot.status,
-          paused: restoreSnapshot.paused,
-          percentComplete: restoreSnapshot.percentComplete,
-        },
         null,
         "close",
       );

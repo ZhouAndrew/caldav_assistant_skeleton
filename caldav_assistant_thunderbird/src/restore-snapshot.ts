@@ -47,8 +47,8 @@ export function restoreSnapshotFromStartReceipt(
 /**
  * Conservative recovery when immutable pre-Start history is unavailable.
  *
- * Keep existing progress, release Assistant pause state, and return to an
- * incomplete standard VTODO state rather than inventing completion/cancellation.
+ * Keep existing progress, normalize any legacy paused marker off, and return to
+ * an incomplete standard VTODO state rather than inventing completion/cancellation.
  */
 export function fallbackRestoreSnapshot(
   task: TaskSnapshot,

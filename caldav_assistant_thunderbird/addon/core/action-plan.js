@@ -43,28 +43,18 @@
           "open"
         );
 
-      case "pause":
+      case "stop":
         if (!current) return reject(action, "not-current");
-        if (task.status !== "IN-PROCESS" || Boolean(task.paused)) {
-          return reject(action, "not-working");
-        }
+        if (!restoreSnapshot) return reject(action, "restore-required");
         return accept(
           action,
-          {status: "IN-PROCESS", paused: true},
-          task.workTaskId,
+          {
+            status: restoreSnapshot.status,
+            paused: false,
+            percentComplete: Number(restoreSnapshot.percentComplete || 0),
+          },
+          null,
           "close"
-        );
-
-      case "resume":
-        if (!current) return reject(action, "not-current");
-        if (task.status !== "IN-PROCESS" || !Boolean(task.paused)) {
-          return reject(action, "not-paused");
-        }
-        return accept(
-          action,
-          {status: "IN-PROCESS", paused: false},
-          task.workTaskId,
-          "open"
         );
 
       case "complete":
@@ -81,20 +71,6 @@
         return accept(
           action,
           {status: "CANCELLED", paused: false},
-          null,
-          "close"
-        );
-
-      case "switch-away":
-        if (!current) return reject(action, "not-current");
-        if (!restoreSnapshot) return reject(action, "restore-required");
-        return accept(
-          action,
-          {
-            status: restoreSnapshot.status,
-            paused: Boolean(restoreSnapshot.paused),
-            percentComplete: Number(restoreSnapshot.percentComplete || 0),
-          },
           null,
           "close"
         );

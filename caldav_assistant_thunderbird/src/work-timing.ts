@@ -1,9 +1,11 @@
 export type TimingAction =
   | "start"
-  | "pause"
-  | "resume"
+  | "stop"
   | "complete"
   | "cancel"
+  // Read-only compatibility for immutable history written by 0.3.15.
+  | "pause"
+  | "resume"
   | "switch-away";
 
 export interface WorkTimingEntry {
@@ -24,8 +26,8 @@ function validTime(value: number): boolean {
 /**
  * Derive elapsed-work timing entirely from immutable action history.
  *
- * The current clock is deliberately not read here; callers pass it explicitly
- * when they want a live elapsed value.
+ * New writes use Start/Stop/Complete/Cancel. Pause/Resume/Switch Away remain
+ * readable only so old 0.3.15 audit history is not lost during migration.
  */
 export function deriveWorkTiming(
   entries: readonly WorkTimingEntry[],
@@ -57,6 +59,7 @@ export function deriveWorkTiming(
         }
         break;
 
+      case "stop":
       case "complete":
       case "cancel":
       case "switch-away":

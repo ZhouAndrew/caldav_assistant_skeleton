@@ -15,11 +15,9 @@ export type TaskStatus =
 
 export type WorkAction =
   | "start"
-  | "pause"
-  | "resume"
+  | "stop"
   | "complete"
-  | "cancel"
-  | "switch-away";
+  | "cancel";
 
 export interface TaskRef {
   readonly calendarId: CalendarId;
@@ -31,6 +29,10 @@ export interface TaskSnapshot extends TaskRef {
   readonly workTaskId: WorkTaskId;
   readonly title: string;
   readonly status: TaskStatus;
+  /**
+   * Compatibility view of an existing CalDAV extension marker.
+   * New Assistant workflow actions never create a paused lifecycle state.
+   */
   readonly paused: boolean;
   readonly percentComplete: number;
 }
@@ -39,13 +41,11 @@ export interface AssistantRuntime {
   /**
    * The only authoritative dynamic work-session state owned by the Assistant.
    *
-   * Task status, pause state, progress, dates and categories remain Thunderbird /
-   * CalDAV facts and must be derived by reading the referenced VTODO.
+   * Task status, legacy pause marker, progress, dates and categories remain
+   * Thunderbird / CalDAV facts and are never duplicated into Assistant runtime.
    */
   readonly currentWorkId: WorkTaskId | null;
 }
-
-export type DerivedWorkState = "idle" | "working" | "paused";
 
 function encodePart(value: string): string {
   return encodeURIComponent(value);

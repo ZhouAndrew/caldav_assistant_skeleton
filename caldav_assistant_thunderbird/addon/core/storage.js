@@ -358,6 +358,7 @@
 
       if (
         record.action === "pause" ||
+        record.action === "stop" ||
         record.action === "complete" ||
         record.action === "cancel" ||
         record.action === "switch-away"
@@ -464,6 +465,7 @@
           historySeen = true;
           break;
 
+        case "stop":
         case "complete":
         case "cancel":
         case "switch-away":
