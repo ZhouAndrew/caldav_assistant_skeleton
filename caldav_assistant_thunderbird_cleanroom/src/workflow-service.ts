@@ -4,10 +4,10 @@ import {
   TaskSnapshot,
   WorkIntent,
   WorkSession,
-} from "./domain";
-import {makeTaskId, parseTaskId} from "./task-id";
-import {getOpenSession, parseWorkDescription} from "./work-description";
-import {planTaskAction} from "./workflow";
+} from "./domain.js";
+import {makeTaskId, parseTaskId} from "./task-id.js";
+import {getOpenSession, parseWorkDescription} from "./work-description.js";
+import {planTaskAction} from "./workflow.js";
 
 export interface ThunderbirdTaskPort {
   getTask(ref: TaskRef): Promise<TaskSnapshot>;
