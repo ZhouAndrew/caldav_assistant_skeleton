@@ -203,6 +203,9 @@ async function normalLifecycle() {
   assert(startedRef?.calendarId === task.calendarId, "currentWorkId lost calendar identity");
   assert(startedRef?.id === task.id, "currentWorkId lost task UID");
   assert(String(startedRef?.recurrenceId || "") === "", "currentWorkId changed recurrence identity");
+  let timing = await AssistantStorage.deriveWorkTiming(clone(task));
+  assert(timing.source === "audit", "new Start timing did not derive from audit");
+  assert(timing.segmentStartedAtMs !== null, "new Start timing has no active segment");
   assert(runtime.taskBeforeStart?.status === "NEEDS-ACTION", "start did not retain pre-start status");
   assert(runtime.taskBeforeStart?.paused === false, "start did not retain pre-start paused state");
   assert(runtime.taskBeforeStart?.percentComplete === 0, "start did not retain pre-start progress");
@@ -219,6 +222,9 @@ async function normalLifecycle() {
     await AssistantStorage.getCurrentWorkId() === startedWorkId,
     "pause changed currentWorkId"
   );
+  timing = await AssistantStorage.deriveWorkTiming(clone(task));
+  assert(timing.source === "audit", "Pause timing stopped using audit history");
+  assert(timing.segmentStartedAtMs === null, "Pause timing left a live segment");
   assert(events.get(firstWorkId).end && !events.get(firstWorkId).workOpen, "pause did not close first Work VEVENT");
 
   receipt = await AssistantExecutor.resume(clone(task), "work");
@@ -230,6 +236,9 @@ async function normalLifecycle() {
     await AssistantStorage.getCurrentWorkId() === startedWorkId,
     "resume changed currentWorkId"
   );
+  timing = await AssistantStorage.deriveWorkTiming(clone(task));
+  assert(timing.source === "audit", "Resume timing stopped using audit history");
+  assert(timing.segmentStartedAtMs !== null, "Resume timing did not reopen a live segment");
   const secondWorkId = runtime.currentWorkEvent?.id;
   assert(secondWorkId && events.has(secondWorkId), "resume did not persist a Work VEVENT");
   assert(secondWorkId !== firstWorkId, "resume reused the first Work VEVENT");
@@ -288,6 +297,13 @@ async function legacyRuntimeMigration() {
     storage["caldavAssistant.runtime"]?.currentWorkEvent?.id === "legacy-work-event",
     "compat migration destroyed legacy runtime too early"
   );
+  const legacyTiming = await AssistantStorage.deriveWorkTiming({
+    id: "seed-task",
+    calendarId: "tasks",
+    recurrenceId: "20261003T090000",
+  });
+  assert(legacyTiming.source === "legacy-runtime", "old session timing lost compatibility fallback");
+  assert(legacyTiming.accumulatedMs === 1234, "old session timing lost accumulated duration");
 
   storage["caldavAssistant.currentWorkId"] = "corrupt";
   const recovered = await AssistantStorage.getCurrentWorkId();
