@@ -34,7 +34,8 @@
     }
   },
   "permissions": [
-    "storage"
+    "storage",
+    "tabs"
   ],
   "default_locale": "en"
 }
