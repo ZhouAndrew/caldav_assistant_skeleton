@@ -10,6 +10,10 @@ import {
   deriveWorkState,
   nextRuntime,
 } from "../src/functional-core";
+import {
+  currentWorkIdFromLegacyRuntime,
+  normalizeRuntime,
+} from "../src/legacy-runtime";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -59,5 +63,47 @@ const finished: TaskSnapshot = Object.freeze({
   percentComplete: 100,
 });
 assert(!actionAllowed("start", idle, finished), "completed task must not be startable");
+
+const migrated = currentWorkIdFromLegacyRuntime({
+  state: "working",
+  currentTask: {
+    calendarId: "tasks",
+    id: "uid-1",
+    recurrenceId: "20261003T090000",
+  },
+});
+assert(migrated === workTaskId, "legacy recurring task identity did not migrate safely");
+
+const normalizedFromLegacy = normalizeRuntime(null, {
+  state: "paused",
+  currentTask: {
+    calendarId: "tasks",
+    id: "uid-1",
+    recurrenceId: "20261003T090000",
+  },
+  currentWorkEvent: {id: "obsolete-work-event"},
+  accumulatedMs: 12345,
+});
+assert(
+  normalizedFromLegacy.currentWorkId === workTaskId,
+  "legacy runtime did not collapse to one currentWorkId"
+);
+
+const explicit = normalizeRuntime(workTaskId, {
+  currentTask: {calendarId: "wrong", id: "wrong", recurrenceId: ""},
+});
+assert(explicit.currentWorkId === workTaskId, "valid new runtime must win over legacy data");
+
+const invalidExplicit = normalizeRuntime("not-a-valid-work-task-id", {
+  currentTask: {
+    calendarId: "tasks",
+    id: "uid-1",
+    recurrenceId: "20261003T090000",
+  },
+});
+assert(
+  invalidExplicit.currentWorkId === workTaskId,
+  "invalid new runtime should recover from legacy runtime"
+);
 
 console.log("typed-core-harness: PASS");
