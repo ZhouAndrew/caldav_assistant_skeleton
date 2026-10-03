@@ -9,6 +9,7 @@ function assert(condition, message) {
 
 const storage = {};
 const storageWrites = [];
+const operationOrder = [];
 global.browser = {
   storage: {
     local: {
@@ -19,7 +20,9 @@ global.browser = {
         return result;
       },
       async set(values) {
-        storageWrites.push(...Object.keys(values));
+        const keys = Object.keys(values);
+        storageWrites.push(...keys);
+        operationOrder.push(...keys.map(key => "storage:" + key));
         Object.assign(storage, values);
       },
     },
@@ -62,12 +65,14 @@ function resetAll() {
   eventCounter = 0;
   for (const key of Object.keys(storage)) delete storage[key];
   storageWrites.length = 0;
+  operationOrder.length = 0;
   for (const key of Object.keys(faults)) faults[key] = false;
 }
 
 browser.ThunderbirdCalDAV = {
   async updateTask(calendarId, itemId, changes) {
     assert(calendarId === task.calendarId && itemId === task.id, "wrong task target");
+    operationOrder.push("task:update:" + String(changes.status || ""));
     if (faults.failNextPausedWrite && changes.paused === true) {
       faults.failNextPausedWrite = false;
       throw new Error("simulated paused write failure");
@@ -84,9 +89,11 @@ browser.ThunderbirdCalDAV = {
   },
   async getTask(calendarId, itemId) {
     assert(calendarId === task.calendarId && itemId === task.id, "wrong task readback target");
+    operationOrder.push("task:read:" + String(task.status || ""));
     return clone(task);
   },
   async createEvent(calendarId, values) {
+    operationOrder.push("event:create");
     const id = values.id || "work-" + (++eventCounter);
     const event = {
       id,
@@ -156,6 +163,19 @@ async function normalLifecycle() {
   );
   assert(task.status === "IN-PROCESS", "start did not set task IN-PROCESS");
   assert(task.paused === false, "start incorrectly paused task");
+  const taskWriteIndex = operationOrder.indexOf("task:update:IN-PROCESS");
+  const taskReadIndex = operationOrder.indexOf("task:read:IN-PROCESS");
+  const eventCreateIndex = operationOrder.indexOf("event:create");
+  const currentIdWriteIndex = operationOrder.indexOf(
+    "storage:caldavAssistant.currentWorkId"
+  );
+  assert(taskWriteIndex >= 0, "Start did not record the Task write");
+  assert(taskReadIndex > taskWriteIndex, "Start published effects before Task read-back");
+  assert(eventCreateIndex > taskReadIndex, "Work event was created before Task read-back");
+  assert(
+    currentIdWriteIndex > eventCreateIndex,
+    "currentWorkId was published before authoritative Task/Work writes completed"
+  );
 
   let runtime = await AssistantStorage.getRuntime();
   assert(runtime.state === "working", "runtime is not working after start");
