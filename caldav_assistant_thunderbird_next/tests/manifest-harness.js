@@ -17,6 +17,12 @@ assert(
   "clean-room add-on must retain the existing extension ID for profile migration"
 );
 assert(manifest.version === "0.4.0", "unexpected clean-room version");
+assert(manifest.default_locale === "en", "default locale must be English");
+assert(manifest.name === "__MSG_extensionName__", "manifest name must be localized");
+assert(
+  manifest.description === "__MSG_extensionDescription__",
+  "manifest description must be localized"
+);
 assert(
   Array.isArray(manifest.background?.scripts) &&
     manifest.background.scripts[0] === "generated/core.js" &&
