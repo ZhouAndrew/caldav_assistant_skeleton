@@ -61,6 +61,7 @@ const faults = {
   corruptNextWorkReadback: false,
   failNextPausedWrite: false,
   failNextCompleteWrite: false,
+  failNextEventClose: false,
   throwAfterNextEventCreate: false,
 };
 
@@ -132,6 +133,10 @@ browser.ThunderbirdCalDAV = {
   async updateEvent(calendarId, itemId, changes) {
     const event = events.get(itemId);
     assert(event && event.calendarId === calendarId, "wrong event target");
+    if (faults.failNextEventClose && changes.workOpen === false) {
+      faults.failNextEventClose = false;
+      throw new Error("simulated Work VEVENT close failure");
+    }
     if ("end" in changes) {
       event.end = changes.end
         ? {icalString: String(changes.end).replace(/[-:]/g, "")}
@@ -378,37 +383,66 @@ async function legacyRuntimeStateIsNotWorkflowTruth() {
 async function startReadbackRollback() {
   resetAll();
   faults.corruptNextWorkReadback = true;
-  const receipt = await AssistantExecutor.start(clone(task), "work");
-  assert(!receipt.success, "corrupt Work VEVENT read-back should fail Start");
-  assert(task.status === "NEEDS-ACTION", "failed Start did not restore original Task status");
-  assert(task.paused === false, "failed Start left Task paused");
-  assert(events.size === 0, "failed Start left an orphan Work VEVENT");
+  let receipt = await AssistantExecutor.start(clone(task), "work");
+  assert(receipt.success, "Work VEVENT read-back failure incorrectly blocked Start");
+  assert(task.status === "IN-PROCESS", "Start did not keep authoritative Task state");
+  assert(task.paused === false, "Start incorrectly paused Task");
+  assert(events.size === 0, "failed Work history read-back left an orphan VEVENT");
+  assert(await AssistantStorage.getCurrentWorkId(), "Start did not publish currentWorkId");
   assert(
-    storage["caldavAssistant.runtime"] === undefined,
-    "failed Start created legacy runtime"
+    receipt.steps.some(
+      step =>
+        step.component === "Work Session" &&
+        step.operation === "optional history create failed" &&
+        step.success === false
+    ),
+    "Start did not report optional Work history failure"
   );
-  assert(await AssistantStorage.getCurrentWorkId() === null, "failed Start left currentWorkId set");
-  assert(
-    receipt.steps.some(step => step.component === "Rollback" && step.operation === "delete created VEVENT" && step.success),
-    "failed Start did not record verified VEVENT cleanup"
-  );
-  assert(
-    receipt.steps.some(step => step.component === "Rollback" && step.operation === "restore task state" && step.success),
-    "failed Start did not record verified Task rollback"
-  );
+
+  receipt = await AssistantExecutor.cancel(clone(task));
+  assert(receipt.success, "Start history-failure cleanup Cancel failed");
 }
 
 async function uncertainCreateRollback() {
   resetAll();
   faults.throwAfterNextEventCreate = true;
-  const receipt = await AssistantExecutor.start(clone(task), "work");
-  assert(!receipt.success, "uncertain create response should fail Start");
+  let receipt = await AssistantExecutor.start(clone(task), "work");
+  assert(receipt.success, "uncertain Work history create incorrectly blocked Start");
   assert(events.size === 0, "uncertain event create left an orphan VEVENT");
-  assert(task.status === "NEEDS-ACTION", "uncertain Start did not restore Task");
+  assert(task.status === "IN-PROCESS", "uncertain Work history changed Task workflow");
+  assert(await AssistantStorage.getCurrentWorkId(), "uncertain Work history lost currentWorkId");
   assert(
     receipt.steps.some(step => step.operation === "delete created VEVENT" && step.success),
     "known Work UID did not allow cleanup after uncertain create"
   );
+  assert(
+    receipt.steps.some(step => step.operation === "optional history create failed"),
+    "uncertain create was not exposed as auxiliary history failure"
+  );
+
+  receipt = await AssistantExecutor.cancel(clone(task));
+  assert(receipt.success, "uncertain Work history cleanup Cancel failed");
+}
+
+async function startWithoutWorkCalendar() {
+  resetAll();
+
+  let receipt = await AssistantExecutor.start(clone(task), null);
+  assert(receipt.success, "missing Work Calendar incorrectly blocked Start");
+  assert(task.status === "IN-PROCESS", "Start without Work Calendar lost Task state");
+  assert(await AssistantStorage.getCurrentWorkId(), "Start without Work Calendar lost pointer");
+  assert(events.size === 0, "Start without Work Calendar unexpectedly created VEVENT");
+  assert(
+    receipt.steps.some(
+      step =>
+        step.operation === "optional history create failed" &&
+        /No writable Work calendar/i.test(step.details?.message || "")
+    ),
+    "missing Work Calendar was not recorded as optional history failure"
+  );
+
+  receipt = await AssistantExecutor.cancel(clone(task));
+  assert(receipt.success, "Start without Work Calendar cleanup Cancel failed");
 }
 
 async function pauseDerivesWorkEventWithoutRuntimeRef() {
@@ -436,6 +470,30 @@ async function pauseDerivesWorkEventWithoutRuntimeRef() {
 
   receipt = await AssistantExecutor.switchAway(clone(task));
   assert(receipt.success, "derived Work-event cleanup Switch Away failed");
+}
+
+async function pauseCloseFailureDoesNotBlockWorkflow() {
+  resetAll();
+
+  let receipt = await AssistantExecutor.start(clone(task), "work");
+  assert(receipt.success, "close-failure setup Start failed");
+  const workRef = await AssistantStorage.findOpenWorkSessionRef(clone(task));
+  const workId = workRef?.id;
+  assert(workId && events.get(workId)?.workOpen, "close-failure setup has no open Work VEVENT");
+
+  faults.failNextEventClose = true;
+  receipt = await AssistantExecutor.pause(clone(task));
+  assert(receipt.success, "Work VEVENT close failure incorrectly blocked Pause");
+  assert(task.status === "IN-PROCESS" && task.paused === true, "Pause VTODO state was not committed");
+  assert(await AssistantStorage.getCurrentWorkId(), "Pause close failure lost currentWorkId");
+  assert(events.get(workId)?.workOpen === true, "simulated close failure unexpectedly mutated VEVENT");
+  assert(
+    receipt.steps.some(step => step.operation === "optional history close failed"),
+    "Pause did not expose auxiliary Work history close failure"
+  );
+
+  receipt = await AssistantExecutor.switchAway(clone(task));
+  assert(receipt.success, "close-failure cleanup Switch Away failed");
 }
 
 async function pauseWriteRollback() {
@@ -468,15 +526,18 @@ async function resumeReadbackRollback() {
 
   faults.corruptNextWorkReadback = true;
   receipt = await AssistantExecutor.resume(clone(task), "work");
-  assert(!receipt.success, "corrupt Resume VEVENT read-back should fail");
-  assert(task.status === "IN-PROCESS" && task.paused === true, "failed Resume did not restore paused Task");
-  assert(events.size === beforeEvents.size, "failed Resume left an extra Work VEVENT");
-  for (const id of beforeEvents) assert(events.has(id), "failed Resume removed previous Work VEVENT");
+  assert(receipt.success, "Work VEVENT read-back failure incorrectly blocked Resume");
+  assert(task.status === "IN-PROCESS" && task.paused === false, "Resume did not commit VTODO state");
+  assert(events.size === beforeEvents.size, "failed Resume history left an extra Work VEVENT");
+  for (const id of beforeEvents) assert(events.has(id), "Resume history failure removed previous VEVENT");
+  assert(await AssistantStorage.getCurrentWorkId(), "Resume history failure lost currentWorkId");
   assert(
-    storage["caldavAssistant.runtime"] === undefined,
-    "failed Resume wrote legacy runtime"
+    receipt.steps.some(step => step.operation === "optional history create failed"),
+    "Resume did not expose auxiliary Work history failure"
   );
-  assert(await AssistantStorage.getCurrentWorkId(), "failed Resume lost currentWorkId");
+
+  receipt = await AssistantExecutor.cancel(clone(task));
+  assert(receipt.success, "Resume history-failure cleanup Cancel failed");
 }
 
 async function switchAwayLifecycle() {
@@ -654,7 +715,9 @@ async function completeWriteRollback() {
   await legacyRuntimeStateIsNotWorkflowTruth();
   await startReadbackRollback();
   await uncertainCreateRollback();
+  await startWithoutWorkCalendar();
   await pauseDerivesWorkEventWithoutRuntimeRef();
+  await pauseCloseFailureDoesNotBlockWorkflow();
   await pauseWriteRollback();
   await resumeReadbackRollback();
   await switchAwayLifecycle();
