@@ -135,7 +135,11 @@ export function planTaskAction(args: {
 
   return accept(
     intent,
-    {status: "CANCELLED", description},
+    {
+      status: "CANCELLED",
+      percentComplete: normalizePercent(task.percentComplete),
+      description,
+    },
     null,
     closed,
   );
