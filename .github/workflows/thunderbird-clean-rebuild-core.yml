@@ -26,3 +26,7 @@ jobs:
         run: npm run typecheck
       - name: Core tests
         run: npm test
+      - name: Bridge syntax
+        run: |
+          node --check addon/api/TaskBridge/implementation.js
+          node -e 'JSON.parse(require("fs").readFileSync("addon/api/TaskBridge/schema.json", "utf8"))'
