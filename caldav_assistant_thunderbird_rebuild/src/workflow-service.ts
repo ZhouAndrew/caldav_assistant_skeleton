@@ -183,9 +183,9 @@ export function createTaskWorkflowService(
   }
 
   return Object.freeze({
-    start: ref => enqueue(() => execute("start", ref)),
-    stop: ref => enqueue(() => execute("stop", ref)),
-    complete: ref => enqueue(() => execute("complete", ref)),
-    cancel: ref => enqueue(() => execute("cancel", ref)),
+    start: (ref: TaskRef) => enqueue(() => execute("start", ref)),
+    stop: (ref: TaskRef) => enqueue(() => execute("stop", ref)),
+    complete: (ref: TaskRef) => enqueue(() => execute("complete", ref)),
+    cancel: (ref: TaskRef) => enqueue(() => execute("cancel", ref)),
   });
 }
