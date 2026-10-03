@@ -146,3 +146,36 @@ const finishedStart = planTaskAction(
 assert(!finishedStart.ok && finishedStart.reason === "finished", "Finished Task must not start");
 
 console.log("cleanroom core-harness: PASS");
+
+const noStatus: TaskSnapshot = Object.freeze({
+  ...base,
+  uid: "uid-no-status",
+  status: "",
+  percentComplete: 0,
+  description: "没有显式 STATUS",
+});
+const noStatusStart = planTaskAction(
+  "start",
+  noStatus,
+  null,
+  "2026-10-03T18:00:00+08:00",
+  "session-no-status"
+);
+assert(noStatusStart.ok, "Task without STATUS should start");
+const noStatusCurrent: TaskSnapshot = Object.freeze({
+  ...noStatus,
+  status: "IN-PROCESS",
+  description: noStatusStart.taskPatch.description,
+});
+const noStatusStop = planTaskAction(
+  "stop",
+  noStatusCurrent,
+  makeWorkId(noStatusCurrent),
+  "2026-10-03T18:05:00+08:00",
+  "ignored"
+);
+assert(noStatusStop.ok, "Task without original STATUS should stop");
+assert(
+  noStatusStop.taskPatch.status === "",
+  "Stop must restore absence of STATUS exactly"
+);
