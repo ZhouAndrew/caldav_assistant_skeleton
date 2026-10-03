@@ -16,22 +16,77 @@ async function flush() {
 async function runCase({migrationOk = true}) {
   const calls = [];
   const writes = [];
-  const listeners = {installed: null, startup: null};
+  const storageData = {};
+  const listeners = {installed: null, startup: null, message: null};
+  let queueRuns = 0;
 
   class BrowserStorageAdapter {
     constructor(area) {
       this.area = area;
+      this.current = "current-task";
+    }
+    async get() {
+      return this.current;
+    }
+    async set(value) {
+      this.current = value;
     }
   }
+
   class ThunderbirdTaskRepository {
     constructor(api) {
       this.api = api;
+    }
+    async get(taskId) {
+      return taskId === "task-1"
+        ? {
+            taskId,
+            calendarId: "cal",
+            uid: "uid",
+            recurrenceId: "",
+            title: "Task 1",
+            description: "Description",
+            status: "NEEDS-ACTION",
+            percentComplete: 0,
+          }
+        : null;
+    }
+    async query() {
+      return {
+        items: [{
+          taskId: "task-1",
+          calendarId: "cal",
+          calendarName: "Tasks",
+          title: "Task 1",
+          status: "NEEDS-ACTION",
+          percentComplete: 0,
+          due: null,
+          categories: [],
+        }],
+        complete: true,
+        failures: [],
+      };
+    }
+    async scanStored() {
+      return {
+        tasks: [],
+        complete: true,
+        failures: [],
+      };
+    }
+  }
+
+  class SerialCommandQueue {
+    async run(operation) {
+      queueRuns++;
+      return operation();
     }
   }
 
   const Core = {
     BrowserStorageAdapter,
     ThunderbirdTaskRepository,
+    SerialCommandQueue,
     async ensureV2Settings() {
       calls.push("settings");
       return {
@@ -57,14 +112,45 @@ async function runCase({migrationOk = true}) {
         message: "set",
       };
     },
+    deriveTaskPickerView(_options, items) {
+      return {items, filter: "open", emptyMessageKey: null};
+    },
+    deriveTaskPageView(task, currentWorkId) {
+      return {taskId: task.taskId, currentWorkId};
+    },
+    deriveTodayView(_tasks, date) {
+      return {date, rows: [], warnings: []};
+    },
+    async runTaskCommand(_deps, intent, taskId) {
+      calls.push("command:" + intent + ":" + taskId);
+      return {
+        ok: true,
+        taskId,
+        intent,
+        currentWorkId: intent === "start" ? taskId : null,
+        closedSession: null,
+      };
+    },
   };
 
   const browser = {
     NativeTasks: {},
     storage: {
       local: {
+        async get(keys) {
+          const list = typeof keys === "string" ? [keys] : keys;
+          return Object.fromEntries(
+            (list || Object.keys(storageData)).map(key => [key, storageData[key]])
+          );
+        },
         async set(value) {
+          Object.assign(storageData, value);
           writes.push(value);
+        },
+        async remove(keys) {
+          for (const key of typeof keys === "string" ? [keys] : keys) {
+            delete storageData[key];
+          }
         },
       },
     },
@@ -77,6 +163,11 @@ async function runCase({migrationOk = true}) {
       onStartup: {
         addListener(fn) {
           listeners.startup = fn;
+        },
+      },
+      onMessage: {
+        addListener(fn) {
+          listeners.message = fn;
         },
       },
     },
@@ -105,13 +196,21 @@ async function runCase({migrationOk = true}) {
   vm.runInContext(source, context, {filename: "background.js"});
   await flush();
 
-  return {calls, writes, listeners, errors};
+  return {
+    calls,
+    writes,
+    listeners,
+    errors,
+    get queueRuns() {
+      return queueRuns;
+    },
+  };
 }
 
 (async () => {
   const success = await runCase({migrationOk: true});
   assert(
-    success.calls.join(",") === "settings,active-migration,recovery",
+    success.calls.slice(0, 3).join(",") === "settings,active-migration,recovery",
     "startup ordering is wrong"
   );
   assert(success.writes.length === 1, "ready status was not written exactly once");
@@ -119,6 +218,43 @@ async function runCase({migrationOk = true}) {
   assert(!serialized.includes("SECRET-MUST-NOT-LEAK"), "startup leaked password");
   assert(!serialized.includes('"settings"'), "startup leaked settings object");
   assert(serialized.includes('"stage":"ready"'), "ready status missing");
+  assert(typeof success.listeners.message === "function", "RPC listener missing");
+
+  const startupStatus = await success.listeners.message({type: "startup.status"});
+  assert(startupStatus.ok, "startup.status failed");
+  assert(startupStatus.status?.stage === "ready", "startup.status lost ready state");
+
+  const read = await success.listeners.message({
+    type: "task.read",
+    taskId: "task-1",
+  });
+  assert(read.ok && read.view.taskId === "task-1", "task.read failed");
+
+  const command = await success.listeners.message({
+    type: "task.command",
+    taskId: "task-1",
+    intent: "start",
+  });
+  assert(command.ok && command.result?.ok, "task.command failed");
+  assert(success.queueRuns === 1, "task.command bypassed serialized queue");
+
+  const query = await success.listeners.message({
+    type: "tasks.query",
+    options: {filter: "open", search: "", calendarIds: []},
+  });
+  assert(query.ok && query.view.items.length === 1, "tasks.query failed");
+
+  const today = await success.listeners.message({
+    type: "today.read",
+    date: "2026-10-03",
+  });
+  assert(today.ok && today.view.date === "2026-10-03", "today.read failed");
+
+  const rpcSerialized = JSON.stringify({startupStatus, read, command, query, today});
+  assert(
+    !rpcSerialized.includes("SECRET-MUST-NOT-LEAK"),
+    "background RPC leaked Application Password"
+  );
 
   const blocked = await runCase({migrationOk: false});
   assert(
@@ -129,8 +265,16 @@ async function runCase({migrationOk = true}) {
     JSON.stringify(blocked.writes).includes("legacy-active-session-migration"),
     "failed migration stage was not visible"
   );
+  const blockedRpc = await blocked.listeners.message({
+    type: "task.read",
+    taskId: "task-1",
+  });
+  assert(
+    !blockedRpc.ok && blockedRpc.error?.code === "startup-not-ready",
+    "RPC bypassed failed startup migration"
+  );
 
-  console.log("background startup harness: PASS");
+  console.log("background startup/RPC harness: PASS");
 })().catch(error => {
   console.error(error);
   throw error;
