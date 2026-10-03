@@ -3,7 +3,7 @@ name: thunderbird-clean-rebuild-core
 on:
   push:
     branches:
-      - "refactor/thunderbird-functional-vtodo-worklog-0.3.17"
+      - "refactor/thunderbird-cleanroom-vtodo-20261003-sol"
     paths:
       - "caldav_assistant_thunderbird_rebuild/**"
       - ".github/workflows/thunderbird-clean-rebuild-core.yml"
