@@ -1,6 +1,6 @@
 import {
   ParsedWorkDescription,
-  TaskStatus,
+  StoredTaskStatus,
   WorkResult,
   WorkSession,
   normalizePercent,
@@ -21,8 +21,9 @@ export interface ParseFailure {
 
 export type WorkDescriptionParse = ParseResult | ParseFailure;
 
-function isStatus(value: unknown): value is TaskStatus {
-  return value === "NEEDS-ACTION" ||
+function isStatus(value: unknown): value is StoredTaskStatus {
+  return value === null ||
+    value === "NEEDS-ACTION" ||
     value === "IN-PROCESS" ||
     value === "COMPLETED" ||
     value === "CANCELLED";
