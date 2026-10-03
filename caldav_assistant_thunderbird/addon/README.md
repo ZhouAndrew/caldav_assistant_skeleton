@@ -1,114 +1,97 @@
 # CalDAV Assistant Experimental
 
-Current build: **0.3.12** for official Thunderbird **153.0.2 through 153.1.x**.
+Current build: **0.3.16** for official Thunderbird **153.0.2 through 153.1.x**.
 
-0.3.15 keeps the segmented Work flow and makes Task switching restore the previous Task to exactly the state it had before Start. The Work page shows only the current Task. Task browsing and selection live on a separate Task picker page. Switching remains deliberately two-step: release the current Task, then explicitly start the selected Task. The add-on remains a direct Thunderbird Calendar/Tasks provider client.
+0.3.16 removes the second Assistant Task state machine. Thunderbird owns VTODO/VEVENT objects and CalDAV synchronization; the add-on persists only one current-work id plus user settings. Activity/WordPress records remain history, not runtime state.
 
-## 0.3.12 logging and WordPress changes
+## Task lifecycle
 
-- WordPress has a first-class page in the main navigation, with visible settings, daily-work-log state and Outbox state.
-- WordPress quick/full tests show the underlying REST attempt, conservative retry, WP-CLI fallback, timing and errors instead of only the final success summary.
-- Operation audit is stored under per-local-date keys and can be copied per day, as currently visible text, or as JSON.
-- Technical diagnostics are physically split into per-local-date files; the previous combined log is migrated on first use.
-- Closing a Work VEVENT writes one idempotent time-range entry into the matching daily WordPress post and read-backs the marker to verify the write.
-- WordPress failure queues an Outbox item and never rolls back the CalDAV Task action. Startup and the WordPress page can retry the Outbox.
-- Work sessions that cross local midnight are split into the corresponding daily posts.
-
-## Work flow
-
-The Work page is intentionally small. It shows only the current Task, elapsed time and direct controls:
-
-- Working Task: Pause / Complete / Cancel / Switch Task.
-- Paused Task: Resume / Complete / Cancel / Switch Task.
-- No current Task: Select Task.
-
-Task browsing is a separate page. The Task picker owns the Incomplete/Today/Overdue/Completed/All filter, Calendar filter and search field.
-
-Starting and switching are kept explicit:
+The user-visible Task controls are intentionally limited to four operations:
 
 ```text
-Select Task
--> Start this Task
--> Work
-
-Switch Task
--> select target
--> Put current Task aside
--> target selection stays in place
--> Start this Task
--> Work
+Start    -> VTODO STATUS:IN-PROCESS
+Stop     -> VTODO STATUS:NEEDS-ACTION
+Complete -> VTODO STATUS:COMPLETED
+Cancel   -> VTODO STATUS:CANCELLED
 ```
 
-Switching away is not Pause and is not Complete. The current open Work VEVENT is closed and verified, then the VTODO is restored to the exact status / paused marker / percent-complete snapshot captured immediately before Start. For an ordinary incomplete Task this means it returns to incomplete (`NEEDS-ACTION`), with no Assistant paused marker and no Resume state. The runtime current-task pointer is then released. The target Task is not auto-started.
+There is no Pause/Resume/Switch Away/Put Aside lifecycle and no `X-CALDAV-ASSISTANT-PAUSED` field.
 
-The Work page does **not** contain the Task browser, filter controls, detailed operation logs, UID, raw VTODO state, internal Assistant state, Work Calendar selectors, provider IDs, or JSON details.
+The one persistent runtime value is:
 
-## Five pages
+```text
+caldavAssistant.currentWorkId = <one Thunderbird Task instance id> | null
+```
 
-- **Work** — Task lifecycle.
-- **Today** — today's workflow activity.
-- **Record** — append one log entry (and optional attachments) to today's WordPress log post.
-- **Logs** — complete persistent audit + technical diagnostics.
-- **Tools** — settings and read/write connection tests.
+For recurring Tasks this remains one opaque id string: Thunderbird's instance key. Calendar id, recurrence id, event id, elapsed-time state and pre-Start snapshots are not separately persisted.
 
-## Guided defaults
+## Work
 
-Tools owns two lightweight user preferences:
+The Work page shows only the current Task.
 
-- Default Task view (Incomplete by default).
-- Default Task Calendar (including All Calendars).
+- Current Task: End / Complete / Cancel.
+- No current Task: Select Task.
 
-When more than one Task Calendar exists and no default has been chosen, Work shows a short link to the exact Tools section. If a saved Calendar later disappears, Work falls back to All Calendars for the current session and guides the user back to settings instead of silently replacing the preference.
+The Task picker uses Thunderbird's native Task filters and Calendar visibility. Starting a second Task requires ending the current Task first. Ending the current Task sets it back to `NEEDS-ACTION`; it does not create a paused state.
 
-Saving Calendar/view defaults creates a one-step settings undo snapshot. The user can immediately undo the choice from Tools.
+Complete and Cancel are ordinary VTODO status operations and do not require a Task to be current.
 
-Inferred Work Calendar choices are one-shot only; the Assistant no longer silently persists an inferred Calendar as a user preference.
+## Event boundary
 
-## Simple internals
+Task lifecycle code does **not** create or manage Work VEVENTs.
 
-The core is plain functions plus a few plain JavaScript objects. There is no extra workflow framework or class hierarchy.
+Thunderbird remains responsible for Event objects. CalDAV Assistant's generic Event API is retained for Calendar features and connection tests. The full Calendar test may create a temporary TEST VEVENT, but no VEVENT participates in Task runtime state.
 
-`core/executor.js` exposes Start/Pause/SwitchAway/Resume/Complete/Cancel functions; `putAside` remains only as a compatibility alias for older 0.3.11–0.3.14 callers.
+## Persistence
 
-`core/connection.js` tests Calendar reads/writes.
+Assistant runtime/settings:
 
-`core/wordpress.js` talks to WordPress.
+- `currentWorkId`;
+- settings.
 
-`core/storage.js` stores settings/runtime/audit and enforces the log-before-display rule.
+Historical/operational records are separate:
+
+- per-day Activity/Audit records;
+- last receipt cache;
+- WordPress Outbox and long-term WordPress records.
+
+Legacy 0.3.15 `caldavAssistant.runtime` data is migrated once to `currentWorkId` and removed.
 
 ## Reliability rules
 
-Data-changing Calendar paths use:
+Task-changing paths use:
 
-write -> read back -> compare -> Result
+```text
+write through Thunderbird
+-> read back through Thunderbird
+-> compare
+-> persist audit receipt
+```
 
-A Result is persisted to the audit log before it is returned to the UI. If logging itself fails, the visible Result says so.
+On each current-Task read, `currentWorkId` is reconciled with Thunderbird. A stale pointer to a missing, completed, cancelled or otherwise non-`IN-PROCESS` Task is cleared.
 
-Start/Resume create Work VEVENTs. Pause/Complete/Cancel close them.
+A WordPress/logging failure never changes Thunderbird Task facts.
 
-Task/Event facts remain in Thunderbird/CalDAV.
+## Pages
 
-## Connection tests
+- **Work** — current Task and End/Complete/Cancel.
+- **Task Picker** — Thunderbird-native filtering, selection and Start.
+- **Today** — today's Start/Stop/Complete/Cancel history.
+- **Record** — explicit WordPress daily-record append.
+- **Logs** — persistent audit + technical diagnostics.
+- **WordPress** — WordPress settings/tests/outbox.
+- **Tools** — Task-view setting and Calendar provider tests.
 
-Calendar full test creates only a temporary VEVENT:
+## Internals
 
-create -> read -> update -> read -> delete -> verify absence
+`core/executor.js` exposes only:
 
-It never creates a VTODO.
+- `start(task)`
+- `stop(task)`
+- `complete(task)`
+- `cancel(task)`
+- `currentTask()`
 
-WordPress full test uses a temporary Draft post + test media, verifies them, then deletes them.
+`core/storage.js` exposes `get/set/clearCurrentWorkId` instead of a persisted `idle/working/paused` runtime object.
 
-Normal Record writes are different: each submission appends one Gutenberg log entry to the single published daily post (new posts keep the existing helper title shape, for example `October 1  Thursday  2026`). The daily post is created only when that day's post does not yet exist; Record never asks the user for a per-entry post title or post status. Text entries keep the existing local `HH:MM` prefix, and attachments are appended as native Gutenberg media/file blocks.
-
-## Diagnostics
-
-The Logs page contains both:
-
-- operation/audit records;
-- the extension-owned profile log `caldav-assistant-experimental.log`.
-
-See `DIAGNOSTICS.md`.
-
-## Testing
-
-Release acceptance requires more than syntax/unit tests. See `TESTING.md` and `NOTE.md`.
+See `ARCHITECTURE.md`, `TESTING.md` and `NOTE.md` for release acceptance.
