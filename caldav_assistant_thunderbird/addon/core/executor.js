@@ -63,12 +63,11 @@
     }
   }
 
-  function sameTask(runtime, task) {
+  async function isCurrentTask(task) {
+    const currentWorkId = await AssistantStorage.getCurrentWorkId();
     return Boolean(
-      runtime?.currentTask &&
-      runtime.currentTask.id === task.id &&
-      runtime.currentTask.calendarId === task.calendarId &&
-      String(runtime.currentTask.recurrenceId || "") === String(task.recurrenceId || "")
+      currentWorkId &&
+      currentWorkId === AssistantStorage.makeWorkTaskId(task)
     );
   }
 
@@ -398,7 +397,8 @@
     return runAction("start", task, async receipt => {
       ensureMutableTask(task);
       const runtime = await AssistantStorage.getRuntime();
-      if (runtime.state !== "idle" && runtime.currentTask) {
+      const currentWorkId = await AssistantStorage.getCurrentWorkId();
+      if (currentWorkId) {
         throw new Error("Another task is already active.");
       }
 
@@ -451,7 +451,7 @@
     return runAction("pause", task, async receipt => {
       ensureMutableTask(task);
       const runtime = await AssistantStorage.getRuntime();
-      if (runtime.state !== "working" || !sameTask(runtime, task)) {
+      if (runtime.state !== "working" || !(await isCurrentTask(task))) {
         throw new Error("The selected task is not the currently working task.");
       }
 
@@ -499,7 +499,7 @@
     return runAction("switch-away", task, async receipt => {
       ensureMutableTask(task);
       const runtime = await AssistantStorage.getRuntime();
-      if (!sameTask(runtime, task) || !["working", "paused"].includes(runtime.state)) {
+      if (!(await isCurrentTask(task)) || !["working", "paused"].includes(runtime.state)) {
         throw new Error("The selected task is not the current task.");
       }
 
@@ -553,7 +553,7 @@
     return runAction("resume", task, async receipt => {
       ensureMutableTask(task);
       const runtime = await AssistantStorage.getRuntime();
-      if (runtime.state !== "paused" || !sameTask(runtime, task)) {
+      if (runtime.state !== "paused" || !(await isCurrentTask(task))) {
         throw new Error("The selected task is not paused.");
       }
 
@@ -599,7 +599,7 @@
     return runAction(action, task, async receipt => {
       ensureMutableTask(task);
       const runtime = await AssistantStorage.getRuntime();
-      if (!sameTask(runtime, task) || !["working", "paused"].includes(runtime.state)) {
+      if (!(await isCurrentTask(task)) || !["working", "paused"].includes(runtime.state)) {
         throw new Error("The selected task is not the current task.");
       }
 
