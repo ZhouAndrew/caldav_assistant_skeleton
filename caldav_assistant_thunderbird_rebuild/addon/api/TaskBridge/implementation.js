@@ -60,6 +60,7 @@ function taskView(item) {
     recurrenceId: text(item.recurrenceId?.icalString),
     title: text(item.title),
     status: rawStatus ? text(rawStatus).toUpperCase() : null,
+    completed: Boolean(item.isCompleted),
     percentComplete: Number(item.percentComplete || 0),
     description: text(item.getProperty("DESCRIPTION")),
     priority: Number(item.priority || 0),
@@ -239,6 +240,7 @@ function samePrecondition(item, expected) {
   const view = taskView(item);
   return (
     view.status === (expected.status ?? null) &&
+    view.completed === Boolean(expected.completed) &&
     view.percentComplete === Number(expected.percentComplete || 0) &&
     view.description === text(expected.description)
   );
