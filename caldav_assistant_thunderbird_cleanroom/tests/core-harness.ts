@@ -4,11 +4,22 @@ import {
   parseWorkDescription,
   serializeWorkDescription,
 } from "../src/work-description";
-import {makeWorkId, planTaskAction} from "../src/workflow";
+import {makeTaskId, parseTaskId} from "../src/task-id";
+import {planTaskAction} from "../src/workflow";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
+
+const roundTrip = parseTaskId(
+  makeTaskId({calendarId: "cal A", uid: "uid/1", recurrenceId: "20261003T090000"})
+);
+assert(roundTrip?.calendarId === "cal A", "Task id calendar did not round-trip");
+assert(roundTrip?.uid === "uid/1", "Task id uid did not round-trip");
+assert(
+  roundTrip?.recurrenceId === "20261003T090000",
+  "Task id recurrence did not round-trip"
+);
 
 const base: TaskSnapshot = Object.freeze({
   calendarId: "cal A",
@@ -29,7 +40,7 @@ const start = planTaskAction(
 );
 assert(start.ok, "Start should be accepted");
 assert(start.taskPatch.status === "IN-PROCESS", "Start should set IN-PROCESS");
-assert(start.nextCurrentWorkId === makeWorkId(base), "Start pointer is wrong");
+assert(start.nextCurrentWorkId === makeTaskId(base), "Start pointer is wrong");
 
 const startedDescription = start.taskPatch.description;
 const parsedStarted = parseWorkDescription(startedDescription);
@@ -55,7 +66,7 @@ const current: TaskSnapshot = Object.freeze({
 const stop = planTaskAction(
   "stop",
   current,
-  makeWorkId(current),
+  makeTaskId(current),
   "2026-10-03T16:30:00+08:00",
   "ignored"
 );
@@ -77,7 +88,7 @@ const anotherTask: TaskSnapshot = Object.freeze({
 const blocked = planTaskAction(
   "start",
   anotherTask,
-  makeWorkId(current),
+  makeTaskId(current),
   "2026-10-03T16:05:00+08:00",
   "session-2"
 );
@@ -86,7 +97,7 @@ assert(!blocked.ok && blocked.reason === "current-work-exists", "Second Start mu
 const notCurrent = planTaskAction(
   "complete",
   current,
-  makeWorkId(anotherTask),
+  makeTaskId(anotherTask),
   "2026-10-03T16:10:00+08:00",
   "ignored"
 );
@@ -95,7 +106,7 @@ assert(!notCurrent.ok && notCurrent.reason === "not-current", "Non-current Compl
 const complete = planTaskAction(
   "complete",
   current,
-  makeWorkId(current),
+  makeTaskId(current),
   "2026-10-03T16:45:00+08:00",
   "ignored"
 );
@@ -107,7 +118,7 @@ assert(complete.closedSession?.result === "complete", "Complete did not close se
 const cancel = planTaskAction(
   "cancel",
   current,
-  makeWorkId(current),
+  makeTaskId(current),
   "2026-10-03T16:50:00+08:00",
   "ignored"
 );
@@ -169,7 +180,7 @@ const noStatusCurrent: TaskSnapshot = Object.freeze({
 const noStatusStop = planTaskAction(
   "stop",
   noStatusCurrent,
-  makeWorkId(noStatusCurrent),
+  makeTaskId(noStatusCurrent),
   "2026-10-03T18:05:00+08:00",
   "ignored"
 );
