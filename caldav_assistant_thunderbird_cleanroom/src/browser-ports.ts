@@ -124,8 +124,8 @@ export function createStoragePort(
   storage: StorageLocalApi
 ): StorageAreaPort {
   return Object.freeze({
-    get: keys => storage.get(keys),
-    set: values => storage.set(values),
-    remove: keys => storage.remove(keys),
+    get: (keys: string | readonly string[]) => storage.get(keys),
+    set: (values: Record<string, unknown>) => storage.set(values),
+    remove: (keys: string | readonly string[]) => storage.remove(keys),
   });
 }
