@@ -217,6 +217,9 @@ with zipfile.ZipFile(path) as z:
     assert 'id="wp-cli"' in wordpress_html
     assert 'id="wp-daily-work-log"' not in wordpress_html
     assert "底层实际执行" in wordpress_page
+    run_test_body = wordpress_page.split("async function runTest(kind)", 1)[1].split("async function refreshStatus", 1)[0]
+    assert "saveConfig()" not in run_test_body
+    assert "自动（已保存本地路径时用 WP-CLI，否则用 REST）" in wordpress_html
     assert "httpRequest" in direct
     assert "curlRequest" in direct
     assert "insecureTls" in direct
