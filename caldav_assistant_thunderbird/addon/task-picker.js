@@ -62,11 +62,10 @@ function taskByRef(ref) {
 
 function taskState(task) {
   if (!task) return {label: "未选择", css: ""};
-  if (sameTaskRef(state.currentRef, task) && state.runtime.state === "working") {
-    return {label: "正在进行", css: "working"};
-  }
-  if (sameTaskRef(state.currentRef, task) && state.runtime.state === "paused") {
-    return {label: "已暂停", css: "paused"};
+  if (sameTaskRef(state.currentRef, task)) {
+    return task.paused
+      ? {label: "已暂停", css: "paused"}
+      : {label: "正在进行", css: "working"};
   }
   if (task.status === "COMPLETED") return {label: "已完成", css: "completed"};
   if (task.status === "CANCELLED") return {label: "已取消", css: "cancelled"};
@@ -148,7 +147,7 @@ function renderCurrentStrip() {
     strip.hidden = true;
     return;
   }
-  const stateText = state.runtime.state === "paused" ? "已暂停" : "正在进行";
+  const stateText = task.paused ? "已暂停" : "正在进行";
   $("current-strip-text").textContent =
     "当前：" + (task.title || "(无标题)") + " · " + stateText;
   strip.hidden = false;
