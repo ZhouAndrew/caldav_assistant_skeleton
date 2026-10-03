@@ -1,33 +1,13 @@
 import {MESSAGE_KEYS, MessageKey} from "../i18n";
+import {
+  TaskListItem,
+  TaskQueryOptions,
+  ThunderbirdTaskFilter,
+} from "../task-query";
 
-export type ThunderbirdTaskFilter =
-  | "all"
-  | "notstarted"
-  | "overdue"
-  | "open"
-  | "completed"
-  | "throughcurrent"
-  | "throughtoday"
-  | "throughsevendays";
-
-export interface TaskPickerSettings {
-  /**
-   * Thunderbird-native filter name. The adapter owns its semantics.
-   * The page/view must not reimplement calendar-filter.js.
-   */
-  readonly filter: ThunderbirdTaskFilter;
-  readonly search: string;
-  readonly calendarIds: readonly string[];
-}
-
-export interface TaskPickerItem {
-  readonly taskId: string;
-  readonly calendarId: string;
-  readonly calendarName: string;
-  readonly title: string;
-  readonly due: string | null;
-  readonly categories: readonly string[];
-}
+export type TaskPickerSettings = TaskQueryOptions;
+export type TaskPickerItem = TaskListItem;
+export type {ThunderbirdTaskFilter};
 
 export interface TaskPickerView {
   readonly filter: ThunderbirdTaskFilter;
@@ -35,27 +15,17 @@ export interface TaskPickerView {
   readonly emptyMessageKey: MessageKey | null;
 }
 
-function searchable(item: TaskPickerItem): string {
-  return [
-    item.title,
-    item.calendarName,
-    ...item.categories,
-  ].join("\n").toLocaleLowerCase();
-}
-
 /**
- * The source list is already filtered by Thunderbird.
+ * Input is already filtered/search-matched by Thunderbird's own calFilter.
  *
- * This pure view function only applies the page's text search and stable display
- * ordering. It deliberately knows nothing about workflow/currentWorkId.
+ * The page only performs deterministic display ordering and selection. It has
+ * no currentWorkId and no workflow knowledge.
  */
 export function deriveTaskPickerView(
   settings: TaskPickerSettings,
   nativeFilteredSource: readonly TaskPickerItem[]
 ): TaskPickerView {
-  const query = settings.search.trim().toLocaleLowerCase();
   const items = nativeFilteredSource
-    .filter(item => !query || searchable(item).includes(query))
     .slice()
     .sort((a, b) => {
       if (a.due === null && b.due !== null) return 1;
