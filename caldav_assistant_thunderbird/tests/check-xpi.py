@@ -121,12 +121,13 @@ with zipfile.ZipFile(path) as z:
     assert "planWorkAction" in action_plan
     assert "browser." not in action_plan
     assert "AssistantActionPlan.planWorkAction" in executor
-    assert "AssistantExecutor.pause" in workspace
-    assert "AssistantExecutor.resume" in workspace
+    assert "AssistantExecutor.stop" in workspace
+    assert "AssistantExecutor.pause" not in workspace
+    assert "AssistantExecutor.resume" not in workspace
     assert "没有可写的 Work Calendar" not in workspace
     assert "AssistantExecutor.complete" in workspace
     assert "AssistantExecutor.cancel" in workspace
-    assert "resolveWorkCalendar" in workspace
+    assert "resolveWorkCalendar" not in workspace
     assert "browser.storage.onChanged" in workspace
     assert "AssistantStorage.getCurrentWorkId" in workspace
     assert "AssistantStorage.parseWorkTaskId" in workspace
@@ -134,10 +135,9 @@ with zipfile.ZipFile(path) as z:
     assert "AssistantStorage.getRuntime" not in workspace
     assert "runtime.currentTask" not in workspace
     assert "state.runtime" not in workspace
-    assert "task.paused" in workspace
-    # Existing workflow features are preserved while identity moves to one id.
-    assert "AssistantExecutor.pause" in workspace
-    assert "AssistantExecutor.resume" in workspace
+    assert "task.paused" not in workspace
+    assert "暂停" not in workspace
+    assert "继续" not in workspace
 
     assert "选择 Task" in task_picker_html
     assert "搜索 Task" in task_picker_html
@@ -157,7 +157,8 @@ with zipfile.ZipFile(path) as z:
     assert "未完成" in task_picker_html
     assert "接下来七天" in task_picker_html
     assert "最近结果" not in task_picker_html
-    assert "AssistantExecutor.switchAway" in task_picker
+    assert "AssistantExecutor.stop" in task_picker
+    assert "AssistantExecutor.switchAway" not in task_picker
     assert "AssistantExecutor.start" in task_picker
     assert "AssistantStorage.getCurrentWorkId" in task_picker
     assert "AssistantStorage.parseWorkTaskId" in task_picker
@@ -165,10 +166,11 @@ with zipfile.ZipFile(path) as z:
     assert "没有可写的 Work Calendar" not in task_picker
     assert "runtime.currentTask" not in task_picker
     assert "state.runtime.state" not in task_picker
-    assert "task.paused" in task_picker
-    assert "换下当前 Task" in task_picker
+    assert "task.paused" not in task_picker
+    assert "换下当前 Task" not in task_picker
+    assert "停止当前 Task" in task_picker
     assert "开始这个 Task" in task_picker
-    assert "先把“" in task_picker
+    assert "先停止“" in task_picker
     assert "resolveWorkCalendar" in task_picker
     assert "listNativeTasks" in task_picker
     assert "browser.TaskFix.getSelectedTasks" in task_picker
@@ -193,7 +195,10 @@ with zipfile.ZipFile(path) as z:
     assert "recurrenceId" in task_picker
     assert "recurrenceId" in executor
     assert "taskBeforeStart" in executor
-    assert "switchAway" in executor
+    assert "stop" in executor
+    assert "switchAway" not in executor
+    assert "AssistantExecutor.pause" not in executor
+    assert "AssistantExecutor.resume" not in executor
     assert "AssistantStorage.getCurrentWorkId" in executor
     assert "AssistantStorage.makeWorkTaskId" in executor
     assert "sameTask(" not in executor

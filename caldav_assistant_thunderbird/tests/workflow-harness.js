@@ -60,6 +60,7 @@ const events = new Map();
 const faults = {
   corruptNextWorkReadback: false,
   failNextPausedWrite: false,
+  failNextStopWrite: false,
   failNextCompleteWrite: false,
   failNextEventClose: false,
   throwAfterNextEventCreate: false,
@@ -92,6 +93,10 @@ browser.ThunderbirdCalDAV = {
     if (faults.failNextPausedWrite && changes.paused === true) {
       faults.failNextPausedWrite = false;
       throw new Error("simulated paused write failure");
+    }
+    if (faults.failNextStopWrite && changes.status === "NEEDS-ACTION") {
+      faults.failNextStopWrite = false;
+      throw new Error("simulated stop write failure");
     }
     if (faults.failNextCompleteWrite && changes.status === "COMPLETED") {
       faults.failNextCompleteWrite = false;
@@ -177,6 +182,10 @@ for (const script of [
 }
 
 async function normalLifecycle() {
+  assert(typeof AssistantExecutor.pause === "undefined", "Pause API still exposed");
+  assert(typeof AssistantExecutor.resume === "undefined", "Resume API still exposed");
+  assert(typeof AssistantExecutor.switchAway === "undefined", "Switch Away API still exposed");
+
   let receipt = await AssistantExecutor.start(clone(task), "work");
   assert(receipt.success, "start failed");
   assert(receipt.logSaved === true, "start result was returned before persistent log success");
@@ -187,113 +196,61 @@ async function normalLifecycle() {
     "result cache was written before the persistent audit log"
   );
   assert(task.status === "IN-PROCESS", "start did not set task IN-PROCESS");
-  assert(task.paused === false, "start incorrectly paused task");
+  assert(task.paused === false, "start did not normalize legacy pause marker");
   const taskWriteIndex = operationOrder.indexOf("task:update:IN-PROCESS");
   const taskReadIndex = operationOrder.indexOf("task:read:IN-PROCESS");
   const eventCreateIndex = operationOrder.indexOf("event:create");
   const eventReadIndex = operationOrder.indexOf("event:read");
-  const currentIdInitIndex = operationOrder.indexOf(
-    "storage:caldavAssistant.currentWorkId:null"
-  );
   const currentIdWriteIndex = operationOrder.indexOf(
     "storage:caldavAssistant.currentWorkId:value"
-  );
-  assert(taskWriteIndex >= 0, "Start did not record the Task write");
-  assert(
-    currentIdInitIndex >= 0 && currentIdInitIndex < taskWriteIndex,
-    "Compatibility initialization should only publish an empty currentWorkId before Start"
   );
   assert(taskReadIndex > taskWriteIndex, "Start published effects before Task read-back");
   assert(eventCreateIndex > taskReadIndex, "Work event was created before Task read-back");
   assert(eventReadIndex > eventCreateIndex, "Work event was not verified by read-back");
-  assert(
-    currentIdWriteIndex > eventReadIndex,
-    "non-null currentWorkId was published before authoritative Task/Work read-back completed"
-  );
+  assert(currentIdWriteIndex > eventReadIndex, "currentWorkId was published too early");
 
-  assert(
-    storage["caldavAssistant.runtime"] === undefined,
-    "new Start wrote legacy runtime"
-  );
   const startedWorkId = await AssistantStorage.getCurrentWorkId();
   assert(startedWorkId, "start did not publish currentWorkId");
-  const startedRef = AssistantStorage.parseWorkTaskId(startedWorkId);
-  assert(startedRef?.calendarId === task.calendarId, "currentWorkId lost calendar identity");
-  assert(startedRef?.id === task.id, "currentWorkId lost task UID");
-  assert(String(startedRef?.recurrenceId || "") === "", "currentWorkId changed recurrence identity");
-  let timing = await AssistantStorage.deriveWorkTiming(clone(task));
-  assert(timing.source === "audit", "new Start timing did not derive from audit");
-  assert(timing.segmentStartedAtMs !== null, "new Start timing has no active segment");
   const firstWorkRef = await AssistantStorage.findOpenWorkSessionRef(clone(task));
-  assert(firstWorkRef?.source === "audit", "Start Work VEVENT ref did not derive from audit");
   const firstWorkId = firstWorkRef?.id;
-  assert(firstWorkId && events.has(firstWorkId), "start did not persist Work VEVENT");
-  assert(events.get(firstWorkId).workOpen === true, "start Work VEVENT is not marked open");
+  assert(firstWorkRef?.source === "audit", "Start Work VEVENT ref did not derive from audit");
+  assert(firstWorkId && events.get(firstWorkId)?.workOpen, "start did not persist open Work VEVENT");
 
-  receipt = await AssistantExecutor.pause(clone(task));
-  assert(receipt.success, "pause failed");
-  assert(task.status === "IN-PROCESS" && task.paused, "pause task state wrong");
-  assert(
-    storage["caldavAssistant.runtime"] === undefined,
-    "Pause wrote legacy runtime"
-  );
-  assert(
-    await AssistantStorage.getCurrentWorkId() === startedWorkId,
-    "pause changed currentWorkId"
-  );
-  timing = await AssistantStorage.deriveWorkTiming(clone(task));
-  assert(timing.source === "audit", "Pause timing stopped using audit history");
-  assert(timing.segmentStartedAtMs === null, "Pause timing left a live segment");
-  assert(events.get(firstWorkId).end && !events.get(firstWorkId).workOpen, "pause did not close first Work VEVENT");
+  receipt = await AssistantExecutor.stop(clone(task));
+  assert(receipt.success, "stop failed");
+  assert(task.status === "NEEDS-ACTION", "stop did not restore pre-Start status");
+  assert(task.paused === false, "stop resurrected paused lifecycle");
+  assert(task.percentComplete === 0, "stop changed original progress");
+  assert(await AssistantStorage.getCurrentWorkId() === null, "stop did not clear currentWorkId");
+  assert(events.get(firstWorkId)?.end && !events.get(firstWorkId)?.workOpen, "stop did not close Work VEVENT");
+  let timing = await AssistantStorage.deriveWorkTiming(clone(task));
+  assert(timing.segmentStartedAtMs === null, "Stop timing left a live segment");
 
-  receipt = await AssistantExecutor.resume(clone(task), "work");
-  assert(receipt.success, "resume failed");
-  assert(task.paused === false, "resume did not clear paused state");
-  assert(
-    storage["caldavAssistant.runtime"] === undefined,
-    "Resume wrote legacy runtime"
-  );
-  assert(
-    await AssistantStorage.getCurrentWorkId() === startedWorkId,
-    "resume changed currentWorkId"
-  );
-  timing = await AssistantStorage.deriveWorkTiming(clone(task));
-  assert(timing.source === "audit", "Resume timing stopped using audit history");
-  assert(timing.segmentStartedAtMs !== null, "Resume timing did not reopen a live segment");
+  receipt = await AssistantExecutor.start(clone(task), "work");
+  assert(receipt.success, "restart after Stop failed");
   const secondWorkRef = await AssistantStorage.findOpenWorkSessionRef(clone(task));
-  assert(secondWorkRef?.source === "audit", "Resume Work VEVENT ref did not derive from audit");
   const secondWorkId = secondWorkRef?.id;
-  assert(secondWorkId && events.has(secondWorkId), "resume did not persist a Work VEVENT");
-  assert(secondWorkId !== firstWorkId, "resume reused the first Work VEVENT");
-  assert(events.get(secondWorkId).workOpen === true, "resumed Work VEVENT is not marked open");
+  assert(secondWorkId && secondWorkId !== firstWorkId, "restart did not create a new Work VEVENT");
 
   receipt = await AssistantExecutor.complete(clone(task));
   assert(receipt.success, "complete failed");
   assert(task.status === "COMPLETED", "complete did not set COMPLETED");
   assert(task.percentComplete === 100, "complete did not set 100 percent");
-  assert(
-    storage["caldavAssistant.runtime"] === undefined,
-    "Complete wrote legacy runtime"
-  );
   assert(await AssistantStorage.getCurrentWorkId() === null, "complete did not clear currentWorkId");
-  assert(events.get(secondWorkId).end && !events.get(secondWorkId).workOpen, "complete did not close second Work VEVENT");
-  assert(
-    receipt.steps.some(step => step.component === "WordPress" && step.operation === "not invoked"),
-    "receipt must explicitly say WordPress was not invoked"
-  );
+  assert(events.get(secondWorkId)?.end && !events.get(secondWorkId)?.workOpen, "complete did not close Work VEVENT");
 
   const audit = await AssistantStorage.listAudit();
   assert(
-    audit.map(row => row.action).join(",") === "start,pause,resume,complete",
-    "workflow audit sequence is incomplete"
+    audit.map(row => row.action).join(",") === "start,stop,start,complete",
+    "new lifecycle audit sequence is incomplete"
   );
   assert(audit.every(row => row.details?.steps?.length), "audit records lost detailed receipts");
 
-  const failure = await AssistantExecutor.pause(clone(task));
-  assert(!failure.success, "invalid pause should return a persistent failed receipt");
-  assert(/not the currently working task|already finished/i.test(failure.error), "wrong failure reason");
+  const failure = await AssistantExecutor.stop(clone(task));
+  assert(!failure.success, "invalid Stop should return a persistent failed receipt");
+  assert(/already finished|not the current task/i.test(failure.error), "wrong Stop failure reason");
   const last = await AssistantStorage.getLastReceipt();
-  assert(last?.id === failure.id, "failed receipt was not persisted");
+  assert(last?.id === failure.id, "failed Stop receipt was not persisted");
 }
 
 async function legacyRuntimeMigration() {
@@ -365,21 +322,16 @@ async function legacyRuntimeStateIsNotWorkflowTruth() {
     accumulatedMs: 999999,
   };
 
-  receipt = await AssistantExecutor.pause(clone(task));
+  receipt = await AssistantExecutor.stop(clone(task));
   assert(
     receipt.success,
-    "Pause trusted stale legacy runtime instead of VTODO/currentWorkId"
+    "Stop trusted stale legacy runtime instead of currentWorkId + immutable Start history"
   );
-  assert(task.status === "IN-PROCESS" && task.paused === true, "Pause VTODO facts wrong");
+  assert(task.status === "NEEDS-ACTION" && task.paused === false, "Stop restore facts wrong");
+  assert(await AssistantStorage.getCurrentWorkId() === null, "Stop did not clear pointer");
 
-  storage["caldavAssistant.runtime"].state = "working";
-  receipt = await AssistantExecutor.resume(clone(task), "work");
-  assert(
-    receipt.success,
-    "Resume trusted stale legacy runtime instead of VTODO/currentWorkId"
-  );
-  assert(task.status === "IN-PROCESS" && task.paused === false, "Resume VTODO facts wrong");
-
+  receipt = await AssistantExecutor.start(clone(task), "work");
+  assert(receipt.success, "state-truth restart failed");
   receipt = await AssistantExecutor.cancel(clone(task));
   assert(receipt.success, "state-truth cleanup Cancel failed");
 }
@@ -668,6 +620,112 @@ async function switchAwayRestoresExactPreStartProgress() {
   assert(task.percentComplete === 35, "Switch-away did not restore original progress");
 }
 
+async function stopDerivesWorkEventWithoutRuntimeRef() {
+  resetAll();
+
+  let receipt = await AssistantExecutor.start(clone(task), "work");
+  assert(receipt.success, "Stop Work-event setup Start failed");
+  assert(storage["caldavAssistant.runtime"] === undefined, "new Start created legacy runtime");
+
+  const derived = await AssistantStorage.findOpenWorkSessionRef(clone(task));
+  const workId = derived?.id;
+  assert(derived?.source === "audit", "open Work VEVENT was not derived from audit");
+  assert(workId && events.has(workId), "setup did not create Work VEVENT");
+
+  receipt = await AssistantExecutor.stop(clone(task));
+  assert(receipt.success, "Stop depended on runtime.currentWorkEvent");
+  assert(events.get(workId)?.end, "Stop did not close audit-derived Work VEVENT");
+  assert(events.get(workId)?.workOpen === false, "Stop left audit-derived Work VEVENT open");
+}
+
+async function stopCloseFailureDoesNotBlockWorkflow() {
+  resetAll();
+
+  let receipt = await AssistantExecutor.start(clone(task), "work");
+  assert(receipt.success, "close-failure setup Start failed");
+  const workRef = await AssistantStorage.findOpenWorkSessionRef(clone(task));
+  const workId = workRef?.id;
+  assert(workId && events.get(workId)?.workOpen, "close-failure setup has no open Work VEVENT");
+
+  faults.failNextEventClose = true;
+  receipt = await AssistantExecutor.stop(clone(task));
+  assert(receipt.success, "Work VEVENT close failure incorrectly blocked Stop");
+  assert(task.status === "NEEDS-ACTION" && task.paused === false, "Stop VTODO restore was not committed");
+  assert(await AssistantStorage.getCurrentWorkId() === null, "Stop close failure retained currentWorkId");
+  assert(events.get(workId)?.workOpen === true, "simulated close failure unexpectedly mutated VEVENT");
+  assert(
+    receipt.steps.some(step => step.operation === "optional history close failed"),
+    "Stop did not expose auxiliary Work history close failure"
+  );
+}
+
+async function stopWriteRollback() {
+  resetAll();
+
+  let receipt = await AssistantExecutor.start(clone(task), "work");
+  assert(receipt.success, "Stop rollback setup Start failed");
+  const workRef = await AssistantStorage.findOpenWorkSessionRef(clone(task));
+  const workId = workRef?.id;
+  assert(workId && events.get(workId)?.workOpen, "Stop rollback setup has no open Work VEVENT");
+
+  faults.failNextStopWrite = true;
+  receipt = await AssistantExecutor.stop(clone(task));
+  assert(!receipt.success, "simulated Stop Task write failure should fail");
+  assert(task.status === "IN-PROCESS" && task.paused === false, "failed Stop changed Task state");
+  assert(await AssistantStorage.getCurrentWorkId(), "failed Stop lost currentWorkId");
+  assert(events.get(workId)?.workOpen === true, "failed Stop did not reopen Work VEVENT");
+}
+
+async function stopRestoresExactPreStartProgress() {
+  resetAll();
+  task.status = "NEEDS-ACTION";
+  task.paused = false;
+  task.percentComplete = 35;
+
+  let receipt = await AssistantExecutor.start(clone(task), "work");
+  assert(receipt.success, "progress restore setup Start failed");
+  assert(task.status === "IN-PROCESS" && task.percentComplete === 35, "Start lost existing progress");
+
+  receipt = await AssistantExecutor.stop(clone(task));
+  assert(receipt.success, "progress restore Stop failed");
+  assert(task.status === "NEEDS-ACTION", "Stop did not restore original status");
+  assert(task.paused === false, "Stop invented paused state");
+  assert(task.percentComplete === 35, "Stop did not restore original progress");
+}
+
+async function stopFallsBackToLegacyRuntimeSnapshot() {
+  resetAll();
+  task.status = "IN-PROCESS";
+  task.paused = true;
+  task.percentComplete = 41;
+
+  await AssistantStorage.setCurrentWorkId(AssistantStorage.makeWorkTaskId(task));
+  storage["caldavAssistant.runtime"] = {
+    state: "paused",
+    currentTask: {
+      id: task.id,
+      calendarId: task.calendarId,
+      recurrenceId: "",
+    },
+    currentWorkEvent: null,
+    segmentStartedAtMs: null,
+    accumulatedMs: 0,
+    taskBeforeStart: {
+      status: "NEEDS-ACTION",
+      paused: true,
+      percentComplete: 41,
+    },
+  };
+
+  const receipt = await AssistantExecutor.stop(clone(task));
+  assert(receipt.success, "Stop lost legacy runtime fallback");
+  assert(task.status === "NEEDS-ACTION", "legacy fallback lost original status");
+  assert(task.paused === false, "Stop resurrected legacy paused lifecycle");
+  assert(task.percentComplete === 41, "legacy fallback lost original progress");
+  assert(await AssistantStorage.getCurrentWorkId() === null, "legacy fallback did not clear pointer");
+  assert(storage["caldavAssistant.runtime"] === undefined, "completed migration left stale runtime");
+}
+
 async function cancelLifecycle() {
   resetAll();
   let receipt = await AssistantExecutor.start(clone(task), "work");
@@ -720,15 +778,11 @@ async function completeWriteRollback() {
   await startReadbackRollback();
   await uncertainCreateRollback();
   await startWithoutWorkCalendar();
-  await pauseDerivesWorkEventWithoutRuntimeRef();
-  await pauseCloseFailureDoesNotBlockWorkflow();
-  await pauseWriteRollback();
-  await resumeReadbackRollback();
-  await switchAwayLifecycle();
-  await switchAwayPausedLifecycle();
-  await switchAwayRestoresFromAuditWithoutRuntimeSnapshot();
-  await switchAwayFallsBackToLegacyRuntimeSnapshot();
-  await switchAwayRestoresExactPreStartProgress();
+  await stopDerivesWorkEventWithoutRuntimeRef();
+  await stopCloseFailureDoesNotBlockWorkflow();
+  await stopWriteRollback();
+  await stopRestoresExactPreStartProgress();
+  await stopFallsBackToLegacyRuntimeSnapshot();
   await cancelLifecycle();
   await completeWriteRollback();
   assert(
