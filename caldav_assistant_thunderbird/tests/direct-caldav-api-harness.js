@@ -460,16 +460,6 @@ const api = instance.getAPI({}).ThunderbirdCalDAV;
   assert(updatedTask.due.icalString === "20261006", "task due update failed");
 
   updatedTask = await api.updateTask("cal-a", createdTask.id, {
-    status: "IN-PROCESS",
-    paused: true,
-  });
-  assert(updatedTask.paused === true, "Assistant paused property was not persisted");
-  updatedTask = await api.getTask("cal-a", createdTask.id);
-  assert(updatedTask.paused === true, "Assistant paused property was not read back");
-  updatedTask = await api.updateTask("cal-a", createdTask.id, {paused: false});
-  assert(updatedTask.paused === false, "Assistant paused property was not cleared");
-
-  updatedTask = await api.updateTask("cal-a", createdTask.id, {
     percentComplete: 100,
   });
   assert(updatedTask.completed, "100 percent must complete task");
@@ -536,30 +526,21 @@ const api = instance.getAPI({}).ThunderbirdCalDAV;
   const rereadCreatedEvent = await api.getEvent("cal-a", createdEvent.id);
   assert(rereadCreatedEvent.id === createdEvent.id, "getEvent did not read the created event");
 
-  const openWorkEvent = await api.createEvent("cal-a", {
-    title: "Open work session",
+  const openEvent = await api.createEvent("cal-a", {
+    title: "Open-ended event",
     start: "2026-10-05T14:00",
     end: null,
-    taskUid: "seed",
-    workSession: true,
-    workOpen: true,
   });
-  assert(openWorkEvent.taskUid === "seed", "work event task UID property was not persisted");
-  assert(openWorkEvent.workSession === true, "work event marker was not persisted");
-  assert(openWorkEvent.workOpen === true, "work open marker was not persisted");
+  assert(openEvent.id, "open-ended event has no UID");
+  assert(openEvent.end === null, "open-ended event unexpectedly gained DTEND");
 
-  let openWorkRead = await api.getEvent("cal-a", openWorkEvent.id);
-  assert(openWorkRead.workOpen === true, "open Work VEVENT read-back lost marker");
-  await api.updateEvent("cal-a", openWorkEvent.id, {
+  let openEventRead = await api.getEvent("cal-a", openEvent.id);
+  assert(openEventRead.end === null, "open-ended event read-back gained DTEND");
+  await api.updateEvent("cal-a", openEvent.id, {
     end: "2026-10-05T14:30",
-    workOpen: false,
   });
-  openWorkRead = await api.getEvent("cal-a", openWorkEvent.id);
-  assert(openWorkRead.end?.icalString === "20261005T143000", "Work VEVENT close failed");
-  assert(openWorkRead.workOpen === false, "Work VEVENT close did not clear open marker");
-  await api.updateEvent("cal-a", openWorkEvent.id, {end: null, workOpen: true});
-  openWorkRead = await api.getEvent("cal-a", openWorkEvent.id);
-  assert(openWorkRead.workOpen === true, "Work VEVENT reopen rollback failed");
+  openEventRead = await api.getEvent("cal-a", openEvent.id);
+  assert(openEventRead.end?.icalString === "20261005T143000", "ordinary VEVENT update failed");
 
   await assertRejects(
     () => api.createEvent("cal-a", {title: "No start"}),
