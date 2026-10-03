@@ -208,17 +208,4 @@
     }))
   );
 
-  // Explicitly retry initialization after extension lifecycle events. Multiple
-  // calls share one promise and do not create a second workflow service.
-  function reinitialize() {
-    readyPromise = initialize();
-    return readyPromise;
-  }
-
-  browser.runtime.onInstalled.addListener(() => {
-    void reinitialize();
-  });
-  browser.runtime.onStartup.addListener(() => {
-    void reinitialize();
-  });
 })();
