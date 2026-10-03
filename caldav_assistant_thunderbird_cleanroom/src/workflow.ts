@@ -5,15 +5,15 @@ import {
   WorkIntent,
   WorkPlan,
   WorkSession,
-} from "./domain";
-import {makeTaskId} from "./task-id";
+} from "./domain.js";
+import {makeTaskId} from "./task-id.js";
 import {
   closeWorkSession,
   getOpenSession,
   openWorkSession,
   parseWorkDescription,
   serializeWorkDescription,
-} from "./work-description";
+} from "./work-description.js";
 
 function reject(
   intent: WorkIntent,
