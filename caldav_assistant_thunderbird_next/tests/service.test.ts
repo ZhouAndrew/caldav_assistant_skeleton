@@ -242,5 +242,5 @@ async function testPasswordMigrationIsExactAndIdempotent(): Promise<void> {
   console.log("clean-room service: PASS");
 })().catch(error => {
   console.error(error);
-  process.exitCode = 1;
+  throw error;
 });
