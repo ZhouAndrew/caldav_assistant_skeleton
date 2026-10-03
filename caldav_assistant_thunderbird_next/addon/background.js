@@ -1,10 +1,12 @@
 "use strict";
 
 const STARTUP_STATUS_KEY = "caldavAssistant.startupStatus.v2";
+const SPACE_NAME = "caldav_assistant";
 const TASK_INTENTS = new Set(["start", "stop", "complete", "cancel"]);
 
 let runtimeContext = null;
 let startupPromise = null;
+let uiPromise = null;
 
 function safeError(error) {
   return String(error?.message || error || "Unknown error");
@@ -23,6 +25,34 @@ async function saveStartupStatus(value) {
 async function readStartupStatus() {
   const values = await browser.storage.local.get(STARTUP_STATUS_KEY);
   return values[STARTUP_STATUS_KEY] || null;
+}
+
+async function ensureSpace() {
+  const url = browser.runtime.getURL("pages/task-picker.html");
+  const title =
+    browser.i18n.getMessage("extensionName") ||
+    "CalDAV Assistant Experimental";
+  const existing = await browser.spaces.query({
+    name: SPACE_NAME,
+    isSelfOwned: true,
+  });
+
+  if (existing.length) {
+    await browser.spaces.update(existing[0].id, url, {title});
+    return existing[0];
+  }
+
+  return browser.spaces.create(SPACE_NAME, url, {title});
+}
+
+function ensureSpaceOnce() {
+  if (!uiPromise) {
+    uiPromise = ensureSpace().catch(error => {
+      uiPromise = null;
+      throw error;
+    });
+  }
+  return uiPromise;
 }
 
 async function startup() {
@@ -251,16 +281,26 @@ browser.runtime.onMessage.addListener(message =>
 );
 
 browser.runtime.onInstalled.addListener(() => {
+  void ensureSpaceOnce().catch(error =>
+    console.error("[CalDAV Assistant] Space setup failed", safeError(error))
+  );
   void startupOnce().catch(error =>
     console.error("[CalDAV Assistant] startup failed", safeError(error))
   );
 });
 
 browser.runtime.onStartup.addListener(() => {
+  void ensureSpaceOnce().catch(error =>
+    console.error("[CalDAV Assistant] Space setup failed", safeError(error))
+  );
   void startupOnce().catch(error =>
     console.error("[CalDAV Assistant] startup failed", safeError(error))
   );
 });
+
+void ensureSpaceOnce().catch(error =>
+  console.error("[CalDAV Assistant] Space setup failed", safeError(error))
+);
 
 void startupOnce().catch(error =>
   console.error("[CalDAV Assistant] startup failed", safeError(error))
