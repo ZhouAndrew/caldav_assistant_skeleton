@@ -37,3 +37,4 @@ export {
   runWordPressQuickTest,
   runWordPressFullWriteTest,
 } from "../wordpress/service";
+export {SerialCommandQueue} from "../serial-command-queue";
