@@ -1,9 +1,19 @@
 import {AppSettings} from "./migration/legacy-settings";
 import {TaskPatch, TaskSnapshot} from "./domain";
 
+export interface TaskWriteExpectation {
+  readonly description: string;
+  readonly status: TaskSnapshot["status"];
+  readonly percentComplete: number;
+}
+
 export interface TaskRepository {
   get(taskId: string): Promise<TaskSnapshot | null>;
-  update(taskId: string, patch: TaskPatch): Promise<void>;
+  update(
+    taskId: string,
+    patch: TaskPatch,
+    expected: TaskWriteExpectation
+  ): Promise<void>;
 }
 
 export interface TaskScanFailure {
