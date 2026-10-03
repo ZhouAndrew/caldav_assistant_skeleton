@@ -1,5 +1,5 @@
 import {TaskPatch, TaskSnapshot, TaskStatus} from "../domain";
-import {TaskCatalog, TaskRepository, TaskScanResult} from "../ports";
+import {TaskCatalog, TaskRepository, TaskScanResult, TaskWriteExpectation} from "../ports";
 import {TaskListItem, TaskQuery, TaskQueryOptions, TaskQueryResult} from "../task-query";
 import {decodeTaskId, encodeTaskId} from "../task-id";
 
@@ -54,7 +54,8 @@ export interface NativeTasksApi {
     calendarId: string,
     uid: string,
     recurrenceId: string,
-    patch: TaskPatch
+    patch: TaskPatch,
+    expected: TaskWriteExpectation
   ): Promise<NativeTaskView>;
 
   scanStoredTasks(): Promise<NativeTaskScanResult>;
@@ -111,14 +112,19 @@ export class ThunderbirdTaskRepository
     return item ? snapshot(item) : null;
   }
 
-  async update(taskId: string, patch: TaskPatch): Promise<void> {
+  async update(
+    taskId: string,
+    patch: TaskPatch,
+    expected: TaskWriteExpectation
+  ): Promise<void> {
     const ref = decodeTaskId(taskId);
     if (!ref) throw new Error("Malformed taskId.");
     await this.api.updateTask(
       ref.calendarId,
       ref.uid,
       ref.recurrenceId,
-      patch
+      patch,
+      expected
     );
   }
 
