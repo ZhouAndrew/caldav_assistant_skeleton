@@ -159,6 +159,12 @@ async function normalLifecycle() {
 
   let runtime = await AssistantStorage.getRuntime();
   assert(runtime.state === "working", "runtime is not working after start");
+  const startedWorkId = await AssistantStorage.getCurrentWorkId();
+  assert(startedWorkId, "start did not publish currentWorkId");
+  const startedRef = AssistantStorage.parseWorkTaskId(startedWorkId);
+  assert(startedRef?.calendarId === task.calendarId, "currentWorkId lost calendar identity");
+  assert(startedRef?.id === task.id, "currentWorkId lost task UID");
+  assert(String(startedRef?.recurrenceId || "") === "", "currentWorkId changed recurrence identity");
   assert(runtime.taskBeforeStart?.status === "NEEDS-ACTION", "start did not retain pre-start status");
   assert(runtime.taskBeforeStart?.paused === false, "start did not retain pre-start paused state");
   assert(runtime.taskBeforeStart?.percentComplete === 0, "start did not retain pre-start progress");
@@ -171,6 +177,10 @@ async function normalLifecycle() {
   assert(task.status === "IN-PROCESS" && task.paused, "pause task state wrong");
   runtime = await AssistantStorage.getRuntime();
   assert(runtime.state === "paused", "runtime is not paused");
+  assert(
+    await AssistantStorage.getCurrentWorkId() === startedWorkId,
+    "pause changed currentWorkId"
+  );
   assert(events.get(firstWorkId).end && !events.get(firstWorkId).workOpen, "pause did not close first Work VEVENT");
 
   receipt = await AssistantExecutor.resume(clone(task), "work");
@@ -178,6 +188,10 @@ async function normalLifecycle() {
   assert(task.paused === false, "resume did not clear paused state");
   runtime = await AssistantStorage.getRuntime();
   assert(runtime.state === "working", "runtime is not working after resume");
+  assert(
+    await AssistantStorage.getCurrentWorkId() === startedWorkId,
+    "resume changed currentWorkId"
+  );
   const secondWorkId = runtime.currentWorkEvent?.id;
   assert(secondWorkId && events.has(secondWorkId), "resume did not persist a Work VEVENT");
   assert(secondWorkId !== firstWorkId, "resume reused the first Work VEVENT");
@@ -189,6 +203,7 @@ async function normalLifecycle() {
   assert(task.percentComplete === 100, "complete did not set 100 percent");
   runtime = await AssistantStorage.getRuntime();
   assert(runtime.state === "idle" && !runtime.currentTask, "runtime was not cleared");
+  assert(await AssistantStorage.getCurrentWorkId() === null, "complete did not clear currentWorkId");
   assert(events.get(secondWorkId).end && !events.get(secondWorkId).workOpen, "complete did not close second Work VEVENT");
   assert(
     receipt.steps.some(step => step.component === "WordPress" && step.operation === "not invoked"),
@@ -207,6 +222,34 @@ async function normalLifecycle() {
   assert(/not the currently working task|already finished/i.test(failure.error), "wrong failure reason");
   const last = await AssistantStorage.getLastReceipt();
   assert(last?.id === failure.id, "failed receipt was not persisted");
+}
+
+async function legacyRuntimeMigration() {
+  resetAll();
+  storage["caldavAssistant.runtime"] = {
+    state: "paused",
+    currentTask: {
+      id: "seed-task",
+      calendarId: "tasks",
+      recurrenceId: "20261003T090000",
+    },
+    currentWorkEvent: {id: "legacy-work-event"},
+    segmentStartedAtMs: null,
+    accumulatedMs: 1234,
+  };
+
+  const currentWorkId = await AssistantStorage.getCurrentWorkId();
+  const ref = AssistantStorage.parseWorkTaskId(currentWorkId);
+  assert(ref?.calendarId === "tasks", "legacy migration lost calendar id");
+  assert(ref?.id === "seed-task", "legacy migration lost task uid");
+  assert(
+    ref?.recurrenceId === "20261003T090000",
+    "legacy migration lost recurrence identity"
+  );
+  assert(
+    storage["caldavAssistant.runtime"]?.currentWorkEvent?.id === "legacy-work-event",
+    "compat migration destroyed legacy runtime too early"
+  );
 }
 
 async function startReadbackRollback() {
@@ -373,6 +416,7 @@ async function completeWriteRollback() {
 (async () => {
   resetAll();
   await normalLifecycle();
+  await legacyRuntimeMigration();
   await startReadbackRollback();
   await uncertainCreateRollback();
   await pauseWriteRollback();
