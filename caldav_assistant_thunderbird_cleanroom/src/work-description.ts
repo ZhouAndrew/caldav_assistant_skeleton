@@ -5,7 +5,7 @@ import {
   WorkLogV1,
   WorkResult,
   WorkSession,
-} from "./domain";
+} from "./domain.js";
 
 const START = "[CALDAV-ASSISTANT-WORKLOG v1]";
 const END = "[/CALDAV-ASSISTANT-WORKLOG]";
