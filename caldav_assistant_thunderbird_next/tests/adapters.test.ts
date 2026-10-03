@@ -125,6 +125,14 @@ class FakeNativeTasks implements NativeTasksApi {
     });
     return {...this.task, ...patch};
   }
+
+  async scanStoredTasks() {
+    return {
+      tasks: [this.task],
+      complete: true,
+      failures: [],
+    } as const;
+  }
 }
 
 async function testThunderbirdRepositoryIdentity(): Promise<void> {
@@ -158,6 +166,11 @@ async function testThunderbirdRepositoryIdentity(): Promise<void> {
     "repository lost recurring identity on write"
   );
   assert(api.updateCalls[0]?.patch === patch, "repository rewrote task patch");
+
+  const scan = await repo.scanStored();
+  assert(scan.complete, "complete native scan became incomplete");
+  assert(scan.tasks.length === 1, "native scan lost Task");
+  assert(scan.tasks[0]?.taskId === taskId, "native scan changed Task identity");
 }
 
 (async () => {
