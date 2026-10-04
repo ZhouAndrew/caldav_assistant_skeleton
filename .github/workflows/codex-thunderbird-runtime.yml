@@ -1,0 +1,68 @@
+name: Codex Real Thunderbird Runtime
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "caldav_assistant_thunderbird_codex/**"
+      - ".github/workflows/codex-thunderbird-runtime.yml"
+
+jobs:
+  thunderbird-runtime-smoke:
+    runs-on: ubuntu-24.04
+    env:
+      THUNDERBIRD_VERSION: 153.1.0esr
+      THUNDERBIRD_ROOT: ${{ github.workspace }}/.thunderbird-runtime
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GUI runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb dbus-x11 libdbus-glib-1-2
+
+      - name: Provision pinned real Thunderbird
+        run: |
+          bash caldav_assistant_thunderbird_codex/scripts/provision-thunderbird-ci.sh
+
+      - name: Verify real Thunderbird can launch
+        run: |
+          set -euo pipefail
+          TB="$THUNDERBIRD_ROOT/thunderbird/thunderbird"
+          PROFILE="$RUNNER_TEMP/codex-thunderbird-profile"
+          mkdir -p "$PROFILE"
+
+          "$TB" --version
+
+          set +e
+          timeout 20s xvfb-run -a "$TB"             -no-remote             -profile "$PROFILE"             >"$RUNNER_TEMP/thunderbird-startup.log" 2>&1
+          rc=$?
+          set -e
+
+          # A normal exit or timeout after remaining alive both prove the real
+          # binary started. Any other immediate startup failure is rejected.
+          if [[ "$rc" -ne 0 && "$rc" -ne 124 ]]; then
+            cat "$RUNNER_TEMP/thunderbird-startup.log"
+            exit "$rc"
+          fi
+
+          echo "Thunderbird startup smoke result: rc=$rc"
+          test -d "$PROFILE"
+
+      - name: Record runtime evidence
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/codex-thunderbird-runtime-evidence"
+          cp "$THUNDERBIRD_ROOT/version.txt"             "$RUNNER_TEMP/codex-thunderbird-runtime-evidence/version.txt"
+          cp "$THUNDERBIRD_ROOT/runtime.env"             "$RUNNER_TEMP/codex-thunderbird-runtime-evidence/runtime.env"
+          cp "$RUNNER_TEMP/thunderbird-startup.log"             "$RUNNER_TEMP/codex-thunderbird-runtime-evidence/startup.log" || true
+          printf '%s\n' "${{ github.sha }}"             > "$RUNNER_TEMP/codex-thunderbird-runtime-evidence/source-commit.txt"
+
+      - name: Upload Thunderbird runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codex-real-thunderbird-runtime-evidence
+          path: ${{ runner.temp }}/codex-thunderbird-runtime-evidence/
+          if-no-files-found: error
