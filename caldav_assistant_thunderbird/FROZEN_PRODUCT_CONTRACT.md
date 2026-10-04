@@ -1,12 +1,10 @@
-# CalDAV Assistant Thunderbird Plugin — Frozen Product Contract v1.0
+# CalDAV Assistant Thunderbird Plugin — Frozen Product Contract v1.1
 
 > **Status: FROZEN**
 >
 > Effective: 2026-10-04
 >
-> This document freezes the user-facing product boundaries of the canonical
-> Thunderbird add-on. Implementation details may change, but development must not
-> change these behaviors for technical convenience.
+> v1.1 supersedes v1.0. The earlier fallback Task Picker concept is removed.
 
 ## 1. Product role
 
@@ -21,7 +19,7 @@ manager.
 
 ## 2. Primary surfaces
 
-The primary add-on surfaces are:
+The primary add-on surfaces are exactly:
 
 - **Work** — current Task lifecycle.
 - **Today** — today's workflow activity.
@@ -30,26 +28,30 @@ The primary add-on surfaces are:
 - **WordPress** — WordPress settings/outbox/connection verification.
 - **Tools** — Task defaults and Calendar diagnostics.
 
-A Task picker is **not** a primary navigation destination.
+There is no Assistant Task browser, Task Picker, Task list, Task search page or
+Task-selection page.
 
 ## 3. Task selection
 
-Task selection is an interaction step, equivalent to `choose_task()`, not a
-standalone Task-management product.
+Task selection belongs entirely to Thunderbird's native Tasks UI.
 
-The frozen selection order is:
+Frozen behavior:
 
-1. Prefer the Task already selected in Thunderbird's native Tasks UI when there is
-   one unambiguous usable selection.
-2. Only when needed, open a lightweight fallback picker.
-3. The picker may use Thunderbird-native visibility/filter/search capabilities,
-   but it must not create or persist an Assistant-owned Task catalog.
-4. After a Task is chosen, the user returns to **Work**; the picker is not a
-   long-lived workspace.
-5. Do not make users re-select a Task that Thunderbird has already selected.
+1. The user selects exactly one Task in Thunderbird.
+2. CalDAV Assistant reads that native selection.
+3. If there is one usable Task, the Assistant can Start it.
+4. If there is no Task selected, the Assistant tells the user to select one in
+   Thunderbird.
+5. If multiple Tasks are selected, the Assistant tells the user to reduce the
+   native selection to one.
+6. The Assistant must never ask the user to select the same Task again.
 
-An implementation file such as `task-picker.html` may exist, but it is an
-implementation detail and must not appear as a top-level Assistant section.
+Forbidden:
+
+- `task-picker.html` or equivalent product UI;
+- an Assistant-owned Task list;
+- Assistant-side search/filter/calendar browsing for choosing a Task;
+- any fallback picker.
 
 ## 4. Work lifecycle
 
@@ -63,9 +65,8 @@ The new lifecycle actions are exactly:
 Pause, Resume and Switch Away are legacy migration/history concepts only and must
 not return as new user actions.
 
-`currentWorkId` is the authoritative Assistant dynamic work pointer. Starting a
-different Task is explicit: stop the current Task, keep the target selection, then
-start the target. Never auto-start merely because selection changed.
+`currentWorkId` is the authoritative Assistant dynamic work pointer. Changing the
+native Thunderbird selection alone must never auto-start another Task.
 
 ## 5. Reliability
 
@@ -78,8 +79,7 @@ Authoritative mutations use:
 - WordPress failure must not roll back a verified Task action.
 - User-visible success must not be shown before the authoritative write has been
   verified.
-- Results are persisted to audit before display where the current implementation
-  already guarantees that order.
+- Results are persisted to audit before normal UI success display.
 
 ## 6. UI boundary
 
@@ -87,32 +87,22 @@ The add-on must remain simpler than Thunderbird's native Task UI.
 
 Forbidden drift includes:
 
-- turning the picker into a permanent "Assistant Task Center";
-- duplicating a full Task database or Task-state model;
-- adding Assistant-only browsing/editing flows merely because they are easier to
-  implement than using Thunderbird/CalDAV;
-- placing Task selection alongside Work/Today/Record/Logs/WordPress/Tools as an
-  equal top-level product section;
+- duplicating Task browsing/selection;
+- creating a second Task database or Task-state model;
 - reintroducing Pause/Resume/Switch Away;
 - making WordPress or Work VEVENTs authoritative for Task completion.
 
 ## 7. Acceptance
 
-A change touching Task selection or workflow must pass both automated contract
-checks and a real Thunderbird human path:
+The required human path is:
 
-`native selection -> Assistant -> Start -> Work -> Stop/Complete/Cancel`
+`Thunderbird native Task selection -> Assistant Work -> Start -> Stop/Complete/Cancel`
 
-and the fallback path:
+There is no fallback selection path.
 
-`no native selection -> choose Task -> return to Work -> Start`
-
-No release is accepted if the UI requires duplicate Task selection or behaves like
-a second Task manager.
+A release fails acceptance if the user must choose a Task inside CalDAV Assistant.
 
 ## 8. Change policy
 
-This contract is frozen. A future change to these product boundaries requires an
-explicit new user decision and a new frozen-contract version. Refactors, library
-changes, CSS changes, performance work and compatibility fixes must stay inside
-these boundaries.
+This contract is frozen. Any future product-boundary change requires an explicit
+user decision and a new frozen-contract version.
