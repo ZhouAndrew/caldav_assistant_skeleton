@@ -2,10 +2,9 @@
 
 > **FROZEN implementation/framework contract:** `../FROZEN_IMPLEMENTATION_CONTRACT.md`
 >
-> Product/UI boundaries: `../FROZEN_PRODUCT_CONTRACT.md`
+> **FROZEN product contract:** `../FROZEN_PRODUCT_CONTRACT.md`
 
-The design goal is a small Thunderbird-native UI, plain action functions, strict
-read-back checks and persistent diagnostics.
+The canonical add-on is functional and Thunderbird-native.
 
 ## Source of truth
 
@@ -16,32 +15,42 @@ read-back checks and persistent diagnostics.
 There is no second Assistant Task database and no writable Assistant workflow state
 machine.
 
-## Work lifecycle
+## Task selection
 
-The user-facing lifecycle is:
+There is no Task Picker.
+
+The user selects a Task in Thunderbird's native Tasks UI. CalDAV Assistant reads
+that native selection. If the selection is empty or ambiguous, the Assistant shows
+guidance and performs no fallback selection UI.
+
+## Functional architecture
 
 ```text
-Select Task -> Start -> Stop | Complete | Cancel
+native UI event
+-> pure state/workflow function
+-> next state + effects
+-> thin effect runner
+-> Thunderbird/CalDAV/storage/WordPress adapters
+-> verified result
+-> pure state update
+-> render
 ```
 
-The Work page shows only the current Task. Task selection first reuses Thunderbird's
-native current selection; only when needed, a transient fallback Task Picker may use
-Thunderbird-native browsing/filtering/search and then returns to Work.
+Workflow policy is expressed with pure functions and immutable data. Side effects
+exist only at explicit boundaries.
 
-`currentWorkId` is the only Assistant-owned dynamic work pointer. It identifies a
-Task with Calendar id + VTODO UID + recurrence id.
+## Work lifecycle
 
-Pause, Resume and Switch Away are not new workflow actions. Old 0.3.15 data using
-those concepts is migration/history input only.
+```text
+Thunderbird native selection -> Start -> Stop | Complete | Cancel
+```
 
-## Plain action functions
+`currentWorkId` is the only Assistant-owned dynamic work pointer and identifies a
+Task by Calendar id + VTODO UID + recurrence id.
 
-`core/executor.js` exposes:
+Pause, Resume and Switch Away are legacy migration/history only.
 
-- `start(task, workCalendarId)`
-- `stop(task)`
-- `complete(task)`
-- `cancel(task)`
+## Reliability
 
 All authoritative writes use:
 
@@ -49,65 +58,13 @@ All authoritative writes use:
 write -> read back -> compare -> receipt
 ```
 
-Start writes the VTODO first, then optionally opens a Work VEVENT, then publishes
-`currentWorkId`.
-
-Stop restores the pre-Start VTODO status/progress from immutable Start history,
-normalizes any legacy paused marker off, closes optional Work history, and clears
-`currentWorkId`.
-
-Complete/Cancel commit their VTODO terminal state and clear `currentWorkId`.
-
-Work VEVENT is auxiliary history. A missing Work Calendar or Work-history failure is
-recorded in the receipt but must not make an otherwise verified Task transition fail.
-
-## Legacy migration
-
-`caldavAssistant.runtime` is read-only migration input. New actions never write it.
-Old pause/resume/switch-away audit records remain readable so historical timing and
-old sessions can be recovered safely.
-
-## Logging
-
-Every user-visible success/failure is sent to
-`AssistantStorage.persistResult()` before it is returned to the UI.
-
-```text
-Result -> persistent audit -> latest Result cache -> UI
-```
-
-If persistent audit fails, the returned result exposes `logSaved=false`.
-
-## Tools / connection tests
-
-Calendar quick test reads Calendars and existing VTODOs.
-
-Calendar full write test is self-contained and does not depend on Workflow Executor:
-
-```text
-temporary TEST VEVENT -> read -> update -> read -> delete -> verify absence
-```
-
-It never creates a VTODO.
-
-WordPress full test:
-
-```text
-temporary Draft -> read -> update -> media -> read -> delete media -> delete post
-```
-
-## WordPress
-
-Record appends explicit entries to the daily WordPress post. Closing a Work-history
-segment may append an idempotent time-range record. WordPress failure is queued in
-the Outbox and never rolls back a committed Task action.
+Work VEVENT is auxiliary history. WordPress and Work VEVENT failures do not become
+Task truth.
 
 ## Top-level UI
 
-Six ordinary pages:
+Exactly:
 
 ```text
 Work | Today | Record | Logs | WordPress | Tools
 ```
-
-Supporting files are implementation details, not extra workflows.
