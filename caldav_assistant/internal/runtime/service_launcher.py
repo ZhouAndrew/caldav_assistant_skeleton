@@ -1,6 +1,7 @@
 """On-demand background service launcher used by RuntimeClient."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 import os
@@ -24,19 +25,49 @@ class ServiceLauncher:
         self.python = python or sys.executable
         self._popen = popen
         self.state_dir = runtime_state_dir(state_dir)
+        self._last_log_path: Path | None = None
+
+    @property
+    def log_dir(self) -> Path:
+        return self.state_dir / "logs"
 
     @property
     def log_path(self) -> Path:
-        return self.state_dir / "service.log"
+        """Return the most recently allocated launch log.
+
+        Before the first launch, retain the historical service.log location as a
+        compatibility fallback for internal callers that only inspect the path.
+        New launches never write that shared file.
+        """
+        return self._last_log_path or (self.state_dir / "service.log")
 
     def _open_log(self):
-        flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND
-        fd = os.open(self.log_path, flags, 0o600)
+        self.log_dir.mkdir(parents=True, exist_ok=True)
         try:
-            os.chmod(self.log_path, 0o600)
+            self.log_dir.chmod(0o700)
         except OSError:
             pass
-        return os.fdopen(fd, "ab", buffering=0)
+
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+        stem = f"service-{stamp}-p{os.getpid()}"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+
+        for collision in range(1000):
+            suffix = "" if collision == 0 else f"-{collision}"
+            path = self.log_dir / f"{stem}{suffix}.log"
+            try:
+                fd = os.open(path, flags, 0o600)
+            except FileExistsError:
+                continue
+
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
+            self._last_log_path = path
+            return os.fdopen(fd, "wb", buffering=0)
+
+        raise RuntimeError("Unable to allocate a unique background-service log file")
 
     def start(self) -> Any:
         command = [self.python, "-m", PRODUCTION_SERVICE_MODULE]
