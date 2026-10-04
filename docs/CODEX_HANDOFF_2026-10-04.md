@@ -1,5 +1,25 @@
 # Chat → Codex Handoff — CalDAV Assistant Thunderbird
 
+
+## 0. MULTI-LINE CONSTRUCTION RULE — HARD CONSTRAINT
+
+This project is being developed on multiple concurrent, independent construction lines.
+
+Treat each active development branch/PR as an independent implementation line unless the user explicitly orders an integration.
+
+For this Codex handoff:
+- Work only on PR #100 / `refactor/thunderbird-cleanroom-vtodo-agent2-20261003`.
+- Do not treat other ChatGPT/Codex branches as upstream or downstream of this line.
+- Do not cherry-pick, copy, merge, rebase onto, or otherwise import implementation work from another active construction line unless the user explicitly instructs it.
+- Do not overwrite, “reconcile”, or normalize another line’s design into this one.
+- Shared repository `main` is only the stable common baseline.
+- Similar requirements or similar code in another line do not imply permission to combine them.
+- When reporting progress, report this line independently from other lines.
+- When testing, failures or success on another line do not count as evidence for this line.
+- When this line is ready, its merge/release decision must be made independently.
+
+If another line touches the same product area, treat that as parallel experimentation, not as a conflict to resolve automatically.
+
 Date: 2026-10-04
 Repository: ZhouAndrew/caldav_assistant_skeleton
 
