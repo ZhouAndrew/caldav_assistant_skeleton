@@ -74,6 +74,17 @@ assert(
   "Auto 403 should be eligible for local WP-CLI fallback"
 );
 
+const endpoint404 = classifyRestFailure({
+  message: "route not found",
+  status: 404,
+  code: "rest_no_route",
+});
+assert(endpoint404.kind === "endpoint", "404 classification is wrong");
+assert(
+  !shouldFallbackToWpCli(config(), "application-password", endpoint404),
+  "404 must remain visible instead of hiding REST configuration errors"
+);
+
 const badRequest = classifyRestFailure({
   message: "invalid payload",
   status: 400,
