@@ -1,58 +1,37 @@
 {
   "manifest_version": 2,
-  "name": "CalDAV Assistant Experimental",
-  "description": "Thunderbird-native Task selection and filtering with Start/Stop/Complete/Cancel, recurring-safe currentWorkId, visible WordPress settings, detailed connection traces, and verified daily Work Session logging.",
-  "version": "0.3.16",
-  "author": "ZhouAndrew",
-  "background": {
-    "scripts": [
-      "core/storage.js",
-      "core/wordpress.js",
-      "core/daily-log.js",
-      "background.js"
-    ]
-  },
+  "name": "CalDAV Assistant · Functional Rebuild",
+  "version": "0.4.0",
+  "description": "Independent clean-room candidate; real acceptance required before release.",
   "browser_specific_settings": {
     "gecko": {
       "id": "ZhouAndrew.thunderbird-taskfix-lab@addons.thunderbird.net",
-      "strict_min_version": "153.0.2",
-      "strict_max_version": "153.1.*"
-    }
-  },
-  "experiment_apis": {
-    "TaskFix": {
-      "schema": "api/TaskFix/schema.json",
-      "parent": {
-        "scopes": [
-          "addon_parent"
-        ],
-        "paths": [
-          [
-            "TaskFix"
-          ]
-        ],
-        "script": "api/TaskFix/implementation.js",
-        "events": [
-          "startup"
-        ]
-      }
-    },
-    "ThunderbirdCalDAV": {
-      "schema": "api/ThunderbirdCalDAV/schema.json",
-      "parent": {
-        "scopes": [
-          "addon_parent"
-        ],
-        "paths": [
-          [
-            "ThunderbirdCalDAV"
-          ]
-        ],
-        "script": "api/ThunderbirdCalDAV/implementation.js"
-      }
+      "strict_min_version": "140.0"
     }
   },
   "permissions": [
-    "storage"
-  ]
+    "storage",
+    "tabs",
+    "<all_urls>",
+    "alarms"
+  ],
+  "background": {
+    "page": "background.html"
+  },
+  "experiment_apis": {
+    "assistantNative": {
+      "schema": "api/schema.json",
+      "parent": {
+        "scopes": [
+          "addon_parent"
+        ],
+        "paths": [
+          [
+            "assistantNative"
+          ]
+        ],
+        "script": "api/implementation.js"
+      }
+    }
+  }
 }

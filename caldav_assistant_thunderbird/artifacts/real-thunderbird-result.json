@@ -1,0 +1,23 @@
+{
+  "thunderbird": "153.1.0",
+  "addon": "ZhouAndrew.thunderbird-taskfix-lab@addons.thunderbird.net",
+  "provider": "real Thunderbird CalDAV + Radicale",
+  "clicks": "Marionette drives real production DOM HTMLElement.click and event handlers (equivalent click automation)",
+  "checks": [
+    "start",
+    "real process restart preserves active task",
+    "filtered current hidden",
+    "other current blocks start",
+    "stop restores 35%",
+    "Description preserved",
+    "complete 100% with COMPLETED date",
+    "cancel",
+    "recurring occurrence isolation",
+    "Logs/Today zero storage mutations",
+    "actual workflow → durable Outbox during CLI failure → real native WP-CLI retry",
+    "independent HTTP VTODO read-back",
+    "real native VTODO + extension storage one-time legacy migration"
+  ],
+  "passed": true,
+  "xpiSha256": "29c4336365e7d5356dfde695eae0a9930213ac799b96c950aa6499493214a4dc"
+}
