@@ -1,0 +1,22 @@
+name: Codex Thunderbird XPI
+on:
+  push:
+    paths: ['caldav_assistant_thunderbird_codex/**']
+  pull_request:
+    paths: ['caldav_assistant_thunderbird_codex/**']
+jobs:
+  build-xpi:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: caldav_assistant_thunderbird_codex } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm, cache-dependency-path: caldav_assistant_thunderbird_codex/package-lock.json }
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build:xpi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: caldav-assistant-thunderbird-codex-xpi
+          path: caldav_assistant_thunderbird_codex/dist/*.xpi
