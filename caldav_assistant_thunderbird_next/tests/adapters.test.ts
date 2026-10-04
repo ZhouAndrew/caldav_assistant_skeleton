@@ -123,7 +123,12 @@ class FakeNativeTasks implements NativeTasksApi {
     calendarId: string,
     uid: string,
     recurrenceId: string,
-    patch: TaskPatch
+    patch: TaskPatch,
+    _expected: {
+      readonly description: string;
+      readonly status: NativeTaskView["status"];
+      readonly percentComplete: number;
+    }
   ): Promise<NativeTaskView> {
     this.updateCalls.push({
       args: [calendarId, uid, recurrenceId],
@@ -192,7 +197,11 @@ async function testThunderbirdRepositoryIdentity(): Promise<void> {
     status: "IN-PROCESS",
     percentComplete: 40,
   };
-  await repo.update(taskId, patch);
+  await repo.update(taskId, patch, {
+    description: task?.description ?? "",
+    status: task?.status ?? "NEEDS-ACTION",
+    percentComplete: task?.percentComplete ?? 0,
+  });
   assert(api.updateCalls.length === 1, "repository did not issue update");
   assert(
     JSON.stringify(api.updateCalls[0]?.args) ===
