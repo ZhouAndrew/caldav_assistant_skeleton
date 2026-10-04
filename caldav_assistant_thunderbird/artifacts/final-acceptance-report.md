@@ -28,7 +28,7 @@ Audited the latest production XPI source on 2026-10-04.
 | Process restart and VTODO persistence | PASS | `real-thunderbird-result.json` |
 | Recurring occurrence isolation | PASS | `real-thunderbird-result.json` |
 | One-time migration against native VTODO and extension storage | PASS | `real-thunderbird-result.json` |
-| WordPress REST/WP-CLI native E2E | BLOCKED_BY_RUNNER_ENVIRONMENT | Runner initially lacked PHP; static PHP CLI supplied PHP 8.4.12 with sqlite3 but no `pdo_sqlite`, so official WordPress SQLite setup stops before install. `apt-get` cannot change privileges in the managed runner. No mock is counted as PASS. |
+| WordPress REST/WP-CLI/Outbox native E2E | PASS | GitHub Actions run `37188903196`, job `WordPress native REST/WP-CLI/Outbox E2E` (`111396729781`): PHP 8.4 + `pdo_sqlite,sqlite3,curl,mbstring`, PDO gate, official WordPress SQLite fixture, real REST/WP-CLI/Outbox/retry/dedup; artifact `actual-wordpress-e2e-evidence` (`11297323502`). |
 
 ## Final artifact
 
@@ -48,9 +48,9 @@ The formal E2E definition is packaged XPI -> real Thunderbird -> real page click
 
 The reproducible baseline is final commit `fa4f67639cbbe26ab9f0806b30965805ecab8ec9`, Thunderbird 153.1.0, and `CalDAV-Assistant-cleanroom-0.4.0-candidate.xpi` with SHA-256 `29c4336365e7d5356dfde695eae0a9930213ac799b96c950aa6499493214a4dc`. The tested XPI must be the same artifact intended for release; it must not be rebuilt from different source after acceptance.
 
-WordPress remains `BLOCKED_BY_RUNNER_ENVIRONMENT`, not PASS and not a product-code failure. The runner's static PHP has `sqlite3` but no `pdo_sqlite`; system apt cannot install the missing driver because the managed runner rejects privilege changes. The blocker is removed only by providing a PHP CLI with `pdo_sqlite` and rerunning the existing WordPress acceptance unchanged. No Thunderbird architecture change or lower test standard is acceptable.
+WordPress native E2E is now PASS on GitHub Actions. Run `37188903196` executed the unchanged acceptance with `shivammathur/setup-php@v2` PHP 8.4 and `pdo_sqlite,sqlite3,curl,mbstring`; the `new PDO("sqlite::memory:")` gate passed, official WordPress + SQLite was provisioned, and real REST/WP-CLI/Outbox/retry/dedup evidence was uploaded as artifact `11297323502`. The earlier managed-runner `BLOCKED_BY_RUNNER_ENVIRONMENT` result remains historical evidence only and is not counted as this PASS. No Thunderbird architecture change or lower test standard was used.
 
-The repository now contains a dedicated GitHub Actions job, `actual-wordpress-native-e2e`, using `shivammathur/setup-php@v2` with PHP 8.4 and `pdo_sqlite,sqlite3,curl,mbstring`. Its first command is the hard gate `php -r 'new PDO("sqlite::memory:");'`; only after that succeeds does it provision official WordPress + SQLite and run the existing real REST/WP-CLI/Outbox/retry acceptance. The job uploads its JSON/log evidence. The local runner's static PHP was tested and failed this gate because it lacks `pdo_sqlite`; that failure remains BLOCKED, not PASS.
+The repository contains the dedicated GitHub Actions job `actual-wordpress-native-e2e`, and it completed PASS on run `37188903196` at PR head `775e5a989bff3d354f52a394dd814052391727d4`. The job uploads JSON/log evidence as artifact `actual-wordpress-e2e-evidence` (`11297323502`, SHA-256 digest `7b7c5c4a81b5d7657bed2d442e4f71c0e4b0c134645a53384d23ef86e7402189`).
 
 The XPI, acceptance report, patch, and bundle should be preserved as durable GitHub artifacts or release assets before publication. `/tmp/*.bundle` and `/tmp/*.patch` are temporary recovery copies only.
 
