@@ -1,4 +1,4 @@
-# CalDAV Assistant Thunderbird Plugin — Frozen Implementation & Framework Contract v1.0
+# CalDAV Assistant Thunderbird Plugin — Frozen Implementation & Framework Contract v1.1
 
 > **Status: FROZEN**
 >
@@ -6,91 +6,114 @@
 >
 > Scope: canonical `caldav_assistant_thunderbird` add-on.
 >
-> This freezes the compatibility-sensitive variables, implementation sequence and
-> framework. Refactors may improve internals only when these contracts remain true.
-> Changing them requires an explicit new frozen-contract version.
+> v1.1 supersedes v1.0. It removes the Task Picker and freezes the implementation
+> style as functional.
 
 ## 1. Frozen framework
 
-The canonical add-on framework is:
+The canonical framework is:
 
 ```text
-Thunderbird XPI
-  -> Thunderbird-native HTML/CSS/JavaScript UI
-  -> pure workflow planning (core/action-plan.js)
-  -> imperative workflow executor (core/executor.js)
-  -> Thunderbird Experiment APIs
+Thunderbird XPI / Space
+  -> Thunderbird-native HTML/CSS/JavaScript
+  -> functional UI state transforms
+  -> pure domain/workflow functions
+  -> explicit effect descriptions / effect runners
+  -> thin Thunderbird Experiment API adapters
        -> Thunderbird Calendar/CalDAV provider
-  -> browser.storage.local for Assistant auxiliary state
-  -> WordPress adapter/outbox for long-form records
+  -> thin storage adapter
+       -> browser.storage.local
+  -> thin WordPress adapter/outbox
 ```
 
-These framework decisions are frozen:
+Frozen framework rules:
 
-- The add-on runs inside Thunderbird as an XPI/Space, not Electron and not a
-  separate desktop application.
-- The canonical runtime uses Thunderbird-native APIs and Experiment APIs.
-- No Native Messaging/native-host layer is required for the canonical Task
-  lifecycle.
-- UI runtime stays lightweight: ordinary HTML/CSS/JavaScript; no React/Vue/Electron
-  framework is required or introduced into the core path.
-- Workflow decision logic remains separated from side effects:
-  `action-plan.js` is pure and does not call `browser.*`;
-  `executor.js` performs Thunderbird/CalDAV/storage/WordPress effects.
-- Thunderbird/CalDAV remains the Task/Event source of truth.
-- `browser.storage.local` stores Assistant auxiliary state only; it must never
-  become a second Task database.
-- WordPress remains a separate long-form/daily-record path and must never become
-  Task workflow truth.
-- The top-level Assistant product surfaces remain:
+- Runs inside Thunderbird as an XPI/Space.
+- No Electron, React, Vue or separate desktop runtime in the core path.
+- No Native Messaging/native-host dependency for the canonical Task lifecycle.
+- Thunderbird/CalDAV is Task/Event truth.
+- `browser.storage.local` is auxiliary state only.
+- WordPress is long-form/daily-record storage only.
+- Top-level product surfaces are exactly:
   `Work | Today | Record | Logs | WordPress | Tools`.
-- Task selection is a transient interaction. A fallback picker file may exist, but
-  it is not a seventh primary workspace.
+- There is no Task Picker, fallback picker, Assistant Task browser or Assistant
+  Task-selection page.
 
-## 2. Frozen persistent variables and identifiers
+## 2. Functional programming is frozen
 
-Only compatibility-sensitive persisted/cross-module variables are frozen here.
-Local temporary variable names inside a function are **not** frozen.
+The canonical implementation style is **functional throughout**.
 
-### 2.1 Authoritative Assistant work pointer
+Business/domain/workflow/UI-state code must be organized as functions over explicit
+inputs and outputs.
+
+Required:
+
+- pure functions for decisions, validation, mapping and state transitions;
+- immutable inputs and returned values;
+- reducer-style UI state transitions: `state + event -> nextState/effects`;
+- explicit data flow;
+- explicit effect values or thin effect-running functions at boundaries;
+- composition of small functions rather than stateful controller objects.
+
+Forbidden in core/business code:
+
+- classes as workflow/domain architecture;
+- mutable domain objects;
+- hidden singleton state machines;
+- methods whose correctness depends on implicit mutable object state;
+- duplicated imperative workflow branches in UI pages.
+
+Unavoidable side effects are allowed only in thin boundary adapters/runners:
+
+- DOM rendering/event hookup;
+- Thunderbird `browser.*` / Experiment API calls;
+- CalDAV reads/writes;
+- `browser.storage.local`;
+- WordPress I/O;
+- clock/UUID generation.
+
+Those boundaries must not contain workflow policy. They execute effects produced by
+functional code.
+
+`async` is allowed for effect execution. Asynchrony does not change the functional
+architecture requirement.
+
+## 3. Frozen persistent variables and identifiers
+
+Only compatibility-sensitive persisted/cross-module variables are frozen. Local
+temporary variable names are not.
+
+### 3.1 Current work pointer
 
 ```text
 caldavAssistant.currentWorkId
 ```
 
-- Meaning: the only Assistant-owned writable dynamic pointer to current work.
-- Value: `WorkTaskId | null`.
-- `null` means there is no current work Task.
-- It must not be replaced by a writable workflow state machine.
+- the only Assistant-owned writable dynamic current-work pointer;
+- value: `WorkTaskId | null`;
+- `null` means no current work.
 
-The v1 `WorkTaskId` identity is the tuple:
+`WorkTaskId` v1 identity:
 
 ```text
 calendarId + VTODO UID/id + recurrenceId
 ```
 
-The stored v1 encoding remains three URL-encoded components joined by `|`:
+Stored encoding:
 
 ```text
 encode(calendarId)|encode(id)|encode(recurrenceId)
 ```
 
-A future encoding change requires backward-compatible migration and a new frozen
-contract version.
-
-### 2.2 Legacy runtime
+### 3.2 Legacy runtime
 
 ```text
 caldavAssistant.runtime
 ```
 
-is frozen as **read-only legacy migration/history input**.
+is read-only migration/history input. New lifecycle code must never write it.
 
-New lifecycle code must never write a new runtime state machine into this key.
-
-### 2.3 Other stable storage keys
-
-The following keys and meanings are compatibility-sensitive:
+### 3.3 Stable storage keys
 
 ```text
 caldavAssistant.settings
@@ -103,12 +126,7 @@ caldavAssistant.wordpressOutbox
 
 `caldavAssistant.audit` is legacy migration input only.
 
-These keys may gain backward-compatible fields, but their existing meaning must not
-be silently repurposed.
-
-### 2.4 CalDAV extension properties
-
-The following persisted iCalendar properties are frozen where already used:
+### 3.4 CalDAV extension properties
 
 ```text
 X-CALDAV-ASSISTANT-TASK-UID
@@ -116,12 +134,11 @@ X-CALDAV-ASSISTANT-WORK-SESSION
 X-CALDAV-ASSISTANT-WORK-OPEN
 ```
 
-`X-CALDAV-ASSISTANT-PAUSED` is legacy compatibility state only. New lifecycle
-design must not reintroduce Pause as a primary action.
+`X-CALDAV-ASSISTANT-PAUSED` is legacy compatibility only.
 
-## 3. Frozen lifecycle action names
+## 4. Frozen lifecycle actions
 
-The new workflow action set is exactly:
+Exactly:
 
 ```text
 start
@@ -130,12 +147,22 @@ complete
 cancel
 ```
 
-User-facing equivalents are Start / Stop / Complete / Cancel.
+Pause, Resume and Switch Away may only be read for legacy migration/history.
 
-Pause, Resume and Switch Away may be read for legacy history/migration but may not
-return as new writable workflow actions.
+## 5. Frozen native-selection rule
 
-## 4. Frozen implementation sequence
+Task choice is not implemented by the Assistant.
+
+```text
+Thunderbird native selection
+-> exactly one Task?
+   -> yes: resolve it and operate
+   -> no: show guidance; no fallback picker
+```
+
+No Assistant Task list/search/filter/picker may be introduced.
+
+## 6. Frozen mutation sequence
 
 Authoritative mutations use:
 
@@ -143,113 +170,86 @@ Authoritative mutations use:
 write -> read back -> compare -> receipt
 ```
 
-A write is not user-visible success until the authoritative CalDAV object has been
-read back and checked.
-
 ### Start
 
-Frozen order:
-
 ```text
-resolve selected Task
+read exactly one Thunderbird-native selected Task
 -> require currentWorkId == null
--> update VTODO to IN-PROCESS
--> read back and verify VTODO
--> optionally create/read-back Work VEVENT history
--> publish caldavAssistant.currentWorkId
+-> pure planStart(...)
+-> write VTODO IN-PROCESS
+-> read back and verify
+-> best-effort Work VEVENT history
+-> write currentWorkId
 -> persist receipt/audit
--> show result
+-> render result
 ```
-
-The optional Work VEVENT must not become workflow truth.
 
 ### Stop
 
-Frozen behavior:
-
 ```text
-identify current Task by currentWorkId
--> reconstruct immutable pre-Start Task state from audit/history
--> restore VTODO state
--> read back and verify VTODO
--> best-effort close Work VEVENT history
+resolve current Task from currentWorkId
+-> pure planStop(...)
+-> reconstruct immutable pre-Start state
+-> restore VTODO
+-> read back and verify
+-> best-effort close Work VEVENT
 -> clear currentWorkId
 -> persist receipt/audit
--> show result
+-> render result
 ```
-
-Stop restores the pre-Start Task status/progress; it is not Pause.
 
 ### Complete
 
-Frozen behavior:
-
 ```text
-identify current Task
--> write STATUS:COMPLETED / percent complete
+resolve current Task
+-> pure planComplete(...)
+-> write COMPLETED / 100%
 -> read back and verify
--> best-effort close Work VEVENT history
+-> best-effort close Work VEVENT
 -> clear currentWorkId
 -> persist receipt/audit
--> show result
+-> render result
 ```
 
 ### Cancel
 
-Frozen behavior:
-
 ```text
-identify current Task
--> write STATUS:CANCELLED
+resolve current Task
+-> pure planCancel(...)
+-> write CANCELLED
 -> read back and verify
--> best-effort close Work VEVENT history
+-> best-effort close Work VEVENT
 -> clear currentWorkId
 -> persist receipt/audit
--> show result
+-> render result
 ```
 
-## 5. Frozen Task-selection implementation boundary
+## 7. Error/history rules
 
-Selection order is frozen:
-
-```text
-Thunderbird native selected Task
--> use directly when unambiguous and usable
--> otherwise transient fallback choose_task / Task Picker
--> return to Work
-```
-
-The Assistant must not require the user to re-select a Task already selected in
-Thunderbird.
-
-The fallback picker may reuse Thunderbird-native filters, Calendar visibility and
-search. It must not persist a separate Assistant Task catalog.
-
-## 6. Frozen error and history behavior
-
-- CalDAV/VTODO verification failure means the Task action is not reported as
-  successful.
-- Work VEVENT history failure is recorded but does not roll back an otherwise
-  verified VTODO transition.
-- WordPress failure is queued/reported and does not roll back a verified Task
-  transition.
-- Workflow results are persisted to audit before normal UI success display where
-  the current implementation provides this contract.
+- Failed authoritative VTODO verification is not success.
+- Work VEVENT history failure does not roll back a verified VTODO transition.
+- WordPress failure does not roll back a verified Task transition.
 - Legacy data is migrated/read, not silently destroyed.
+- Normal user-visible result follows persisted receipt/audit.
 
-## 7. What may still change
+## 8. What may change
 
-Without changing this frozen contract, implementation may change:
+Allowed without a new contract version:
 
-- CSS/layout details;
+- CSS details;
 - helper/local variable names;
-- internal function decomposition;
-- performance optimizations;
-- test organization;
-- Thunderbird API compatibility shims;
-- additional diagnostic fields;
+- pure-function decomposition;
+- performance improvements;
+- tests;
+- Thunderbird compatibility shims;
 - backward-compatible receipt/audit fields.
 
-It may **not** change the persisted variable meanings, lifecycle action set,
-authoritative write sequence, framework boundary, source-of-truth model, or
-Task-selection role without a new explicitly approved frozen version.
+Not allowed without explicit approval:
+
+- changing persistent-variable meanings;
+- adding a Task Picker;
+- changing the four lifecycle actions;
+- abandoning functional architecture;
+- moving workflow policy into side-effect adapters;
+- changing the source-of-truth model;
+- changing the authoritative write/read-back sequence.
