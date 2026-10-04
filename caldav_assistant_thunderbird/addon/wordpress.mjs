@@ -32,7 +32,11 @@ export function createWordPress(fetcher,wpCli) {
       // Stable slug provides read-before-create retry deduplication.
       if (operation === 'createLog') {
         const previous = await requestFetch(`${url}posts?slug=${encodeURIComponent(`caldav-session-${payload.id}`)}&status[]=draft&status[]=publish&status[]=pending&status[]=private&status[]=future&context=edit`,{headers});
-        if (!previous.ok) {const error=new Error(`WordPress ${previous.status}`); error.status=previous.status; throw error;}
+        // A restricted account may receive 400 while asking for edit-context
+        // posts/statuses it cannot list. Continue to the real create request so
+        // WordPress returns the authoritative permission response (401/403),
+        // which the transport policy can classify and fall back from.
+        if (!previous.ok && previous.status !== 400) {const error=new Error(`WordPress ${previous.status}`); error.status=previous.status; throw error;}
         const matches=await previous.json(); if (matches.length) return matches[0];
       }
       response = await requestFetch(`${url}${operation === 'test' ? 'users/me' : 'posts'}`,request);
