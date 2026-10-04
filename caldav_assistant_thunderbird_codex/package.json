@@ -1,0 +1,7 @@
+{
+  "name": "caldav-assistant-thunderbird-codex",
+  "private": true,
+  "type": "module",
+  "scripts": {"test": "node --test", "typecheck": "tsc --noEmit"},
+  "devDependencies": {"@types/node": "^22.0.0", "typescript": "^5.6.0"}
+}
