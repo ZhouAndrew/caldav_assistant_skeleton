@@ -19,6 +19,40 @@ def test_launcher_uses_current_python_module_entry_without_shell(tmp_path):
     assert kwargs["close_fds"] is True
 
 
+def test_launcher_uses_a_new_log_file_for_each_service_start(tmp_path):
+    launches = 0
+
+    class Process:
+        pid = 123
+
+    def popen(command, **kwargs):
+        nonlocal launches
+        launches += 1
+        kwargs["stdout"].write(f"launch-{launches}\n".encode())
+        return Process()
+
+    runtime_dir = tmp_path / "runtime"
+    launcher = ServiceLauncher(
+        python="/example/python",
+        popen=popen,
+        state_dir=runtime_dir,
+    )
+
+    launcher.start()
+    first = launcher.log_path
+    launcher.start()
+    second = launcher.log_path
+
+    assert first != second
+    assert first.parent == runtime_dir / "logs"
+    assert second.parent == runtime_dir / "logs"
+    assert first.name.startswith("service-")
+    assert second.name.startswith("service-")
+    assert first.read_text() == "launch-1\n"
+    assert second.read_text() == "launch-2\n"
+    assert not (runtime_dir / "service.log").exists()
+
+
 def test_launcher_runtime_log_is_private_on_posix(tmp_path):
     import os
     import stat
@@ -36,6 +70,7 @@ def test_launcher_runtime_log_is_private_on_posix(tmp_path):
         state_dir=tmp_path / "runtime",
     )
     launcher.start()
+    assert stat.S_IMODE(launcher.log_dir.stat().st_mode) & 0o077 == 0
     assert stat.S_IMODE(launcher.log_path.stat().st_mode) & 0o077 == 0
 
 
