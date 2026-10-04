@@ -112,7 +112,6 @@ export function shouldFallbackToWpCli(
     "tls",
     "authentication",
     "authorization",
-    "endpoint",
     "server",
   ].includes(failure.kind);
 }
