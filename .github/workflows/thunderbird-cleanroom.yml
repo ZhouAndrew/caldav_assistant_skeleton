@@ -1,0 +1,72 @@
+name: Thunderbird clean-room native acceptance
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['caldav_assistant_thunderbird/**','.github/workflows/thunderbird-cleanroom.yml']
+  push:
+    branches: ['rebuild/functional-vtodo-cleanroom']
+jobs:
+  actual-native-flow:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '24'}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: sudo apt-get update -qq && sudo apt-get install -y php-cli php-sqlite3 libgtk-3-0 libdbus-glib-1-2
+      - run: python -m pip install radicale==3.8.1 marionette_driver==3.7.1 requests
+      - run: python caldav_assistant_thunderbird/tests/prepare_fixtures.py
+      - run: python caldav_assistant_thunderbird/tests/run_acceptance.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: actual-native-test-evidence
+          path: |
+            caldav_assistant_thunderbird/artifacts/*.json
+            caldav_assistant_thunderbird/artifacts/*.ics
+            caldav_assistant_thunderbird/artifacts/*.xpi
+            caldav_assistant_thunderbird/artifacts/*.log
+
+  actual-wordpress-native-e2e:
+    name: WordPress native REST/WP-CLI/Outbox E2E
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '24'}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Install PHP with required SQLite PDO driver
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_sqlite,sqlite3,curl,mbstring
+          tools: composer
+      - name: PHP capability gate
+        run: php -r 'new PDO("sqlite::memory:"); echo "pdo_sqlite=PASS\n";'
+      - name: Install acceptance dependencies
+        run: python -m pip install radicale==3.8.1 marionette_driver==3.7.1 requests
+      - name: Provision official WordPress SQLite fixture
+        run: python caldav_assistant_thunderbird/tests/prepare_fixtures.py
+      - name: Run real WordPress REST/WP-CLI/Outbox acceptance
+        run: |
+          set -euo pipefail
+          source <(python - <<'PY'
+          import json
+          from pathlib import Path
+          for key, value in json.loads(Path('caldav_assistant_thunderbird/artifacts/fixture-env.json').read_text()).items():
+              print(f'export {key}={value!r}')
+          PY
+          )
+          python caldav_assistant_thunderbird/tests/run_wordpress.py
+      - name: Upload WordPress E2E evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: actual-wordpress-e2e-evidence
+          path: |
+            caldav_assistant_thunderbird/artifacts/*.json
+            caldav_assistant_thunderbird/artifacts/*.log

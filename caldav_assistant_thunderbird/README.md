@@ -1,58 +1,97 @@
-# caldav_assistant_thunderbird
+# CalDAV Assistant: functional Thunderbird rebuild
 
-Canonical Thunderbird add-on for CalDAV Assistant.
+This is a from-zero replacement for the previous Thunderbird add-on, based on
+`FUNCTIONAL_VTODO_REFACTOR.md` and Thunderbird's own Calendar APIs. The original
+add-on implementation, helpers, typed legacy state machine and its tests were
+removed from this branch. None of those modules is imported by the replacement.
 
-## Current canonical version
+## Install the candidate
 
-**0.3.16**
+In Thunderbird, open Add-ons Manager → the gear menu → Install Add-on From File,
+and select `artifacts/CalDAV-Assistant-cleanroom-0.4.0-candidate.xpi`.
+The add-on identity remains `ZhouAndrew.thunderbird-taskfix-lab@addons.thunderbird.net`
+so upgrading replaces the previous implementation and retains extension storage.
+Choose CalDAV Assistant in the Spaces toolbar. Task selection only opens a task;
+Start/Stop/Complete/Cancel live on the selected task page.
 
-0.3.16 is the reduced-lifecycle release candidate built from PR #98. It keeps
-Thunderbird/CalDAV as the Task/Event source of truth and limits Assistant-owned
-authoritative dynamic work state to `currentWorkId`.
+WordPress settings have normal form fields. Records are saved as drafts. When
+WordPress is enabled, closed work periods are durably queued before sending.
+WordPress delivery, including connection/full-write tests, cannot lock Task
+commands. Pending records are retried at startup, every five minutes and through
+an explicit retry button. Auto uses REST first and can fall back to configured
+WP-CLI on network/401/403 errors. Explicit REST never falls back.
 
-The previous canonical baseline was 0.3.15, migrated from the formerly separate
-`ZhouAndrew/thunderbird-taskfix` development line. The legacy
-`integrations/thunderbird/manifest.json` 0.1.x Native Host line is not the current
-Thunderbird add-on.
+## Implementation boundary
 
-## 0.3.16 workflow
+- `domain.mjs`: pure Description parser/serializer, transitions, view models and transport policy.
+- `views.mjs`: pure page functions returning view descriptors.
+- `page.mjs`: route/query/render and explicit user command effects.
+- `services.mjs`: one Task command queue; VTODO write/read-back; pointer commit;
+  durable pending-write receipt and independent WordPress delivery queue.
+- `native-calendar.mjs`: Thunderbird Calendar provider reads and revision-checked
+  writes, including recurrence exceptions. No second CalDAV client.
+- `native-wordpress.mjs`: native Subprocess calls to WP-CLI with argument arrays;
+  no shell command construction.
+- `store.mjs`: pointer, settings, diagnostics, Outbox and transient write receipts;
+  serialized Outbox updates protect concurrent append and delivery.
+- `migration.mjs`: isolated once-only persisted-data conversion. Missing legacy
+  evidence stops migration visibly; it never invents a Start baseline. User
+  Description and queued records are retained. After verification, old runtime
+  and audit storage are removed; historical receipts become diagnostic history.
 
-New workflow actions:
+There is no Work VEVENT creation, Pause/Resume/Switch Away, audit-derived work
+state, legacy runtime module, Native Host, Python bridge or task-state database.
+Generic Task/Event functionality in the wider Python project is unchanged.
+Recurring tasks are presented as occurrences in a default window of 30 past and
+90 future days; stored exceptions remain discoverable outside that window.
 
-```text
-Start -> Stop | Complete | Cancel
-```
+## Real acceptance
 
-Pause, Resume and Switch Away are no longer exposed as new workflow actions.
+The tests use disposable profiles and disposable servers. Fixture tasks model
+Unicode/multiline descriptions, existing 35% progress, date-only due fields and
+recurrence; they are not an export of the user's private data.
 
-Stop restores the immutable pre-Start VTODO status/progress, normalizes any legacy
-paused marker off, closes auxiliary Work history when possible, and clears
-`currentWorkId`.
+`tests/real_thunderbird.py` installs the actual packaged XPI in Thunderbird
+153.1.0esr, drives real production DOM click events using Marionette and test-only
+JSWindowActors, and uses a real Radicale server. It independently reads the
+resulting VTODOs over HTTP. It also checks a genuine application restart,
+occurrence isolation, read-only pages, WordPress failure/Outbox retry through
+Thunderbird's actual native WP-CLI adapter, and one-time migration against native
+VTODOs and actual extension storage. Test actors are not in the production XPI.
 
-Old 0.3.15 runtime/audit data remains readable for migration and historical timing,
-but the new workflow never writes the legacy runtime state machine.
+`tests/wordpress-real.mjs` exercises actual local WordPress with its official
+SQLite integration, actual REST responses, and actual WP-CLI processes. It
+checks draft/media CRUD and cleanup, authentication and permission failures,
+strict/automatic transports, durable offline records and retry deduplication.
 
-## Architecture
-
-The add-on uses Thunderbird-native Calendar/Tasks APIs and Thunderbird's existing
-CalDAV provider connection. The legacy Native Host / Python bridge is not the normal
-Task interaction path.
-
-Work VEVENT is auxiliary history, not workflow truth. WordPress is long-form/daily
-logging, not Task state.
-
-## Build
+For a Linux test machine with Node 24, Python 3.12 and PHP with sqlite3/pdo_sqlite:
 
 ```bash
-cd caldav_assistant_thunderbird
-chmod +x packaging/build-xpi.sh
-packaging/build-xpi.sh dist/caldav-assistant-experimental-0.3.16.xpi
-python3 tests/check-xpi.py dist/caldav-assistant-experimental-0.3.16.xpi
+python -m pip install radicale==3.8.1 marionette_driver==3.7.1 requests
+python caldav_assistant_thunderbird/tests/prepare_fixtures.py
+python caldav_assistant_thunderbird/tests/run_acceptance.py
 ```
 
-## Release gate
+Pure/injected-failure tests and packaging alone:
 
-A release is not complete merely because the XPI builds. The exact 0.3.16 head must
-pass syntax/typed/behavior harnesses, XPI contract checks, real Thunderbird +
-Radicale (including same-profile restart), real Thunderbird + WordPress, connection
-diagnostics and the interactive Start/Stop/Complete/Cancel human path.
+```bash
+node --test caldav_assistant_thunderbird/tests/*.test.mjs
+python caldav_assistant_thunderbird/tools/package.py
+```
+
+Evidence is in `artifacts/real-thunderbird-result.json`,
+`artifacts/real-wordpress-result.json` and `artifacts/*-readback.ics`.
+The Thunderbird receipt contains the SHA-256 of the exact tested XPI.
+
+## Implementation provenance
+
+The only implementation references were Thunderbird source and its tests:
+`CalTodo.sys.mjs`, `calICalendar.idl`, `calIRecurrenceInfo.idl`,
+`calDateTimeUtils.sys.mjs`, `browser_ext_spaces.js`, Thunderbird's Subprocess
+usage and the native Subprocess reader contract. The UTC completion conversion
+was verified on a host with a non-UTC timezone. Old metadata was inspected only
+for add-on identity and the isolated migration's persisted keys/record shapes.
+
+This is a reviewable candidate on an independent branch. It does not claim
+installation or acceptance on the user's actual profile/server, and no existing
+user Task/Event data was deleted during testing.

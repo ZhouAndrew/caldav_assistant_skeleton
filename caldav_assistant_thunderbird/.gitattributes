@@ -1,0 +1,2 @@
+# Preserve exact server iCalendar bytes, folding, spaces and CRLF in evidence.
+artifacts/*.ics binary

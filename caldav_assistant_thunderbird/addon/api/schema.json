@@ -1,0 +1,71 @@
+[
+  {
+    "namespace": "assistantNative",
+    "functions": [
+      {
+        "name": "get",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {
+            "name": "id",
+            "type": "string"
+          }
+        ]
+      },
+      {
+        "name": "list",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {
+            "name": "settings",
+            "type": "object",
+            "additionalProperties": true
+          }
+        ]
+      },
+      {
+        "name": "write",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {
+            "name": "id",
+            "type": "string"
+          },
+          {
+            "name": "patch",
+            "type": "object",
+            "additionalProperties": true
+          },
+          {
+            "name": "revision",
+            "type": "string"
+          }
+        ]
+      },
+      {
+        "name": "wpCli",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {
+            "name": "operation",
+            "type": "string"
+          },
+          {
+            "name": "payload",
+            "type": "object",
+            "additionalProperties": true
+          },
+          {
+            "name": "config",
+            "type": "object",
+            "additionalProperties": true
+          }
+        ]
+      }
+    ]
+  }
+]

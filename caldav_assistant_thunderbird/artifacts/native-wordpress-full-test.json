@@ -1,0 +1,11 @@
+{
+  "transport": "wp-cli",
+  "checks": [
+    "create draft",
+    "read draft",
+    "update/readback",
+    "upload/read media",
+    "delete media",
+    "delete draft"
+  ]
+}

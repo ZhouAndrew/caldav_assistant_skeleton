@@ -1,0 +1,10 @@
+import { mkdir, cp, readdir, rm } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+const root = new URL('..', import.meta.url).pathname; const dist = join(root, 'dist');
+await rm(dist, {recursive:true, force:true}); await mkdir(dist, {recursive:true});
+const out = join(dist, 'caldav-assistant-thunderbird-codex-0.1.0.xpi');
+const files = (await readdir(join(root,'addon'))).sort();
+const result = spawnSync('zip', ['-X','-q',out,...files], {cwd:join(root,'addon'),stdio:'inherit'}); if (result.status) process.exit(result.status);
+const hash = createHash('sha256').update(await (await import('node:fs/promises')).readFile(out)).digest('hex'); console.log(`${out}\nsha256 ${hash}`);

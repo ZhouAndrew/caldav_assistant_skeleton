@@ -1,0 +1,23 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Mozilla.org/NONSGML Mozilla Calendar V1.1//EN
+BEGIN:VTODO
+COMPLETED:20261004T070705Z
+DESCRIPTION:原来的描述\n保留中文、链接 https://andrew.local/ 
+ 和空格  \n\n[CALDAV-ASSISTANT-WORKLOG v1]\n{"sessions":[{"id":"d4672899
+ -8ad0-46b0-8af9-b7d11213d409"\,"start":"2026-10-04T07:07:01.000Z"\,"end":"
+ 2026-10-04T07:07:04.000Z"\,"result":"stop"\,"before":{"status":"NEEDS-ACTI
+ ON"\,"percentComplete":35}}\,{"id":"fecf3906-dc8c-4f35-a153-a8a9db0d13c1"\
+ ,"start":"2026-10-04T07:07:05.000Z"\,"end":"2026-10-04T07:07:05.000Z"\,"re
+ sult":"complete"\,"before":{"status":"NEEDS-ACTION"\,"percentComplete":35}
+ }]}\n[/CALDAV-ASSISTANT-WORKLOG]
+DTSTAMP:20261004T070705Z
+DUE;VALUE=DATE:20261004
+LAST-MODIFIED:20261004T070705Z
+PERCENT-COMPLETE:100
+STATUS:COMPLETED
+SUMMARY:英语：1 套卷子
+UID:english
+X-MOZ-GENERATION:4
+END:VTODO
+END:VCALENDAR

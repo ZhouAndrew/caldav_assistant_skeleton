@@ -1,13 +1,1 @@
-{
-  "name": "caldav-assistant-thunderbird",
-  "private": true,
-  "version": "0.3.16",
-  "description": "Typed development tooling for the canonical CalDAV Assistant Thunderbird add-on",
-  "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test:typed": "rm -rf .typed-build && tsc --outDir .typed-build && node .typed-build/tests/typed-core-harness.js"
-  },
-  "devDependencies": {
-    "typescript": "5.9.3"
-  }
-}
+{"name":"caldav-assistant-cleanroom","private":true,"type":"module","scripts":{"test":"node --test tests/*.test.mjs","package":"python3 tools/package.py"}}
