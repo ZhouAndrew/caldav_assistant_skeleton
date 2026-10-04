@@ -1,5 +1,9 @@
 # CalDAV Assistant Thunderbird — program boundary
 
+> **FROZEN implementation/framework contract:** `../FROZEN_IMPLEMENTATION_CONTRACT.md`
+>
+> Product/UI boundaries: `../FROZEN_PRODUCT_CONTRACT.md`
+
 The design goal is a small Thunderbird-native UI, plain action functions, strict
 read-back checks and persistent diagnostics.
 
@@ -20,8 +24,9 @@ The user-facing lifecycle is:
 Select Task -> Start -> Stop | Complete | Cancel
 ```
 
-The Work page shows only the current Task. Task browsing/filtering/search remain on
-the separate Task Picker page.
+The Work page shows only the current Task. Task selection first reuses Thunderbird's
+native current selection; only when needed, a transient fallback Task Picker may use
+Thunderbird-native browsing/filtering/search and then returns to Work.
 
 `currentWorkId` is the only Assistant-owned dynamic work pointer. It identifies a
 Task with Calendar id + VTODO UID + recurrence id.
