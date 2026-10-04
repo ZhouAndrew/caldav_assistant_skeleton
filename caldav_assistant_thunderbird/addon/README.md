@@ -1,5 +1,7 @@
 # CalDAV Assistant Experimental
 
+> **Product contract: FROZEN v1.0 (2026-10-04).** See `../FROZEN_PRODUCT_CONTRACT.md`.
+
 Thunderbird-native CalDAV Assistant add-on for official Thunderbird 153.0.2 through
 153.1.x.
 
@@ -17,8 +19,10 @@ and these actions:
 
 With no current Task it links to **Select Task**.
 
-Task browsing is a separate page. The Task Picker owns Thunderbird-native filters,
-Calendar visibility and search.
+Task selection is a transient interaction, not a primary Assistant workspace. Prefer
+Thunderbird's current native Task selection; only when needed, use the fallback Task
+Picker with Thunderbird-native filters, Calendar visibility and search, then return
+to Work.
 
 Starting another Task remains explicit:
 
