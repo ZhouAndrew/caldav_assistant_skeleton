@@ -120,3 +120,23 @@ browser.runtime.onMessage.addListener(message => {
     ? AssistantExecutor.start(null,message.selectionAtClick)
     : AssistantExecutor[message.action]();
 });
+
+// The native toolbar is a UI entry point for the existing canonical executor.
+const startRenderSequence=new Map();
+browser.TaskFix.onSelectionChanged.addListener(async (windowId,selection)=>{
+  const sequence=(startRenderSequence.get(windowId)||0)+1;startRenderSequence.set(windowId,sequence);
+  try {
+    const pointer=await AssistantStorage.getCurrentWorkId();
+    if(startRenderSequence.get(windowId)!==sequence) return;
+    browser.TaskFix.setStartState(windowId,AssistantActionPlan.deriveStartAvailability(pointer,selection),selection);
+  } catch(error) {browser.TaskFix.setStartState(windowId,false,selection);console.error(error);}
+});
+browser.TaskFix.onStartRequested.addListener(async (_windowId,selection)=>{
+  try {await AssistantExecutor.start(null,selection);}
+  catch(error) {console.error(error);}
+  finally {browser.TaskFix.requestStartState();}
+});
+browser.storage.onChanged.addListener(changes=>{
+  if("caldavAssistant.currentWorkId" in changes) browser.TaskFix.requestStartState();
+});
+browser.TaskFix.requestStartState();

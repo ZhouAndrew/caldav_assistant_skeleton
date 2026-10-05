@@ -1,7 +1,8 @@
-# CalDAV Assistant 0.4.0
+# CalDAV Assistant 0.4.1
 
-Thunderbird 153.0.2–153.1.x. Select a Task in Thunderbird's native Tasks UI,
-then use Work. Zero or multiple selected Tasks disable Start. An existing
+Thunderbird 153.0.2–153.1.x. Select a Task in Thunderbird's native Tasks UI and click Start beside
+Mark Completed in its native toolbar. Work shows the current Task and provides
+Stop, Complete and Cancel. Zero or multiple selected Tasks disable Start. An existing
 currentWorkId prevents a second Start. There is no Assistant Task selector.
 
 ## Business and effect boundaries
@@ -42,3 +43,12 @@ unchanged XPI into an isolated profile and drives real native Tasks and Work UI.
 It uses isolated Radicale data and checks server VTODOs independently, recurring
 identity, selection races, all actions, same-profile process restart and cleanup.
 Requires Radicale, vobject and marionette_driver on Python's import path.
+
+## 0.4.1 native Start patch
+
+`content/native-start.js` only binds DOM/window lifecycle to TaskFix events.
+The background derives availability with the existing pure core and forwards
+Start to the existing serialized executor. No workflow rule is copied into the
+toolbar. Identity snapshots are transient render data; the executor rereads the
+native selection and real Task before every Start. Mutation observation and
+window lifecycle support late/recreated UI, with full disable/uninstall cleanup.
