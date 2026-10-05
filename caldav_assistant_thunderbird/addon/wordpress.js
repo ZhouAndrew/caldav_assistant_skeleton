@@ -127,7 +127,7 @@ async function runTest(kind) {
   await saveConfig();
   const result =
     kind === "full"
-      ? await AssistantWordPress.fullWriteTest()
+      ? await AssistantWordPress.dualWriteTest()
       : await AssistantWordPress.quickTest();
   renderTest(result);
   await refreshStatus();
@@ -181,6 +181,7 @@ async function load() {
   $("wp-cli").value = config.wpCliCommand || "wp";
   $("wp-helper-dir").value = config.legacyHelperDir || "~/bin";
   await refreshStatus();
+  await renderDailyTargets();
 }
 
 $("save").addEventListener("click", () => void saveConfig());
@@ -202,14 +203,40 @@ $("copy-config").addEventListener("click", async () => {
   };
   await navigator.clipboard.writeText(JSON.stringify(safe, null, 2));
 });
-$("retry-outbox").addEventListener("click", async () => {
+async function retryOutbox() {
   const result = await AssistantDailyLog.flushOutbox();
-  $("outbox-status").textContent =
-    "Outbox 重试完成：处理 " + (result.processed || 0) +
-    "，成功 " + (result.sent || 0) +
-    "，失败 " + (result.failed || 0) + "。";
+  $("outbox-receipts").textContent = JSON.stringify(result, null, 2);
   await refreshStatus();
+  await renderDailyTargets();
+}
+async function renderDailyTargets() {
+  const root = $("daily-targets"); root.replaceChildren();
+  try {
+    for (const {day, candidates} of await AssistantWordPress.pendingCandidates()) {
+      if (candidates.length < 2) continue;
+      const label = document.createElement("label"); label.textContent = day + "：选择当天日志文章";
+      const select = document.createElement("select");
+      const placeholder = document.createElement("option"); placeholder.value = ""; placeholder.textContent = "请选择目标文章"; select.appendChild(placeholder);
+      for (const candidate of candidates) {
+        const option = document.createElement("option"); option.value = String(candidate.id); option.textContent = candidate.id + " · " + candidate.title + " · " + candidate.status; select.appendChild(option);
+      }
+      const button = document.createElement("button"); button.textContent = "使用所选文章并重试"; button.disabled = true;
+      select.addEventListener("change", () => {button.disabled = !select.value;});
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        try {await AssistantWordPress.selectDailyPost(day, Number(select.value)); await retryOutbox();}
+        catch (error) {$("outbox-receipts").textContent = String(error.message || error); button.disabled = false;}
+      });
+      label.appendChild(select); root.append(label, button);
+    }
+  } catch (error) {$("outbox-receipts").textContent = String(error.message || error);}
+}
+$("retry-outbox").addEventListener("click", async () => {
+  $("retry-outbox").disabled = true;
+  try {await retryOutbox();} catch (error) {$("outbox-receipts").textContent = String(error.message || error);}
+  finally {$("retry-outbox").disabled = false;}
 });
+fetch("build-info.json").then(response => response.json()).then(info => {$("build-id").textContent = "Build " + info.buildId;}).catch(() => {});
 
 load().catch(error => {
   $("status").textContent =

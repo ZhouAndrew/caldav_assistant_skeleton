@@ -278,21 +278,10 @@ for (const path of ["addon/core/storage.js", "addon/core/wordpress.js"]) {
   assert(wpCliCalls === wpCliBeforeInsecure, "insecure REST unexpectedly fell back to WP-CLI");
   assert(lastCurlRequest?.url?.startsWith("https://andrew.local/"), "insecure REST used unexpected URL");
 
-  await AssistantWordPress.saveConfig({
-    transport: "application-password",
-    baseUrl: "https://example.com",
-    username: "acceptance",
-    applicationPassword: "secret-app-password",
-    allowUntrustedTls: true,
-    wordpressPath: "/var/www/html/wordpress",
-    wpCliCommand: "wp",
-  });
-  const publicInsecure = await AssistantWordPress.quickTest();
-  assert(!publicInsecure.success, "insecure TLS mode was allowed for a public hostname");
-  assert(
-    /只允许|local|私有|局域网/i.test(publicInsecure.summary),
-    "public-host insecure TLS rejection was not explained"
-  );
+  let publicError = "";
+  try { await AssistantWordPress.saveConfig({transport: "application-password", baseUrl: "https://example.com", allowUntrustedTls: true}); }
+  catch (error) { publicError = String(error.message); }
+  assert(/只允许|local|私有|局域网/i.test(publicError), "Public TLS authorization was not rejected");
   assert(curlRequestCalls === curlBeforeInsecure + 1, "public-host rejection reached curl bridge");
 
   await AssistantWordPress.saveConfig({
@@ -396,7 +385,41 @@ for (const path of ["addon/core/storage.js", "addon/core/wordpress.js"]) {
     "WordPress application password leaked into audit logs"
   );
 
-  console.log("wordpress-connector-harness: PASS");
+  vm.runInThisContext(fs.readFileSync("addon/core/daily-log.js", "utf8"));
+  const date = new Date(2026, 9, 5, 15, 7);
+  const canonical = "October 5 Monday 2026";
+  posts.clear();
+  posts.set(500,{id:500,title:{raw:canonical},content:{raw:"Original content"},status:"publish"});
+  posts.set(501,{id:501,title:{raw:"October 5  Monday 2026"},content:{raw:"Other candidate"},status:"draft"});
+  const blocked = await AssistantWordPress.createLog({content:"Kept across restart",date,marker:"recover-old-1"});
+  assert(!blocked.success && blocked.queued && blocked.candidates.length === 2, "Ambiguous target was silently chosen");
+  assert((await AssistantStorage.listWordPressOutbox()).length === 1, "Failed manual log not durable");
+  assert(posts.get(500).content.raw === "Original content" && posts.get(501).content.raw === "Other candidate", "Ambiguity changed posts");
+  await AssistantWordPress.selectDailyPost("2026-10-05",500);
+  vm.runInThisContext(fs.readFileSync("addon/core/wordpress.js", "utf8"));
+  const recovery = await AssistantDailyLog.flushOutbox();
+  assert(recovery.sent === 1 && recovery.failed === 0, "Saved daily choice lost on service reload");
+  assert((await AssistantStorage.listWordPressOutbox()).length === 0, "Recovery did not acknowledge Outbox");
+  assert(posts.get(501).content.raw === "Other candidate" && posts.get(500).status === "publish", "Other post or published status changed");
+  const beforeRepeat = posts.get(500).content.raw;
+  const repeated = await AssistantWordPress.createLog({content:"Kept across restart",date,marker:"recover-old-1"});
+  assert(repeated.success && repeated.deduplicated && posts.get(500).content.raw === beforeRepeat, "Retry duplicated content");
+  const conflict = await AssistantWordPress.createLog({content:"Different content",date,marker:"recover-old-1"});
+  assert(!conflict.success && (await AssistantStorage.listWordPressOutbox()).length === 1, "Marker conflict acknowledged wrong content");
+  await AssistantStorage.removeWordPressOutbox(conflict.outboxId);
+  const originalFetch = global.fetch;
+  global.fetch = async (...args) => {
+    const response = await originalFetch(...args);
+    if (args[1]?.method === "POST" && /\/posts\/500$/.test(args[0])) posts.get(500).content.raw += " SERVER MUTATION";
+    return response;
+  };
+  const mismatch = await AssistantWordPress.createLog({content:"Must compare whole post",date,marker:"mismatch"});
+  assert(!mismatch.success && mismatch.queued, "Partial marker-only readback accepted changed content");
+  global.fetch = originalFetch;
+  // Concurrent storage mutations must never lose pending rows.
+  await Promise.all(Array.from({length:510},(_,i)=>AssistantStorage.enqueueWordPressOutbox({id:"bulk-"+i,payload:{marker:"bulk-"+i}})));
+  assert((await AssistantStorage.listWordPressOutbox()).length === 511, "Outbox silently evicted or lost records");
+  console.log("wordpress-connector-harness: PASS (transport, ambiguity, restart, durable manual logs, conflict, full comparison, 510 concurrent records)");
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;

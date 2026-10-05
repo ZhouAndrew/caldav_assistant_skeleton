@@ -1,0 +1,10 @@
+1791191226854	Marionette	INFO	Marionette enabled
+1791191226900	Marionette	INFO	Listening on port 2828
+[Parent 316, Main Thread] WARNING: Failed to create DBus proxy for org.a11y.Bus: Failed to execute child process “dbus-launch” (No such file or directory)
+: 'glib warning', file checkouts/gecko/toolkit/xre/nsSigHandlers.cpp:200
+
+** (thunderbird-esr:316): WARNING **: 17:07:06.903: Failed to create DBus proxy for org.a11y.Bus: Failed to execute child process “dbus-launch” (No such file or directory)
+
+[WARN  rkv::backend::impl_safe::environment] `load_ratio()` is irrelevant for this storage backend.
+[WARN  rkv::backend::impl_safe::environment] `load_ratio()` is irrelevant for this storage backend.
+Exiting due to channel error.

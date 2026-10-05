@@ -1,0 +1,54 @@
+CAPABILITIES {'acceptInsecureCerts': False, 'browserName': 'thunderbird', 'browserVersion': '153.1.0', 'platformName': 'linux', 'setWindowRect': True, 'unhandledPromptBehavior': 'dismiss and notify', 'userAgent': 'Mozilla/5.0 (X11; Linux x86_64; rv:153.0) Gecko/20100101 Thunderbird/153.1.0', 'moz:buildID': '20260818021847', 'moz:headless': False, 'moz:platformVersion': '6.18.44', 'moz:processID': 1143, 'moz:profile': '/tmp/caldav-assistant-041-6thm1d7i/profile', 'moz:shutdownTimeout': 60000, 'pageLoadStrategy': 'normal', 'timeouts': {'implicit': 0, 'pageLoad': 300000, 'script': 30000}, 'strictFileInteractability': True, 'moz:accessibilityChecks': False, 'moz:webdriverClick': True, 'moz:windowless': False, 'proxy': {}}
+INSTALL {'id': 'ZhouAndrew.thunderbird-taskfix-lab@addons.thunderbird.net', 'version': '0.4.2', 'active': True}
+WINDOW {'url': 'chrome://messenger/content/messenger.xhtml', 'taskTree': True, 'tabs': [{'mode': 'mail3PaneTab', 'url': None}, {'mode': 'tasks', 'url': None}]}
+TASKS [{'id': 'seed-b', 'title': 'Acceptance B', 'recurrenceId': ''}, {'id': 'seed-a', 'title': 'Acceptance A', 'recurrenceId': ''}, {'id': 'seed-c', 'title': 'Acceptance C', 'recurrenceId': ''}]
+EXT {'base': 'moz-extension://ab15f86b-a2c2-470a-8034-f9df7fe549c9/', 'views': [{'type': 'background', 'url': None, 'keys': ['isTopContext', 'viewType', 'envType', 'onClose', 'checkedLastError', '_lastError', 'contextId', 'unloaded', 'extension', 'manifestVersion', 'jsonSandbox', 'active', 'incognito', 'messageManager', 'contentWindow', 'innerWindowID', 'browserId', 'cloneScopeError', 'cloneScopePromise', 'childId', 'uri', 'browsingContext', 'listenerPromises', 'messageManagerProxy', 'principal', 'listenerProxies', 'pendingEventBrowser', 'callContextData', 'activeNativePorts', 'runListenerPromises', 'apiCan']}]}
+ACTION start PASS {'calendarId': 'acceptance-calendar', 'id': 'seed-a', 'recurrenceId': ''}
+ACTION stop PASS {'calendarId': 'acceptance-calendar', 'id': 'seed-a', 'recurrenceId': ''}
+ACTION start PASS {'calendarId': 'acceptance-calendar', 'id': 'seed-b', 'recurrenceId': ''}
+ACTION complete PASS {'calendarId': 'acceptance-calendar', 'id': 'seed-b', 'recurrenceId': ''}
+ACTION start PASS {'calendarId': 'acceptance-calendar', 'id': 'seed-c', 'recurrenceId': ''}
+ACTION cancel PASS {'calendarId': 'acceptance-calendar', 'id': 'seed-c', 'recurrenceId': ''}
+ACTION start PASS {'calendarId': 'acceptance-calendar', 'id': 'recurring', 'recurrenceId': '20261005T090000Z'}
+ACTION stop PASS {'calendarId': 'acceptance-calendar', 'id': 'recurring', 'recurrenceId': '20261005T090000Z'}
+ACTION start PASS {'calendarId': 'acceptance-calendar', 'id': 'seed-a', 'recurrenceId': ''}
+ACTION stop PASS {'calendarId': 'acceptance-calendar', 'id': 'seed-a', 'recurrenceId': ''}
+ACTION start PASS {'calendarId': 'acceptance-calendar', 'id': 'seed-a', 'recurrenceId': ''}
+REAL THUNDERBIRD / RADICALE ACCEPTANCE: PASS
+{
+  "xpi": "/workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/dist/caldav-assistant-thunderbird-0.4.2-20261005T090627Z-bb8c684b828b46b3a4cdba3bdd62a91e.xpi",
+  "sha256": "254314340f4cd4b33f4c60eba5b4d041b27ff36a2db358dc71f5a0eb688c46d4",
+  "checks": {
+    "ThunderbirdStarts": true,
+    "XPIInstall": true,
+    "AddonLoads": true,
+    "ToolbarStart": true,
+    "ToolbarLocation": true,
+    "ExactlyOne": true,
+    "selection0": true,
+    "selection1": true,
+    "selectionMany": true,
+    "selectionRefreshWithoutWorkPage": true,
+    "WorkUI": true,
+    "selectionRefresh": true,
+    "TOCTOU": true,
+    "LatestServerTask": true,
+    "Start": true,
+    "secondStartGuard": true,
+    "Stop": true,
+    "Complete": true,
+    "Cancel": true,
+    "Recurring": true,
+    "Restart": true,
+    "WordPressOnlineOutboxAck": true,
+    "OfflineReject": true,
+    "ReinjectAndRecreate": true,
+    "DisableCleanup": true,
+    "ReenableExactlyOne": true,
+    "UninstallCleanup": true,
+    "Cleanup": true,
+    "RealRadicale": true,
+    "RealThunderbird": true
+  },
+  "thunderbird": "153.1.0"
+}

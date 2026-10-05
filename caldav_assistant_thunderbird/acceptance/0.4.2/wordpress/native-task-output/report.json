@@ -1,0 +1,1060 @@
+{
+  "xpi": "/workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/dist/caldav-assistant-thunderbird-0.4.2-20261005T090627Z-bb8c684b828b46b3a4cdba3bdd62a91e.xpi",
+  "sha256": "254314340f4cd4b33f4c60eba5b4d041b27ff36a2db358dc71f5a0eb688c46d4",
+  "checks": {
+    "ThunderbirdStarts": true,
+    "XPIInstall": true,
+    "AddonLoads": true,
+    "ToolbarStart": true,
+    "ToolbarLocation": true,
+    "ExactlyOne": true,
+    "selection0": true,
+    "selection1": true,
+    "selectionMany": true,
+    "selectionRefreshWithoutWorkPage": true,
+    "WorkUI": true,
+    "selectionRefresh": true,
+    "TOCTOU": true,
+    "LatestServerTask": true,
+    "Start": true,
+    "secondStartGuard": true,
+    "Stop": true,
+    "Complete": true,
+    "Cancel": true,
+    "Recurring": true,
+    "Restart": true,
+    "WordPressOnlineOutboxAck": true,
+    "OfflineReject": true,
+    "ReinjectAndRecreate": true,
+    "DisableCleanup": true,
+    "ReenableExactlyOne": true,
+    "UninstallCleanup": true,
+    "Cleanup": true,
+    "RealRadicale": true,
+    "RealThunderbird": true
+  },
+  "thunderbird": "153.1.0",
+  "receipts": [
+    {
+      "id": "a571f896-10bf-492b-bf05-99fac0d5e7d4",
+      "action": "start",
+      "target": {
+        "calendarId": "acceptance-calendar",
+        "id": "seed-a",
+        "recurrenceId": ""
+      },
+      "expected": {
+        "status": "IN-PROCESS",
+        "percentComplete": 41,
+        "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"a571f896-10bf-492b-bf05-99fac0d5e7d4\",\"start\":\"2026-10-05T09:08:04.504Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":null,\"result\":null}"
+      },
+      "actual": {
+        "id": "seed-a",
+        "calendarId": "acceptance-calendar",
+        "calendarName": "Acceptance",
+        "title": "Acceptance A",
+        "status": "IN-PROCESS",
+        "completed": false,
+        "percentComplete": 41,
+        "priority": 0,
+        "categories": [],
+        "due": null,
+        "start": null,
+        "completedDate": null,
+        "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"a571f896-10bf-492b-bf05-99fac0d5e7d4\",\"start\":\"2026-10-05T09:08:04.504Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":null,\"result\":null}",
+        "recurring": false,
+        "recurrenceId": "",
+        "instanceKey": "acceptance-calendar::seed-a::"
+      },
+      "verified": true,
+      "success": true,
+      "startedAt": "2026-10-05T09:08:04.449Z",
+      "steps": [
+        {
+          "operation": "write task",
+          "success": true,
+          "target": {
+            "calendarId": "acceptance-calendar",
+            "id": "seed-a",
+            "recurrenceId": ""
+          },
+          "expected": {
+            "status": "IN-PROCESS",
+            "percentComplete": 41,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"a571f896-10bf-492b-bf05-99fac0d5e7d4\",\"start\":\"2026-10-05T09:08:04.504Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":null,\"result\":null}"
+          }
+        },
+        {
+          "operation": "read-back task",
+          "success": true,
+          "actual": {
+            "id": "seed-a",
+            "calendarId": "acceptance-calendar",
+            "calendarName": "Acceptance",
+            "title": "Acceptance A",
+            "status": "IN-PROCESS",
+            "completed": false,
+            "percentComplete": 41,
+            "priority": 0,
+            "categories": [],
+            "due": null,
+            "start": null,
+            "completedDate": null,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"a571f896-10bf-492b-bf05-99fac0d5e7d4\",\"start\":\"2026-10-05T09:08:04.504Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":null,\"result\":null}",
+            "recurring": false,
+            "recurrenceId": "",
+            "instanceKey": "acceptance-calendar::seed-a::"
+          },
+          "expected": {
+            "status": "IN-PROCESS",
+            "percentComplete": 41,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"a571f896-10bf-492b-bf05-99fac0d5e7d4\",\"start\":\"2026-10-05T09:08:04.504Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":null,\"result\":null}"
+          }
+        },
+        {
+          "operation": "write/read-back currentWorkId",
+          "success": true,
+          "expected": "acceptance-calendar|seed-a|",
+          "actual": "acceptance-calendar|seed-a|"
+        }
+      ],
+      "completedAt": "2026-10-05T09:08:04.565Z",
+      "logSaved": true,
+      "logError": null
+    },
+    {
+      "id": "111154ee-a380-4ce3-a44d-2bd1808f0e8e",
+      "action": "stop",
+      "target": {
+        "calendarId": "acceptance-calendar",
+        "id": "seed-a",
+        "recurrenceId": ""
+      },
+      "expected": {
+        "status": "NEEDS-ACTION",
+        "percentComplete": 41,
+        "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"a571f896-10bf-492b-bf05-99fac0d5e7d4\",\"start\":\"2026-10-05T09:08:04.504Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":\"2026-10-05T09:08:04.849Z\",\"result\":\"stop\"}"
+      },
+      "actual": {
+        "id": "seed-a",
+        "calendarId": "acceptance-calendar",
+        "calendarName": "Acceptance",
+        "title": "Acceptance A",
+        "status": "NEEDS-ACTION",
+        "completed": false,
+        "percentComplete": 41,
+        "priority": 0,
+        "categories": [],
+        "due": null,
+        "start": null,
+        "completedDate": null,
+        "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"a571f896-10bf-492b-bf05-99fac0d5e7d4\",\"start\":\"2026-10-05T09:08:04.504Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":\"2026-10-05T09:08:04.849Z\",\"result\":\"stop\"}",
+        "recurring": false,
+        "recurrenceId": "",
+        "instanceKey": "acceptance-calendar::seed-a::"
+      },
+      "verified": true,
+      "success": true,
+      "startedAt": "2026-10-05T09:08:04.838Z",
+      "steps": [
+        {
+          "operation": "write task",
+          "success": true,
+          "target": {
+            "calendarId": "acceptance-calendar",
+            "id": "seed-a",
+            "recurrenceId": ""
+          },
+          "expected": {
+            "status": "NEEDS-ACTION",
+            "percentComplete": 41,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"a571f896-10bf-492b-bf05-99fac0d5e7d4\",\"start\":\"2026-10-05T09:08:04.504Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":\"2026-10-05T09:08:04.849Z\",\"result\":\"stop\"}"
+          }
+        },
+        {
+          "operation": "read-back task",
+          "success": true,
+          "actual": {
+            "id": "seed-a",
+            "calendarId": "acceptance-calendar",
+            "calendarName": "Acceptance",
+            "title": "Acceptance A",
+            "status": "NEEDS-ACTION",
+            "completed": false,
+            "percentComplete": 41,
+            "priority": 0,
+            "categories": [],
+            "due": null,
+            "start": null,
+            "completedDate": null,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"a571f896-10bf-492b-bf05-99fac0d5e7d4\",\"start\":\"2026-10-05T09:08:04.504Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":\"2026-10-05T09:08:04.849Z\",\"result\":\"stop\"}",
+            "recurring": false,
+            "recurrenceId": "",
+            "instanceKey": "acceptance-calendar::seed-a::"
+          },
+          "expected": {
+            "status": "NEEDS-ACTION",
+            "percentComplete": 41,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"a571f896-10bf-492b-bf05-99fac0d5e7d4\",\"start\":\"2026-10-05T09:08:04.504Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":\"2026-10-05T09:08:04.849Z\",\"result\":\"stop\"}"
+          }
+        },
+        {
+          "operation": "write/read-back currentWorkId",
+          "success": true,
+          "expected": null,
+          "actual": null
+        }
+      ],
+      "completedAt": "2026-10-05T09:08:04.891Z",
+      "logSaved": true,
+      "logError": null
+    },
+    {
+      "id": "3511a812-1029-4624-947a-7b2b84c9a776",
+      "action": "start",
+      "target": {
+        "calendarId": "acceptance-calendar",
+        "id": "seed-b",
+        "recurrenceId": ""
+      },
+      "expected": {
+        "status": "IN-PROCESS",
+        "percentComplete": 35,
+        "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-b|\",\"token\":\"3511a812-1029-4624-947a-7b2b84c9a776\",\"start\":\"2026-10-05T09:08:05.209Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":35,\"end\":null,\"result\":null}"
+      },
+      "actual": {
+        "id": "seed-b",
+        "calendarId": "acceptance-calendar",
+        "calendarName": "Acceptance",
+        "title": "Acceptance B",
+        "status": "IN-PROCESS",
+        "completed": false,
+        "percentComplete": 35,
+        "priority": 0,
+        "categories": [],
+        "due": null,
+        "start": null,
+        "completedDate": null,
+        "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-b|\",\"token\":\"3511a812-1029-4624-947a-7b2b84c9a776\",\"start\":\"2026-10-05T09:08:05.209Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":35,\"end\":null,\"result\":null}",
+        "recurring": false,
+        "recurrenceId": "",
+        "instanceKey": "acceptance-calendar::seed-b::"
+      },
+      "verified": true,
+      "success": true,
+      "startedAt": "2026-10-05T09:08:05.163Z",
+      "steps": [
+        {
+          "operation": "write task",
+          "success": true,
+          "target": {
+            "calendarId": "acceptance-calendar",
+            "id": "seed-b",
+            "recurrenceId": ""
+          },
+          "expected": {
+            "status": "IN-PROCESS",
+            "percentComplete": 35,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-b|\",\"token\":\"3511a812-1029-4624-947a-7b2b84c9a776\",\"start\":\"2026-10-05T09:08:05.209Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":35,\"end\":null,\"result\":null}"
+          }
+        },
+        {
+          "operation": "read-back task",
+          "success": true,
+          "actual": {
+            "id": "seed-b",
+            "calendarId": "acceptance-calendar",
+            "calendarName": "Acceptance",
+            "title": "Acceptance B",
+            "status": "IN-PROCESS",
+            "completed": false,
+            "percentComplete": 35,
+            "priority": 0,
+            "categories": [],
+            "due": null,
+            "start": null,
+            "completedDate": null,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-b|\",\"token\":\"3511a812-1029-4624-947a-7b2b84c9a776\",\"start\":\"2026-10-05T09:08:05.209Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":35,\"end\":null,\"result\":null}",
+            "recurring": false,
+            "recurrenceId": "",
+            "instanceKey": "acceptance-calendar::seed-b::"
+          },
+          "expected": {
+            "status": "IN-PROCESS",
+            "percentComplete": 35,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-b|\",\"token\":\"3511a812-1029-4624-947a-7b2b84c9a776\",\"start\":\"2026-10-05T09:08:05.209Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":35,\"end\":null,\"result\":null}"
+          }
+        },
+        {
+          "operation": "write/read-back currentWorkId",
+          "success": true,
+          "expected": "acceptance-calendar|seed-b|",
+          "actual": "acceptance-calendar|seed-b|"
+        }
+      ],
+      "completedAt": "2026-10-05T09:08:05.272Z",
+      "logSaved": true,
+      "logError": null
+    },
+    {
+      "id": "a7eed513-13c2-4fae-8445-2dc79446f169",
+      "action": "complete",
+      "target": {
+        "calendarId": "acceptance-calendar",
+        "id": "seed-b",
+        "recurrenceId": ""
+      },
+      "expected": {
+        "status": "COMPLETED",
+        "percentComplete": 100,
+        "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-b|\",\"token\":\"3511a812-1029-4624-947a-7b2b84c9a776\",\"start\":\"2026-10-05T09:08:05.209Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":35,\"end\":\"2026-10-05T09:08:05.529Z\",\"result\":\"complete\"}"
+      },
+      "actual": {
+        "id": "seed-b",
+        "calendarId": "acceptance-calendar",
+        "calendarName": "Acceptance",
+        "title": "Acceptance B",
+        "status": "COMPLETED",
+        "completed": true,
+        "percentComplete": 100,
+        "priority": 0,
+        "categories": [],
+        "due": null,
+        "start": null,
+        "completedDate": {
+          "icalString": "20261005T170805",
+          "sourceIcalString": "20261005T090805Z",
+          "isDate": false,
+          "timezone": "Asia/Kuala_Lumpur"
+        },
+        "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-b|\",\"token\":\"3511a812-1029-4624-947a-7b2b84c9a776\",\"start\":\"2026-10-05T09:08:05.209Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":35,\"end\":\"2026-10-05T09:08:05.529Z\",\"result\":\"complete\"}",
+        "recurring": false,
+        "recurrenceId": "",
+        "instanceKey": "acceptance-calendar::seed-b::"
+      },
+      "verified": true,
+      "success": true,
+      "startedAt": "2026-10-05T09:08:05.514Z",
+      "steps": [
+        {
+          "operation": "write task",
+          "success": true,
+          "target": {
+            "calendarId": "acceptance-calendar",
+            "id": "seed-b",
+            "recurrenceId": ""
+          },
+          "expected": {
+            "status": "COMPLETED",
+            "percentComplete": 100,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-b|\",\"token\":\"3511a812-1029-4624-947a-7b2b84c9a776\",\"start\":\"2026-10-05T09:08:05.209Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":35,\"end\":\"2026-10-05T09:08:05.529Z\",\"result\":\"complete\"}"
+          }
+        },
+        {
+          "operation": "read-back task",
+          "success": true,
+          "actual": {
+            "id": "seed-b",
+            "calendarId": "acceptance-calendar",
+            "calendarName": "Acceptance",
+            "title": "Acceptance B",
+            "status": "COMPLETED",
+            "completed": true,
+            "percentComplete": 100,
+            "priority": 0,
+            "categories": [],
+            "due": null,
+            "start": null,
+            "completedDate": {
+              "icalString": "20261005T170805",
+              "sourceIcalString": "20261005T090805Z",
+              "isDate": false,
+              "timezone": "Asia/Kuala_Lumpur"
+            },
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-b|\",\"token\":\"3511a812-1029-4624-947a-7b2b84c9a776\",\"start\":\"2026-10-05T09:08:05.209Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":35,\"end\":\"2026-10-05T09:08:05.529Z\",\"result\":\"complete\"}",
+            "recurring": false,
+            "recurrenceId": "",
+            "instanceKey": "acceptance-calendar::seed-b::"
+          },
+          "expected": {
+            "status": "COMPLETED",
+            "percentComplete": 100,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-b|\",\"token\":\"3511a812-1029-4624-947a-7b2b84c9a776\",\"start\":\"2026-10-05T09:08:05.209Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":35,\"end\":\"2026-10-05T09:08:05.529Z\",\"result\":\"complete\"}"
+          }
+        },
+        {
+          "operation": "write/read-back currentWorkId",
+          "success": true,
+          "expected": null,
+          "actual": null
+        }
+      ],
+      "completedAt": "2026-10-05T09:08:05.599Z",
+      "logSaved": true,
+      "logError": null
+    },
+    {
+      "id": "2796a28d-61e2-40bf-a899-0ae3663bc3f5",
+      "action": "start",
+      "target": {
+        "calendarId": "acceptance-calendar",
+        "id": "seed-c",
+        "recurrenceId": ""
+      },
+      "expected": {
+        "status": "IN-PROCESS",
+        "percentComplete": 35,
+        "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-c|\",\"token\":\"2796a28d-61e2-40bf-a899-0ae3663bc3f5\",\"start\":\"2026-10-05T09:08:05.869Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":35,\"end\":null,\"result\":null}"
+      },
+      "actual": {
+        "id": "seed-c",
+        "calendarId": "acceptance-calendar",
+        "calendarName": "Acceptance",
+        "title": "Acceptance C",
+        "status": "IN-PROCESS",
+        "completed": false,
+        "percentComplete": 35,
+        "priority": 0,
+        "categories": [],
+        "due": null,
+        "start": null,
+        "completedDate": null,
+        "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-c|\",\"token\":\"2796a28d-61e2-40bf-a899-0ae3663bc3f5\",\"start\":\"2026-10-05T09:08:05.869Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":35,\"end\":null,\"result\":null}",
+        "recurring": false,
+        "recurrenceId": "",
+        "instanceKey": "acceptance-calendar::seed-c::"
+      },
+      "verified": true,
+      "success": true,
+      "startedAt": "2026-10-05T09:08:05.817Z",
+      "steps": [
+        {
+          "operation": "write task",
+          "success": true,
+          "target": {
+            "calendarId": "acceptance-calendar",
+            "id": "seed-c",
+            "recurrenceId": ""
+          },
+          "expected": {
+            "status": "IN-PROCESS",
+            "percentComplete": 35,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-c|\",\"token\":\"2796a28d-61e2-40bf-a899-0ae3663bc3f5\",\"start\":\"2026-10-05T09:08:05.869Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":35,\"end\":null,\"result\":null}"
+          }
+        },
+        {
+          "operation": "read-back task",
+          "success": true,
+          "actual": {
+            "id": "seed-c",
+            "calendarId": "acceptance-calendar",
+            "calendarName": "Acceptance",
+            "title": "Acceptance C",
+            "status": "IN-PROCESS",
+            "completed": false,
+            "percentComplete": 35,
+            "priority": 0,
+            "categories": [],
+            "due": null,
+            "start": null,
+            "completedDate": null,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-c|\",\"token\":\"2796a28d-61e2-40bf-a899-0ae3663bc3f5\",\"start\":\"2026-10-05T09:08:05.869Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":35,\"end\":null,\"result\":null}",
+            "recurring": false,
+            "recurrenceId": "",
+            "instanceKey": "acceptance-calendar::seed-c::"
+          },
+          "expected": {
+            "status": "IN-PROCESS",
+            "percentComplete": 35,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-c|\",\"token\":\"2796a28d-61e2-40bf-a899-0ae3663bc3f5\",\"start\":\"2026-10-05T09:08:05.869Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":35,\"end\":null,\"result\":null}"
+          }
+        },
+        {
+          "operation": "write/read-back currentWorkId",
+          "success": true,
+          "expected": "acceptance-calendar|seed-c|",
+          "actual": "acceptance-calendar|seed-c|"
+        }
+      ],
+      "completedAt": "2026-10-05T09:08:05.938Z",
+      "logSaved": true,
+      "logError": null
+    },
+    {
+      "id": "5468d024-53ae-41bb-ab95-cfd9083e6572",
+      "action": "cancel",
+      "target": {
+        "calendarId": "acceptance-calendar",
+        "id": "seed-c",
+        "recurrenceId": ""
+      },
+      "expected": {
+        "status": "CANCELLED",
+        "percentComplete": 35,
+        "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-c|\",\"token\":\"2796a28d-61e2-40bf-a899-0ae3663bc3f5\",\"start\":\"2026-10-05T09:08:05.869Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":35,\"end\":\"2026-10-05T09:08:06.050Z\",\"result\":\"cancel\"}"
+      },
+      "actual": {
+        "id": "seed-c",
+        "calendarId": "acceptance-calendar",
+        "calendarName": "Acceptance",
+        "title": "Acceptance C",
+        "status": "CANCELLED",
+        "completed": false,
+        "percentComplete": 35,
+        "priority": 0,
+        "categories": [],
+        "due": null,
+        "start": null,
+        "completedDate": null,
+        "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-c|\",\"token\":\"2796a28d-61e2-40bf-a899-0ae3663bc3f5\",\"start\":\"2026-10-05T09:08:05.869Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":35,\"end\":\"2026-10-05T09:08:06.050Z\",\"result\":\"cancel\"}",
+        "recurring": false,
+        "recurrenceId": "",
+        "instanceKey": "acceptance-calendar::seed-c::"
+      },
+      "verified": true,
+      "success": true,
+      "startedAt": "2026-10-05T09:08:06.035Z",
+      "steps": [
+        {
+          "operation": "write task",
+          "success": true,
+          "target": {
+            "calendarId": "acceptance-calendar",
+            "id": "seed-c",
+            "recurrenceId": ""
+          },
+          "expected": {
+            "status": "CANCELLED",
+            "percentComplete": 35,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-c|\",\"token\":\"2796a28d-61e2-40bf-a899-0ae3663bc3f5\",\"start\":\"2026-10-05T09:08:05.869Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":35,\"end\":\"2026-10-05T09:08:06.050Z\",\"result\":\"cancel\"}"
+          }
+        },
+        {
+          "operation": "read-back task",
+          "success": true,
+          "actual": {
+            "id": "seed-c",
+            "calendarId": "acceptance-calendar",
+            "calendarName": "Acceptance",
+            "title": "Acceptance C",
+            "status": "CANCELLED",
+            "completed": false,
+            "percentComplete": 35,
+            "priority": 0,
+            "categories": [],
+            "due": null,
+            "start": null,
+            "completedDate": null,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-c|\",\"token\":\"2796a28d-61e2-40bf-a899-0ae3663bc3f5\",\"start\":\"2026-10-05T09:08:05.869Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":35,\"end\":\"2026-10-05T09:08:06.050Z\",\"result\":\"cancel\"}",
+            "recurring": false,
+            "recurrenceId": "",
+            "instanceKey": "acceptance-calendar::seed-c::"
+          },
+          "expected": {
+            "status": "CANCELLED",
+            "percentComplete": 35,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-c|\",\"token\":\"2796a28d-61e2-40bf-a899-0ae3663bc3f5\",\"start\":\"2026-10-05T09:08:05.869Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":35,\"end\":\"2026-10-05T09:08:06.050Z\",\"result\":\"cancel\"}"
+          }
+        },
+        {
+          "operation": "write/read-back currentWorkId",
+          "success": true,
+          "expected": null,
+          "actual": null
+        }
+      ],
+      "completedAt": "2026-10-05T09:08:06.100Z",
+      "logSaved": true,
+      "logError": null
+    },
+    {
+      "id": "59742790-ed15-4ec3-9925-3f5fe38684fa",
+      "action": "start",
+      "target": {
+        "calendarId": "acceptance-calendar",
+        "id": "recurring",
+        "recurrenceId": "20261005T090000Z"
+      },
+      "expected": {
+        "status": "IN-PROCESS",
+        "percentComplete": 0,
+        "description": "Original recurring text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|recurring|20261005T090000Z\",\"token\":\"59742790-ed15-4ec3-9925-3f5fe38684fa\",\"start\":\"2026-10-05T09:08:06.610Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":0,\"end\":null,\"result\":null}"
+      },
+      "actual": {
+        "id": "recurring",
+        "calendarId": "acceptance-calendar",
+        "calendarName": "Acceptance",
+        "title": "Acceptance Recurring",
+        "status": "IN-PROCESS",
+        "completed": false,
+        "percentComplete": 0,
+        "priority": 0,
+        "categories": [],
+        "due": {
+          "icalString": "20261005T170000",
+          "sourceIcalString": "20261005T090000Z",
+          "isDate": false,
+          "timezone": "Asia/Kuala_Lumpur"
+        },
+        "start": {
+          "icalString": "20261005T170000",
+          "sourceIcalString": "20261005T090000Z",
+          "isDate": false,
+          "timezone": "Asia/Kuala_Lumpur"
+        },
+        "completedDate": null,
+        "description": "Original recurring text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|recurring|20261005T090000Z\",\"token\":\"59742790-ed15-4ec3-9925-3f5fe38684fa\",\"start\":\"2026-10-05T09:08:06.610Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":0,\"end\":null,\"result\":null}",
+        "recurring": true,
+        "recurrenceId": "20261005T090000Z",
+        "instanceKey": "acceptance-calendar::recurring::20261005T090000Z"
+      },
+      "verified": true,
+      "success": true,
+      "startedAt": "2026-10-05T09:08:06.553Z",
+      "steps": [
+        {
+          "operation": "write task",
+          "success": true,
+          "target": {
+            "calendarId": "acceptance-calendar",
+            "id": "recurring",
+            "recurrenceId": "20261005T090000Z"
+          },
+          "expected": {
+            "status": "IN-PROCESS",
+            "percentComplete": 0,
+            "description": "Original recurring text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|recurring|20261005T090000Z\",\"token\":\"59742790-ed15-4ec3-9925-3f5fe38684fa\",\"start\":\"2026-10-05T09:08:06.610Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":0,\"end\":null,\"result\":null}"
+          }
+        },
+        {
+          "operation": "read-back task",
+          "success": true,
+          "actual": {
+            "id": "recurring",
+            "calendarId": "acceptance-calendar",
+            "calendarName": "Acceptance",
+            "title": "Acceptance Recurring",
+            "status": "IN-PROCESS",
+            "completed": false,
+            "percentComplete": 0,
+            "priority": 0,
+            "categories": [],
+            "due": {
+              "icalString": "20261005T170000",
+              "sourceIcalString": "20261005T090000Z",
+              "isDate": false,
+              "timezone": "Asia/Kuala_Lumpur"
+            },
+            "start": {
+              "icalString": "20261005T170000",
+              "sourceIcalString": "20261005T090000Z",
+              "isDate": false,
+              "timezone": "Asia/Kuala_Lumpur"
+            },
+            "completedDate": null,
+            "description": "Original recurring text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|recurring|20261005T090000Z\",\"token\":\"59742790-ed15-4ec3-9925-3f5fe38684fa\",\"start\":\"2026-10-05T09:08:06.610Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":0,\"end\":null,\"result\":null}",
+            "recurring": true,
+            "recurrenceId": "20261005T090000Z",
+            "instanceKey": "acceptance-calendar::recurring::20261005T090000Z"
+          },
+          "expected": {
+            "status": "IN-PROCESS",
+            "percentComplete": 0,
+            "description": "Original recurring text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|recurring|20261005T090000Z\",\"token\":\"59742790-ed15-4ec3-9925-3f5fe38684fa\",\"start\":\"2026-10-05T09:08:06.610Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":0,\"end\":null,\"result\":null}"
+          }
+        },
+        {
+          "operation": "write/read-back currentWorkId",
+          "success": true,
+          "expected": "acceptance-calendar|recurring|20261005T090000Z",
+          "actual": "acceptance-calendar|recurring|20261005T090000Z"
+        }
+      ],
+      "completedAt": "2026-10-05T09:08:06.720Z",
+      "logSaved": true,
+      "logError": null
+    },
+    {
+      "id": "18fe1e96-140f-46e7-b6fa-fef73b29e3cc",
+      "action": "stop",
+      "target": {
+        "calendarId": "acceptance-calendar",
+        "id": "recurring",
+        "recurrenceId": "20261005T090000Z"
+      },
+      "expected": {
+        "status": "NEEDS-ACTION",
+        "percentComplete": 0,
+        "description": "Original recurring text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|recurring|20261005T090000Z\",\"token\":\"59742790-ed15-4ec3-9925-3f5fe38684fa\",\"start\":\"2026-10-05T09:08:06.610Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":0,\"end\":\"2026-10-05T09:08:06.995Z\",\"result\":\"stop\"}"
+      },
+      "actual": {
+        "id": "recurring",
+        "calendarId": "acceptance-calendar",
+        "calendarName": "Acceptance",
+        "title": "Acceptance Recurring",
+        "status": "NEEDS-ACTION",
+        "completed": false,
+        "percentComplete": 0,
+        "priority": 0,
+        "categories": [],
+        "due": {
+          "icalString": "20261005T170000",
+          "sourceIcalString": "20261005T090000Z",
+          "isDate": false,
+          "timezone": "Asia/Kuala_Lumpur"
+        },
+        "start": {
+          "icalString": "20261005T170000",
+          "sourceIcalString": "20261005T090000Z",
+          "isDate": false,
+          "timezone": "Asia/Kuala_Lumpur"
+        },
+        "completedDate": null,
+        "description": "Original recurring text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|recurring|20261005T090000Z\",\"token\":\"59742790-ed15-4ec3-9925-3f5fe38684fa\",\"start\":\"2026-10-05T09:08:06.610Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":0,\"end\":\"2026-10-05T09:08:06.995Z\",\"result\":\"stop\"}",
+        "recurring": true,
+        "recurrenceId": "20261005T090000Z",
+        "instanceKey": "acceptance-calendar::recurring::20261005T090000Z"
+      },
+      "verified": true,
+      "success": true,
+      "startedAt": "2026-10-05T09:08:06.975Z",
+      "steps": [
+        {
+          "operation": "write task",
+          "success": true,
+          "target": {
+            "calendarId": "acceptance-calendar",
+            "id": "recurring",
+            "recurrenceId": "20261005T090000Z"
+          },
+          "expected": {
+            "status": "NEEDS-ACTION",
+            "percentComplete": 0,
+            "description": "Original recurring text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|recurring|20261005T090000Z\",\"token\":\"59742790-ed15-4ec3-9925-3f5fe38684fa\",\"start\":\"2026-10-05T09:08:06.610Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":0,\"end\":\"2026-10-05T09:08:06.995Z\",\"result\":\"stop\"}"
+          }
+        },
+        {
+          "operation": "read-back task",
+          "success": true,
+          "actual": {
+            "id": "recurring",
+            "calendarId": "acceptance-calendar",
+            "calendarName": "Acceptance",
+            "title": "Acceptance Recurring",
+            "status": "NEEDS-ACTION",
+            "completed": false,
+            "percentComplete": 0,
+            "priority": 0,
+            "categories": [],
+            "due": {
+              "icalString": "20261005T170000",
+              "sourceIcalString": "20261005T090000Z",
+              "isDate": false,
+              "timezone": "Asia/Kuala_Lumpur"
+            },
+            "start": {
+              "icalString": "20261005T170000",
+              "sourceIcalString": "20261005T090000Z",
+              "isDate": false,
+              "timezone": "Asia/Kuala_Lumpur"
+            },
+            "completedDate": null,
+            "description": "Original recurring text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|recurring|20261005T090000Z\",\"token\":\"59742790-ed15-4ec3-9925-3f5fe38684fa\",\"start\":\"2026-10-05T09:08:06.610Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":0,\"end\":\"2026-10-05T09:08:06.995Z\",\"result\":\"stop\"}",
+            "recurring": true,
+            "recurrenceId": "20261005T090000Z",
+            "instanceKey": "acceptance-calendar::recurring::20261005T090000Z"
+          },
+          "expected": {
+            "status": "NEEDS-ACTION",
+            "percentComplete": 0,
+            "description": "Original recurring text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|recurring|20261005T090000Z\",\"token\":\"59742790-ed15-4ec3-9925-3f5fe38684fa\",\"start\":\"2026-10-05T09:08:06.610Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":0,\"end\":\"2026-10-05T09:08:06.995Z\",\"result\":\"stop\"}"
+          }
+        },
+        {
+          "operation": "write/read-back currentWorkId",
+          "success": true,
+          "expected": null,
+          "actual": null
+        }
+      ],
+      "completedAt": "2026-10-05T09:08:07.075Z",
+      "logSaved": true,
+      "logError": null
+    },
+    {
+      "id": "aafcda3d-bd0d-4e83-a25e-a36078a8ef62",
+      "action": "start",
+      "target": {
+        "calendarId": "acceptance-calendar",
+        "id": "seed-a",
+        "recurrenceId": ""
+      },
+      "expected": {
+        "status": "IN-PROCESS",
+        "percentComplete": 41,
+        "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"a571f896-10bf-492b-bf05-99fac0d5e7d4\",\"start\":\"2026-10-05T09:08:04.504Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":\"2026-10-05T09:08:04.849Z\",\"result\":\"stop\"}\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"aafcda3d-bd0d-4e83-a25e-a36078a8ef62\",\"start\":\"2026-10-05T09:08:07.404Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":null,\"result\":null}"
+      },
+      "actual": {
+        "id": "seed-a",
+        "calendarId": "acceptance-calendar",
+        "calendarName": "Acceptance",
+        "title": "Acceptance A",
+        "status": "IN-PROCESS",
+        "completed": false,
+        "percentComplete": 41,
+        "priority": 0,
+        "categories": [],
+        "due": null,
+        "start": null,
+        "completedDate": null,
+        "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"a571f896-10bf-492b-bf05-99fac0d5e7d4\",\"start\":\"2026-10-05T09:08:04.504Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":\"2026-10-05T09:08:04.849Z\",\"result\":\"stop\"}\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"aafcda3d-bd0d-4e83-a25e-a36078a8ef62\",\"start\":\"2026-10-05T09:08:07.404Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":null,\"result\":null}",
+        "recurring": false,
+        "recurrenceId": "",
+        "instanceKey": "acceptance-calendar::seed-a::"
+      },
+      "verified": true,
+      "success": true,
+      "startedAt": "2026-10-05T09:08:07.329Z",
+      "steps": [
+        {
+          "operation": "write task",
+          "success": true,
+          "target": {
+            "calendarId": "acceptance-calendar",
+            "id": "seed-a",
+            "recurrenceId": ""
+          },
+          "expected": {
+            "status": "IN-PROCESS",
+            "percentComplete": 41,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"a571f896-10bf-492b-bf05-99fac0d5e7d4\",\"start\":\"2026-10-05T09:08:04.504Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":\"2026-10-05T09:08:04.849Z\",\"result\":\"stop\"}\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"aafcda3d-bd0d-4e83-a25e-a36078a8ef62\",\"start\":\"2026-10-05T09:08:07.404Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":null,\"result\":null}"
+          }
+        },
+        {
+          "operation": "read-back task",
+          "success": true,
+          "actual": {
+            "id": "seed-a",
+            "calendarId": "acceptance-calendar",
+            "calendarName": "Acceptance",
+            "title": "Acceptance A",
+            "status": "IN-PROCESS",
+            "completed": false,
+            "percentComplete": 41,
+            "priority": 0,
+            "categories": [],
+            "due": null,
+            "start": null,
+            "completedDate": null,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"a571f896-10bf-492b-bf05-99fac0d5e7d4\",\"start\":\"2026-10-05T09:08:04.504Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":\"2026-10-05T09:08:04.849Z\",\"result\":\"stop\"}\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"aafcda3d-bd0d-4e83-a25e-a36078a8ef62\",\"start\":\"2026-10-05T09:08:07.404Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":null,\"result\":null}",
+            "recurring": false,
+            "recurrenceId": "",
+            "instanceKey": "acceptance-calendar::seed-a::"
+          },
+          "expected": {
+            "status": "IN-PROCESS",
+            "percentComplete": 41,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"a571f896-10bf-492b-bf05-99fac0d5e7d4\",\"start\":\"2026-10-05T09:08:04.504Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":\"2026-10-05T09:08:04.849Z\",\"result\":\"stop\"}\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"aafcda3d-bd0d-4e83-a25e-a36078a8ef62\",\"start\":\"2026-10-05T09:08:07.404Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":null,\"result\":null}"
+          }
+        },
+        {
+          "operation": "write/read-back currentWorkId",
+          "success": true,
+          "expected": "acceptance-calendar|seed-a|",
+          "actual": "acceptance-calendar|seed-a|"
+        }
+      ],
+      "completedAt": "2026-10-05T09:08:07.477Z",
+      "logSaved": true,
+      "logError": null
+    },
+    {
+      "id": "97a729ec-bba9-4b5f-bbc0-32ae380e5d3b",
+      "action": "stop",
+      "target": {
+        "calendarId": "acceptance-calendar",
+        "id": "seed-a",
+        "recurrenceId": ""
+      },
+      "expected": {
+        "status": "NEEDS-ACTION",
+        "percentComplete": 41,
+        "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"a571f896-10bf-492b-bf05-99fac0d5e7d4\",\"start\":\"2026-10-05T09:08:04.504Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":\"2026-10-05T09:08:04.849Z\",\"result\":\"stop\"}\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"aafcda3d-bd0d-4e83-a25e-a36078a8ef62\",\"start\":\"2026-10-05T09:08:07.404Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":\"2026-10-05T09:08:09.648Z\",\"result\":\"stop\"}"
+      },
+      "actual": {
+        "id": "seed-a",
+        "calendarId": "acceptance-calendar",
+        "calendarName": "Acceptance",
+        "title": "Acceptance A",
+        "status": "NEEDS-ACTION",
+        "completed": false,
+        "percentComplete": 41,
+        "priority": 0,
+        "categories": [],
+        "due": null,
+        "start": null,
+        "completedDate": null,
+        "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"a571f896-10bf-492b-bf05-99fac0d5e7d4\",\"start\":\"2026-10-05T09:08:04.504Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":\"2026-10-05T09:08:04.849Z\",\"result\":\"stop\"}\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"aafcda3d-bd0d-4e83-a25e-a36078a8ef62\",\"start\":\"2026-10-05T09:08:07.404Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":\"2026-10-05T09:08:09.648Z\",\"result\":\"stop\"}",
+        "recurring": false,
+        "recurrenceId": "",
+        "instanceKey": "acceptance-calendar::seed-a::"
+      },
+      "verified": true,
+      "success": true,
+      "startedAt": "2026-10-05T09:08:09.621Z",
+      "steps": [
+        {
+          "operation": "write task",
+          "success": true,
+          "target": {
+            "calendarId": "acceptance-calendar",
+            "id": "seed-a",
+            "recurrenceId": ""
+          },
+          "expected": {
+            "status": "NEEDS-ACTION",
+            "percentComplete": 41,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"a571f896-10bf-492b-bf05-99fac0d5e7d4\",\"start\":\"2026-10-05T09:08:04.504Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":\"2026-10-05T09:08:04.849Z\",\"result\":\"stop\"}\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"aafcda3d-bd0d-4e83-a25e-a36078a8ef62\",\"start\":\"2026-10-05T09:08:07.404Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":\"2026-10-05T09:08:09.648Z\",\"result\":\"stop\"}"
+          }
+        },
+        {
+          "operation": "read-back task",
+          "success": true,
+          "actual": {
+            "id": "seed-a",
+            "calendarId": "acceptance-calendar",
+            "calendarName": "Acceptance",
+            "title": "Acceptance A",
+            "status": "NEEDS-ACTION",
+            "completed": false,
+            "percentComplete": 41,
+            "priority": 0,
+            "categories": [],
+            "due": null,
+            "start": null,
+            "completedDate": null,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"a571f896-10bf-492b-bf05-99fac0d5e7d4\",\"start\":\"2026-10-05T09:08:04.504Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":\"2026-10-05T09:08:04.849Z\",\"result\":\"stop\"}\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"aafcda3d-bd0d-4e83-a25e-a36078a8ef62\",\"start\":\"2026-10-05T09:08:07.404Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":\"2026-10-05T09:08:09.648Z\",\"result\":\"stop\"}",
+            "recurring": false,
+            "recurrenceId": "",
+            "instanceKey": "acceptance-calendar::seed-a::"
+          },
+          "expected": {
+            "status": "NEEDS-ACTION",
+            "percentComplete": 41,
+            "description": "Original user text\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"a571f896-10bf-492b-bf05-99fac0d5e7d4\",\"start\":\"2026-10-05T09:08:04.504Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":\"2026-10-05T09:08:04.849Z\",\"result\":\"stop\"}\n[CalDAV Assistant session v1] {\"version\":1,\"identity\":\"acceptance-calendar|seed-a|\",\"token\":\"aafcda3d-bd0d-4e83-a25e-a36078a8ef62\",\"start\":\"2026-10-05T09:08:07.404Z\",\"beforeStatus\":\"NEEDS-ACTION\",\"beforePercent\":41,\"end\":\"2026-10-05T09:08:09.648Z\",\"result\":\"stop\"}"
+          }
+        },
+        {
+          "operation": "write/read-back currentWorkId",
+          "success": true,
+          "expected": null,
+          "actual": null
+        }
+      ],
+      "completedAt": "2026-10-05T09:08:09.680Z",
+      "logSaved": true,
+      "logError": null
+    },
+    {
+      "id": "2ed7e891-13fc-4c78-9c37-58d9ff0bc57c",
+      "action": "start",
+      "target": {
+        "calendarId": "acceptance-calendar",
+        "id": "seed-a",
+        "recurrenceId": ""
+      },
+      "expected": null,
+      "actual": null,
+      "verified": false,
+      "success": false,
+      "startedAt": "2026-10-05T09:08:13.909Z",
+      "steps": [],
+      "error": "Unavailable: CalDAV is offline",
+      "completedAt": "2026-10-05T09:08:13.923Z",
+      "logSaved": true,
+      "logError": null
+    }
+  ],
+  "serverReadbacks": [
+    {
+      "action": "start",
+      "uid": "seed-a",
+      "recurrenceId": "",
+      "status": "IN-PROCESS",
+      "percentComplete": 41,
+      "descriptionMatches": true
+    },
+    {
+      "action": "stop",
+      "uid": "seed-a",
+      "recurrenceId": "",
+      "status": "NEEDS-ACTION",
+      "percentComplete": 41,
+      "descriptionMatches": true
+    },
+    {
+      "action": "start",
+      "uid": "seed-b",
+      "recurrenceId": "",
+      "status": "IN-PROCESS",
+      "percentComplete": 35,
+      "descriptionMatches": true
+    },
+    {
+      "action": "complete",
+      "uid": "seed-b",
+      "recurrenceId": "",
+      "status": "COMPLETED",
+      "percentComplete": 100,
+      "descriptionMatches": true
+    },
+    {
+      "action": "start",
+      "uid": "seed-c",
+      "recurrenceId": "",
+      "status": "IN-PROCESS",
+      "percentComplete": 35,
+      "descriptionMatches": true
+    },
+    {
+      "action": "cancel",
+      "uid": "seed-c",
+      "recurrenceId": "",
+      "status": "CANCELLED",
+      "percentComplete": 35,
+      "descriptionMatches": true
+    },
+    {
+      "action": "start",
+      "uid": "recurring",
+      "recurrenceId": "20261005T090000Z",
+      "status": "IN-PROCESS",
+      "percentComplete": 0,
+      "descriptionMatches": true
+    },
+    {
+      "action": "stop",
+      "uid": "recurring",
+      "recurrenceId": "20261005T090000Z",
+      "status": "NEEDS-ACTION",
+      "percentComplete": 0,
+      "descriptionMatches": true
+    },
+    {
+      "action": "start",
+      "uid": "seed-a",
+      "recurrenceId": "",
+      "status": "IN-PROCESS",
+      "percentComplete": 41,
+      "descriptionMatches": true
+    },
+    {
+      "action": "stop",
+      "uid": "seed-a",
+      "recurrenceId": "",
+      "status": "NEEDS-ACTION",
+      "percentComplete": 41,
+      "descriptionMatches": true
+    }
+  ]
+}

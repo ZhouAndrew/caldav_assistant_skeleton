@@ -1,58 +1,24 @@
-# caldav_assistant_thunderbird
+# CalDAV Assistant Thunderbird 0.4.2
 
-Canonical Thunderbird add-on for CalDAV Assistant.
+正式整合版。Thunderbird 153.0.2–153.1.x；保持原安装 ID，可覆盖升级 0.4.1。
 
-## Current canonical version
+Task 只从 Thunderbird 原生 Tasks UI 选择，工具栏 Start 位于 Mark Completed 旁。Work 提供 Stop、Complete、Cancel；currentWorkId 是唯一当前工作指针。核心是 pure functional core + thin effect boundary。Task/Event 事实归 Thunderbird/CalDAV，任务修改遵循 write → read back → compare → receipt。工作历史保存于 VTODO DESCRIPTION，不新建 Work VEVENT 或第二套 Task 状态库。
 
-**0.3.16**
+WordPress 0.3.3 的已验收行为已正式整合：WP-CLI 和 Application Password REST、按 origin 保存的本地 TLS 授权、同日多文章明确选择、持久目标与 Outbox、附件 checkpoint、原日期保留、完整读回比较、marker 幂等与冲突拒绝。自动日志从已验证的 closed session 派生并持久排队。网络发送及 WordPress receipt 独立，不阻塞或回滚四 Action。
 
-0.3.16 is the reduced-lifecycle release candidate built from PR #98. It keeps
-Thunderbird/CalDAV as the Task/Event source of truth and limits Assistant-owned
-authoritative dynamic work state to `currentWorkId`.
+详见 [WordPress 集成说明](WORDPRESS-INTEGRATION-0.4.2.md) 与 [正式发布验收及包身份](acceptance/0.4.2/README.md)。旧 Native Host/Python 实验线不是此正式插件。
 
-The previous canonical baseline was 0.3.15, migrated from the formerly separate
-`ZhouAndrew/thunderbird-taskfix` development line. The legacy
-`integrations/thunderbird/manifest.json` 0.1.x Native Host line is not the current
-Thunderbird add-on.
+## 安装
 
-## 0.3.16 workflow
+Thunderbird → 附加组件和主题 → 齿轮 → 从文件安装附加组件 → 选择正式 0.4.2 XPI → 重启。独立 caldav-wordpress-test 插件不是必要组件。
 
-New workflow actions:
-
-```text
-Start -> Stop | Complete | Cancel
-```
-
-Pause, Resume and Switch Away are no longer exposed as new workflow actions.
-
-Stop restores the immutable pre-Start VTODO status/progress, normalizes any legacy
-paused marker off, closes auxiliary Work history when possible, and clears
-`currentWorkId`.
-
-Old 0.3.15 runtime/audit data remains readable for migration and historical timing,
-but the new workflow never writes the legacy runtime state machine.
-
-## Architecture
-
-The add-on uses Thunderbird-native Calendar/Tasks APIs and Thunderbird's existing
-CalDAV provider connection. The legacy Native Host / Python bridge is not the normal
-Task interaction path.
-
-Work VEVENT is auxiliary history, not workflow truth. WordPress is long-form/daily
-logging, not Task state.
-
-## Build
+## 开发验证和打包
 
 ```bash
 cd caldav_assistant_thunderbird
-chmod +x packaging/build-xpi.sh
-packaging/build-xpi.sh dist/caldav-assistant-experimental-0.3.16.xpi
-python3 tests/check-xpi.py dist/caldav-assistant-experimental-0.3.16.xpi
+npm ci
+npm test
+bash packaging/build-xpi.sh
 ```
 
-## Release gate
-
-A release is not complete merely because the XPI builds. The exact 0.3.16 head must
-pass syntax/typed/behavior harnesses, XPI contract checks, real Thunderbird +
-Radicale (including same-profile restart), real Thunderbird + WordPress, connection
-diagnostics and the interactive Start/Stop/Complete/Cancel human path.
+每次新构建使用新的唯一 Build ID；不得覆盖已有包。复现旧 ID 仅允许用于完全相同字节的验证。已经真实验收的准确发布包保持原样，发布文档和 CI 的修复不改变该包。

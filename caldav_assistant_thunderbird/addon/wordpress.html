@@ -7,7 +7,7 @@
 </head>
 <body>
 <main>
-  <header class="app-header"><h1>WordPress</h1></header>
+  <header class="app-header"><h1>WordPress</h1><span id="build-id"></span></header>
   <nav class="tool-nav">
     <a href="workspace.html">工作</a>
     <a href="today.html">今天</a>
@@ -60,7 +60,7 @@
       <p class="muted">不隐藏 fallback：REST 正常尝试、保守重试、WP-CLI 命令、耗时和错误都会直接显示。完整测试会创建临时 Draft Post / Media、回读验证并删除。</p>
       <div class="tool-actions">
         <button id="quick">快速测试</button>
-        <button id="full">完整读写测试</button>
+        <button id="full">WP-CLI + REST 完整读写测试</button>
         <button id="copy-result">复制完整结果</button>
       </div>
       <div id="test-result" class="result-box">尚未测试。</div>
@@ -71,6 +71,10 @@
       <p id="outbox-status">正在读取……</p>
       <div class="tool-actions">
         <button id="retry-outbox">立即重试</button>
+      </div>
+      <div id="daily-targets"></div>
+      <pre id="outbox-receipts"></pre>
+      <div class="tool-actions">
       </div>
     </section>
   </div>

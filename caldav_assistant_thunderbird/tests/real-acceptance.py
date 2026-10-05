@@ -12,6 +12,7 @@ parser.add_argument('--thunderbird',required=True)
 parser.add_argument('--xvfb',default='Xvfb')
 parser.add_argument('--xpi',required=True)
 parser.add_argument('--output',required=True)
+parser.add_argument('--wordpress-config',help='Private settings JSON for an isolated online fixture; default tests a refused connection')
 args=parser.parse_args()
 output=Path(args.output);output.mkdir(parents=True,exist_ok=True)
 root=Path(tempfile.mkdtemp(prefix='caldav-assistant-041-'))
@@ -69,7 +70,7 @@ try:
  print('CAPABILITIES',client.session,flush=True)
  chrome('''const w=Services.wm.getMostRecentWindow("mail:3pane");w.document.getElementById("tabmail").openTab("tasks",{});w.calSwitchToTaskMode();w.__acceptanceNativeOriginals={progress:w.contextChangeTaskProgress,priority:w.contextChangeTaskPriority};''')
  install=chrome('''const done=arguments[arguments.length-1];(async()=>{const {AddonManager}=ChromeUtils.importESModule("resource://gre/modules/AddonManager.sys.mjs");const f=Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);f.initWithPath(arguments[0]);const install=await AddonManager.getInstallForFile(f);install.addListener({onInstallEnded(i,a){done({id:a.id,version:a.version,active:a.isActive})},onInstallFailed(i){done({error:i.error})}});await install.install();})().catch(e=>done({error:String(e),stack:e.stack}));''',[str(Path(args.xpi).resolve())],True)
- print('INSTALL',install,flush=True);assert install.get('version')=='0.4.1',install;report['checks']['XPIInstall']=True
+ print('INSTALL',install,flush=True);assert install.get('version')==json.loads(__import__('zipfile').ZipFile(args.xpi).read('manifest.json'))['version'],install;report['checks']['XPIInstall']=True
  report['thunderbird']=chrome('return Services.appinfo.version;')
  result=chrome('''const w=Services.wm.getMostRecentWindow("mail:3pane");return {url:w?.location.href,taskTree:!!w?.document.getElementById("calendar-task-tree"),tabs:w?.document.getElementById("tabmail")?.tabInfo.map(t=>({mode:t.mode.name,url:t.browser?.currentURI?.spec}))};''')
  print('WINDOW',result,flush=True)
@@ -146,6 +147,9 @@ try:
  # The visible Work DOM comes from the unchanged installed package.
  wait(lambda:'current-work' in work('return document.body.innerHTML;'));assert 'start-button' not in work('return document.body.innerHTML;')
  report['checks']['WorkUI']=True
+ # Enable a genuinely unavailable independent output. Every action must still commit.
+ output_config=json.loads(Path(args.wordpress_config).read_text()) if args.wordpress_config else {"transport":"application-password","baseUrl":"http://127.0.0.1:9","username":"fixture","applicationPassword":"fixture-only","dailyWorkLogEnabled":True}
+ configured=work('return window.AssistantStorage.saveSettings({wordpress:arguments[0],wordpressDailyTargets:arguments[0].dailyTargets || {}});',[output_config]);assert '__error' not in configured
  select([]);wait(lambda:ui()['disabled']);report['checks']['selection0']=True
  select(['seed-a']);wait(lambda:not ui()['disabled'] and ui()['nativeId']=='seed-a');report['checks']['selection1']=True
  select(['seed-a','seed-b']);wait(lambda:ui()['disabled']);report['checks']['selectionMany']=True
@@ -194,6 +198,12 @@ try:
  wait(lambda:not ui()['currentHidden'] and ui()['title']=='Acceptance A')
  assert storage()['caldavAssistant.currentWorkId']==pointer
  server_compare(click('stop'));report['checks']['Restart']=True
+ if args.wordpress_config:
+  wait(lambda:work('return window.AssistantStorage.listWordPressOutbox().then(rows=>rows.length===0);'))
+  report['checks']['WordPressOnlineOutboxAck']=True
+ else:
+  pending_wp=work('return window.AssistantStorage.listWordPressOutbox();');assert len(pending_wp)>0,pending_wp
+  report['checks']['WordPressFailureIsolation']=True
  # Offline CalDAV cannot produce success from its local cache.
  chrome('''const w=Services.wm.getMostRecentWindow("mail:3pane");w.document.getElementById("tabmail").openTab("tasks",{});w.calSwitchToTaskMode();w.document.getElementById("calendar-task-tree").updateFilter("all");''')
  wait(lambda:chrome('return Services.wm.getMostRecentWindow("mail:3pane").document.getElementById("calendar-task-tree").mTaskArray.some(x=>x.id==="seed-a");'))

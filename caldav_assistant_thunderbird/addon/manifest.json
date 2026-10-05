@@ -1,8 +1,8 @@
 {
   "manifest_version": 2,
-  "name": "CalDAV Assistant Experimental",
-  "description": "Thunderbird native Tasks toolbar Start with verified Start/Stop/Complete/Cancel and recurring-safe currentWorkId.",
-  "version": "0.4.1",
+  "name": "CalDAV Assistant",
+  "description": "Native Thunderbird task work controls and verified durable WordPress logging.",
+  "version": "0.4.2",
   "author": "ZhouAndrew",
   "background": {
     "scripts": [

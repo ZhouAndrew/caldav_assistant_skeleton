@@ -1,0 +1,430 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> caldav-assistant-thunderbird@0.4.2 test
+> npm run typecheck && npm run test:typed && node tests/run-all.js && python3 tests/build-test.py
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> caldav-assistant-thunderbird@0.4.2 typecheck
+> tsc --noEmit
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> caldav-assistant-thunderbird@0.4.2 test:typed
+> tsc --outFile .typed-build/core-tests.js && node .typed-build/core-tests.js
+
+typed-core-harness: PASS
+connection-harness: PASS
+daily-log-harness: PASS
+[CalDAVAssistant] legacy diagnostics migration failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at migrateLegacyDiagnostics (ThunderbirdCalDAV/implementation.js:149:20)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:179:5)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.createTaskApi [as createTask] (ThunderbirdCalDAV/implementation.js:1452:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:416:33
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.createTaskApi [as createTask] (ThunderbirdCalDAV/implementation.js:1452:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:416:33
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:880:5)
+    at async /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:416:23
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.updateTaskApi [as updateTask] (ThunderbirdCalDAV/implementation.js:1464:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:434:31
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:880:5)
+    at async /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:434:21
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.updateTaskApi [as updateTask] (ThunderbirdCalDAV/implementation.js:1464:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:445:27
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:880:5)
+    at async /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:445:17
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.updateTaskApi [as updateTask] (ThunderbirdCalDAV/implementation.js:1464:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:451:27
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:880:5)
+    at async /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:451:17
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.updateTaskApi [as updateTask] (ThunderbirdCalDAV/implementation.js:1464:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:458:15
+    at assertRejects (/workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:12:11)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:457:9
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:886:5)
+    at async assertRejects (/workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:12:5)
+    at async /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:457:3
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.updateTaskApi [as updateTask] (ThunderbirdCalDAV/implementation.js:1464:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:463:15
+    at assertRejects (/workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:12:11)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:462:9
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:886:5)
+    at async assertRejects (/workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:12:5)
+    at async /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:462:3
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.updateTaskApi [as updateTask] (ThunderbirdCalDAV/implementation.js:1464:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:468:15
+    at assertRejects (/workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:12:11)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:467:9
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:886:5)
+    at async assertRejects (/workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:12:5)
+    at async /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:467:3
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.createTaskApi [as createTask] (ThunderbirdCalDAV/implementation.js:1452:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:473:15
+    at assertRejects (/workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:12:11)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:472:9
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:886:5)
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.createTaskApi [as createTask] (ThunderbirdCalDAV/implementation.js:1452:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:478:15
+    at assertRejects (/workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:12:11)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:477:9
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:886:5)
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.createTaskApi [as createTask] (ThunderbirdCalDAV/implementation.js:1452:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:483:15
+    at assertRejects (/workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:12:11)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:482:9
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:886:5)
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.updateTaskApi [as updateTask] (ThunderbirdCalDAV/implementation.js:1464:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:488:15
+    at assertRejects (/workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:12:11)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:487:9
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:886:5)
+    at async assertRejects (/workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:12:5)
+    at async /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:487:3
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.createTaskApi [as createTask] (ThunderbirdCalDAV/implementation.js:1452:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:493:15
+    at assertRejects (/workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:12:11)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:492:9
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:886:5)
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.createEventApi [as createEvent] (ThunderbirdCalDAV/implementation.js:1496:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:498:34
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:880:5)
+    at async /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:498:24
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.createEventApi [as createEvent] (ThunderbirdCalDAV/implementation.js:1496:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:512:35
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:880:5)
+    at async /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:512:25
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.updateEventApi [as updateEvent] (ThunderbirdCalDAV/implementation.js:1509:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:526:13
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:880:5)
+    at async /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:526:3
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.updateEventApi [as updateEvent] (ThunderbirdCalDAV/implementation.js:1509:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:533:13
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:880:5)
+    at async /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:533:3
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.createEventApi [as createEvent] (ThunderbirdCalDAV/implementation.js:1496:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:538:15
+    at assertRejects (/workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:12:11)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:537:9
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:886:5)
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.createEventApi [as createEvent] (ThunderbirdCalDAV/implementation.js:1496:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:543:15
+    at assertRejects (/workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:12:11)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:542:9
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:886:5)
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.createEventApi [as createEvent] (ThunderbirdCalDAV/implementation.js:1496:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:552:15
+    at assertRejects (/workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:12:11)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:551:9
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:886:5)
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.updateEventApi [as updateEvent] (ThunderbirdCalDAV/implementation.js:1509:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:563:34
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:880:5)
+    at async /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:563:24
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.updateEventApi [as updateEvent] (ThunderbirdCalDAV/implementation.js:1509:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:574:15
+    at assertRejects (/workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:12:11)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:573:9
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:886:5)
+    at async assertRejects (/workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:12:5)
+    at async /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:573:3
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.deleteTaskApi [as deleteTask] (ThunderbirdCalDAV/implementation.js:1483:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:594:33
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:880:5)
+    at async /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:594:23
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.deleteEventApi [as deleteEvent] (ThunderbirdCalDAV/implementation.js:1525:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:595:34
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:880:5)
+    at async /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:595:24
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:877:3)
+    at Object.deleteEventApi [as deleteEvent] (ThunderbirdCalDAV/implementation.js:1525:10)
+    at /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:596:38
+[CalDAVAssistant] diagnostics write failed TypeError: Cannot read properties of undefined (reading 'getService')
+    at profileDirectory (ThunderbirdCalDAV/implementation.js:45:6)
+    at profileFile (ThunderbirdCalDAV/implementation.js:50:16)
+    at diagnosticFile (ThunderbirdCalDAV/implementation.js:74:10)
+    at appendDiagnosticLog (ThunderbirdCalDAV/implementation.js:181:16)
+    at loggedMutation (ThunderbirdCalDAV/implementation.js:880:5)
+    at async /workspace/scratch/ccedd853233f/repo/caldav_assistant_thunderbird/tests/direct-caldav-api-harness.js:596:28
+direct-caldav-api-harness: PASS
+native-start-harness: PASS (canonical core/executor, selection, TOCTOU, location, late UI, repeat injection, recreation, cleanup)
+[TaskFix] 0.4.1 installed
+taskfix-addon-harness: PASS
+wordpress-connector-harness: PASS (transport, ambiguity, restart, durable manual logs, conflict, full comparison, 510 concurrent records)
+workflow-harness: PASS (selection, TOCTOU, 4 Actions, recurring, read-back failure, concurrency, WordPress isolation)
+All Thunderbird plugin tests: PASS
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> caldav-assistant-thunderbird@0.4.2 build:core
+> tsc -p tsconfig.build.json
+
+/tmp/tmpns__21o5/a.xpi
+XPI frozen contract: PASS
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> caldav-assistant-thunderbird@0.4.2 build:core
+> tsc -p tsconfig.build.json
+
+/tmp/tmpns__21o5/b.xpi
+XPI frozen contract: PASS
+Unique build IDs and explicit byte reproduction: PASS

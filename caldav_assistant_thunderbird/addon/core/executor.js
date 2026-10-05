@@ -36,7 +36,18 @@
       receipt.error = String(error?.message || error);
     }
     receipt.completedAt = new Date().toISOString();
-    return AssistantStorage.persistResult(receipt,"workflow");
+    const committed = await AssistantStorage.persistResult(receipt,"workflow");
+    if (receipt.success && action !== "start" && globalThis.AssistantDailyLog?.queueVerifiedTaskSession) {
+      try {
+        const output = await AssistantDailyLog.queueVerifiedTaskSession(receipt.actual, receipt);
+        if (output.queued) void AssistantDailyLog.flushOutbox().catch(() => {});
+      } catch (error) {
+        // The authoritative Task and currentWorkId have already committed. Output is independent.
+        committed.wordpressOutput = {success:false,error:String(error?.message || error)};
+        await AssistantStorage.persistResult({action:"wordpress.queue-session",success:false,summary:committed.wordpressOutput.error},"wordpress");
+      }
+    }
+    return committed;
   }
   function run(action,reference,selectionAtClick) {
     const result = queue.then(()=>execute(action,reference,selectionAtClick));
