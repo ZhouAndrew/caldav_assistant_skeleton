@@ -30,7 +30,7 @@ jobs:
           ACCEPTANCE_ARTIFACT_DIR: ${{ github.workspace }}/caldav_assistant_thunderbird/acceptance-artifacts/wordpress
         run: |
           sudo bash tests/prepare-wordpress-ci.sh /tmp/caldav-wordpress-runtime 153.1.0esr
-          sudo /tmp/caldav-wp-venv/bin/python tests/real-wordpress-integrated.py --runtime /tmp/caldav-wordpress-runtime --xpi "$PWD/releases/0.4.2/caldav-assistant-thunderbird-0.4.2-20261005T090627Z-bb8c684b828b46b3a4cdba3bdd62a91e.xpi" --output "$ACCEPTANCE_ARTIFACT_DIR"
+          sudo env -u XDG_RUNTIME_DIR /tmp/caldav-wp-venv/bin/python tests/real-wordpress-integrated.py --runtime /tmp/caldav-wordpress-runtime --xpi "$PWD/releases/0.4.2/caldav-assistant-thunderbird-0.4.2-20261005T090627Z-bb8c684b828b46b3a4cdba3bdd62a91e.xpi" --output "$ACCEPTANCE_ARTIFACT_DIR"
       - name: Upload acceptance artifacts
         if: always()
         uses: actions/upload-artifact@v4
