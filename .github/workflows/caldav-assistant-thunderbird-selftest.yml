@@ -26,7 +26,7 @@ jobs:
         run: |
           git fetch origin fc59b2aab246e689a302e0a153e6ecaec77c2f37
           git bundle verify acceptance/0.4.2/accepted-source.bundle
-          git fetch acceptance/0.4.2/accepted-source.bundle refs/heads/recovery/accepted-thunderbird-0.4.2:refs/heads/recovery/accepted-thunderbird-0.4.2
+          git fetch "$PWD/acceptance/0.4.2/accepted-source.bundle" refs/heads/recovery/accepted-thunderbird-0.4.2:refs/heads/recovery/accepted-thunderbird-0.4.2
           git push origin refs/heads/recovery/accepted-thunderbird-0.4.2
       - name: Install typed development tooling
         run: npm install --no-package-lock
