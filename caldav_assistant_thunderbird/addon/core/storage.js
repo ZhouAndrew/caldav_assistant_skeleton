@@ -10,7 +10,7 @@
   const KEY_RECEIPT = "caldavAssistant.lastReceipt";
   const KEY_WP_OUTBOX = "caldavAssistant.wordpressOutbox";
   const MAX_AUDIT_RECORDS_PER_DAY = 1000;
-  const MAX_OUTBOX_RECORDS = 500;
+
   let auditMigrationDone = false;
 
   function nowIso() {
@@ -251,7 +251,7 @@
     ]);
   }
 
-  async function enqueueWordPressOutbox(entry) {
+  async function enqueueWordPressOutboxUnlocked(entry) {
     const records = await getValue(KEY_WP_OUTBOX, []);
     const item = {
       id: entry?.id || makeId("wp-outbox"),
@@ -261,10 +261,9 @@
       lastError: String(entry?.lastError || ""),
       payload: entry?.payload ?? entry,
     };
+    const existing = Array.isArray(records) ? records.find(row => row.payload?.marker && row.payload.marker === item.payload?.marker) : null;
+    if (existing) return existing;
     const next = Array.isArray(records) ? [...records, item] : [item];
-    if (next.length > MAX_OUTBOX_RECORDS) {
-      next.splice(0, next.length - MAX_OUTBOX_RECORDS);
-    }
     await setValue(KEY_WP_OUTBOX, next);
     return item;
   }
@@ -274,7 +273,7 @@
     return Array.isArray(records) ? records : [];
   }
 
-  async function updateWordPressOutbox(id, patch) {
+  async function updateWordPressOutboxUnlocked(id, patch) {
     const records = await listWordPressOutbox();
     const index = records.findIndex(item => item.id === id);
     if (index < 0) return null;
@@ -283,12 +282,21 @@
     return records[index];
   }
 
-  async function removeWordPressOutbox(id) {
+  async function removeWordPressOutboxUnlocked(id) {
     const records = await listWordPressOutbox();
     const next = records.filter(item => item.id !== id);
     await setValue(KEY_WP_OUTBOX, next);
     return next.length !== records.length;
   }
+
+  let outboxTail = Promise.resolve();
+  function outboxExclusive(fn) {
+    if (globalThis.navigator?.locks) return navigator.locks.request("caldav-assistant-wordpress-outbox", fn);
+    const next = outboxTail.then(fn, fn); outboxTail = next.catch(() => {}); return next;
+  }
+  const enqueueWordPressOutbox = entry => outboxExclusive(() => enqueueWordPressOutboxUnlocked(entry));
+  const updateWordPressOutbox = (id, patch) => outboxExclusive(() => updateWordPressOutboxUnlocked(id, patch));
+  const removeWordPressOutbox = id => outboxExclusive(() => removeWordPressOutboxUnlocked(id));
 
   async function saveLastReceipt(receipt) {
     await setValue(KEY_RECEIPT, receipt);

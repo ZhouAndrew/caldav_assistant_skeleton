@@ -110,7 +110,7 @@
       content: payload.content,
       files: [],
       date: new Date(payload.startIso),
-      prefixTime: false,
+      prefixTime: payload.prefixTime === true,
       marker: payload.marker,
     });
   }
@@ -196,11 +196,6 @@
   }
 
   async function flushOutbox() {
-    const config = await AssistantWordPress.getConfig();
-    if (config.dailyWorkLogEnabled === false) {
-      return {success: true, skipped: true, reason: "disabled", processed: 0};
-    }
-
     const records = await AssistantStorage.listWordPressOutbox();
     let sent = 0;
     let failed = 0;

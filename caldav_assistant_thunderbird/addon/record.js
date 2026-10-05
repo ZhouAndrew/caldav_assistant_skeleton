@@ -11,7 +11,7 @@ function render(result) {
 
   const head = document.createElement("div");
   head.className = "result-summary " + (result.success ? "ok" : "fail");
-  head.textContent = result.success ? "✓ " + result.summary : "✗ " + result.summary;
+  head.textContent = result.success ? "✓ " + result.summary : (result.queued ? "日志已保存在 Outbox，等待重试。 " : "✗ ") + result.summary;
   root.appendChild(head);
 
   const lines = [];
@@ -63,7 +63,7 @@ $("submit").addEventListener("click", async () => {
       files: [...$("files").files],
     });
     render(result);
-    if (result.success) {
+    if (result.success || result.queued) {
       $("content").value = "";
       $("files").value = "";
     }
