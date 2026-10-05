@@ -1,10 +1,10 @@
-# CalDAV Assistant Thunderbird Plugin — Frozen Product Contract v1.1
+# CalDAV Assistant Thunderbird Plugin — Frozen Product Contract v1.2
 
 > **Status: FROZEN**
 >
 > Effective: 2026-10-04
 >
-> v1.1 supersedes v1.0. The earlier fallback Task Picker concept is removed.
+> v1.2 supersedes v1.0. The earlier fallback Task Picker concept is removed.
 
 ## 1. Product role
 
@@ -106,3 +106,15 @@ A release fails acceptance if the user must choose a Task inside CalDAV Assistan
 
 This contract is frozen. Any future product-boundary change requires an explicit
 user decision and a new frozen-contract version.
+
+
+## Final v1.2 corrections (2026-10-04)
+
+- Task Picker and fallback picker do not exist; `task-picker.html` and `task-picker.js` are absent.
+- Thunderbird native Tasks selection is the only selection source. Start is enabled iff `currentWorkId === null` and exactly one native Task is selected.
+- Start re-reads native selection at click time before any VTODO write.
+- `currentWorkId` is the sole dynamic workflow pointer; `caldavAssistant.runtime` and legacy-runtime compatibility are not part of the new architecture.
+- The only lifecycle actions are Start, Stop, Complete and Cancel.
+- The functional core is the single business source of truth; adapters only execute effects.
+- VTODO is authoritative; Work VEVENT and WordPress are auxiliary and cannot roll back verified VTODO transitions.
+- Every authoritative mutation is write → read back → compare → receipt.

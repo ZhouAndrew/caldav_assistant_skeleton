@@ -499,7 +499,7 @@
         document.getElementById("unifinder-todo-tree")
       ),
     });
-    console.info("[TaskFix] 0.3.5 installed");
+    console.info("[TaskFix] 0.4.0 installed");
     return true;
   }
 

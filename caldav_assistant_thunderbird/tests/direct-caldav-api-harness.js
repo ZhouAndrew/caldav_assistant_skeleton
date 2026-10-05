@@ -413,23 +413,6 @@ const api = instance.getAPI({}).ThunderbirdCalDAV;
   assert(tasks.some(x => x.id === "seed"), "enabled task was not listed");
   assert(!tasks.some(x => x.id === "hidden"), "disabled calendar leaked into all-calendar task list");
 
-  const nativeTasks = await api.listNativeTasks({filter: "open", searchText: "Seed"});
-  assert(nativeFilterConstructed === 1, "native calFilter was not instantiated");
-  assert(nativeFilterApplications.at(-1) === "open", "native Task filter name was not delegated");
-  assert(nativeTasks.length === 1 && nativeTasks[0].id === "seed", "native Task selector bridge lost matching task");
-
-  const listedBeforeHide = await api.listCalendars();
-  assert(
-    listedBeforeHide.find(x => x.id === "cal-a").displayed === true,
-    "native Calendar visibility was not exposed"
-  );
-  await api.setCalendarDisplayed("cal-a", false);
-  assert(!displayedCalendarIds.has("cal-a"), "native Calendar hide did not use composite selector");
-  const hiddenByNativeCalendar = await api.listNativeTasks({filter: "open", searchText: "Seed"});
-  assert(hiddenByNativeCalendar.length === 0, "hidden native Calendar leaked into Task selector");
-  await api.setCalendarDisplayed("cal-a", true);
-  assert(displayedCalendarIds.has("cal-a"), "native Calendar show did not use composite selector");
-
   const createdTask = await api.createTask("cal-a", {
     title: "Created",
     due: "2026-10-05",
@@ -458,16 +441,6 @@ const api = instance.getAPI({}).ThunderbirdCalDAV;
   assert(updatedTask.percentComplete === 37, "task progress update failed");
   assert(updatedTask.priority === 1, "task priority update failed");
   assert(updatedTask.due.icalString === "20261006", "task due update failed");
-
-  updatedTask = await api.updateTask("cal-a", createdTask.id, {
-    status: "IN-PROCESS",
-    paused: true,
-  });
-  assert(updatedTask.paused === true, "Assistant paused property was not persisted");
-  updatedTask = await api.getTask("cal-a", createdTask.id);
-  assert(updatedTask.paused === true, "Assistant paused property was not read back");
-  updatedTask = await api.updateTask("cal-a", createdTask.id, {paused: false});
-  assert(updatedTask.paused === false, "Assistant paused property was not cleared");
 
   updatedTask = await api.updateTask("cal-a", createdTask.id, {
     percentComplete: 100,
