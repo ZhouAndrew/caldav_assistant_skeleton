@@ -95,6 +95,7 @@
       taskTitle: String(task?.title || "(untitled task)"),
       workEventUid: String(event?.id || ""),
       dateKey,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       startIso: start.toISOString(),
       endIso: end.toISOString(),
       content:
@@ -110,7 +111,7 @@
       content: payload.content,
       files: [],
       date: new Date(payload.startIso),
-      prefixTime: false,
+      prefixTime: payload.prefixTime === true,
       marker: payload.marker,
     });
   }
@@ -196,11 +197,6 @@
   }
 
   async function flushOutbox() {
-    const config = await AssistantWordPress.getConfig();
-    if (config.dailyWorkLogEnabled === false) {
-      return {success: true, skipped: true, reason: "disabled", processed: 0};
-    }
-
     const records = await AssistantStorage.listWordPressOutbox();
     let sent = 0;
     let failed = 0;
@@ -230,8 +226,25 @@
     };
   }
 
+  async function queueVerifiedTaskSession(task, receipt) {
+    if (!receipt.success || !receipt.verified || receipt.action === "start") return {success:true, skipped:true};
+    const config = await AssistantWordPress.getConfig();
+    if (!config.dailyWorkLogEnabled) return {success:true, skipped:true};
+    const key = AssistantActionPlan.identity(task);
+    const closed = AssistantActionPlan.sessions(task.description || "").filter(session => session.identity === key && session.result === receipt.action && session.end !== null).at(-1);
+    if (!closed) throw new Error("Missing verified closed task session");
+    // Projection of verified VTODO DESCRIPTION, never a Work VEVENT or workflow state.
+    const session = {id:closed.token, start:closed.start, end:closed.end};
+    const records = [];
+    for (const part of splitByLocalDate(new Date(closed.start), new Date(closed.end))) {
+      records.push(await AssistantStorage.enqueueWordPressOutbox({payload:payloadFor(task,session,part.start,part.end), attempts:0, lastError:""}));
+    }
+    return {success:true, queued:true, outboxIds:records.map(record=>record.id)};
+  }
+
   globalThis.AssistantDailyLog = Object.freeze({
     recordClosedWorkSession,
+    queueVerifiedTaskSession,
     flushOutbox,
   });
 })();

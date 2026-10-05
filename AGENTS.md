@@ -26,3 +26,7 @@ Hard constraints:
 - do not silently change unrelated frozen CLI/Public Python API v1 contracts.
 
 If an older Thunderbird-specific implementation note conflicts with the frozen 2026-10-04 rebuild spec, follow the newer rebuild spec.
+
+## Permanent package identity rule (2026-10-05)
+
+Every packaged artifact must have a unique build identifier in its filename and embedded build metadata. Do not reuse a filename or build ID for changed bytes. Keep the installed add-on ID stable for upgrades. Record SHA-256 separately. An explicit existing ID is permitted only to reproduce identical bytes, never for a new release.

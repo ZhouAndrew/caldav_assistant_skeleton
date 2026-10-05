@@ -1,0 +1,33 @@
+{
+  "sha256": "254314340f4cd4b33f4c60eba5b4d041b27ff36a2db358dc71f5a0eb688c46d4",
+  "build": {
+    "buildId": "20261005T090627Z-bb8c684b828b46b3a4cdba3bdd62a91e",
+    "version": "0.4.2",
+    "sourceCommit": "5ae563e24868e1454fcc6ca564ad78e707afbdaf",
+    "sourceDigest": "dc987aa9ee9b4160ec2a3740693247c946bc5eb1c11e798a374b13eca31bda03",
+    "sourceDirty": false
+  },
+  "checks": {
+    "XPIInstall": true,
+    "wp-cli connection": true,
+    "wp-cli full read/write/media/cleanup": true,
+    "wp-cli real manual log + same day": true,
+    "application-password connection": true,
+    "SelfSignedTLS": true,
+    "application-password full read/write/media/cleanup": true,
+    "application-password real manual log + same day": true,
+    "Ambiguous4Retained": true,
+    "ExplicitSelection4Recovered": true,
+    "RealOutageRetained": true,
+    "OutboxSurvivesThunderbirdRestart": true,
+    "RealRecoveryRetry": true,
+    "NoDuplicateOnRecovery": true,
+    "OriginalDateRetained": true,
+    "RealNativeActionsAutomaticWordPressOutput": true
+  },
+  "wordpress": "7.1.2",
+  "wpcli": "WP-CLI 2.12.0",
+  "thunderbird": "153.1.0",
+  "automaticSessionCount": 5,
+  "success": true
+}

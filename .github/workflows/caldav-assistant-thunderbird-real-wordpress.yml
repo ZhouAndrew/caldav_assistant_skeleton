@@ -21,13 +21,16 @@ jobs:
       - name: Install acceptance dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb xdotool openbox libnss3-tools
+          sudo apt-get install -y xvfb mariadb-server php8.3-cli php8.3-mysql php8.3-gd php8.3-xml php8.3-curl
+          sudo systemctl stop mariadb
+          python3 -m venv /tmp/caldav-wp-venv
+          /tmp/caldav-wp-venv/bin/pip install marionette_driver "radicale==3.8.1"
       - name: Real Thunderbird + real WordPress acceptance
         env:
           ACCEPTANCE_ARTIFACT_DIR: ${{ github.workspace }}/caldav_assistant_thunderbird/acceptance-artifacts/wordpress
         run: |
-          chmod +x tests/real-thunderbird-wordpress.sh
-          tests/real-thunderbird-wordpress.sh 153.1.0esr
+          sudo bash tests/prepare-wordpress-ci.sh /tmp/caldav-wordpress-runtime 153.1.0esr
+          sudo env -u XDG_RUNTIME_DIR /tmp/caldav-wp-venv/bin/python tests/real-wordpress-integrated.py --runtime /tmp/caldav-wordpress-runtime --xpi "$PWD/releases/0.4.2/caldav-assistant-thunderbird-0.4.2-20261005T090627Z-bb8c684b828b46b3a4cdba3bdd62a91e.xpi" --output "$ACCEPTANCE_ARTIFACT_DIR"
       - name: Upload acceptance artifacts
         if: always()
         uses: actions/upload-artifact@v4

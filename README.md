@@ -27,6 +27,10 @@ CalDAV Assistant 是一个 **local-first、CLI-first** 的任务与日程助手�
 
 2026-09-27 曾修复一个 P0 通知洪水问题：旧实现虽然提供了 `notifications.enabled` 设置，但生产通知链没有真正执行这个总开关，同时会把历史未投递提醒当作当前提醒补发。事故说明、根因和永久防回归规则见 [`INCIDENTS.md`](INCIDENTS.md)。
 
+## Thunderbird 正式插件
+
+[CalDAV Assistant Thunderbird 0.4.2](caldav_assistant_thunderbird/README.md) 已整合独立 WordPress 输出模块；[准确包与真实验收证据](caldav_assistant_thunderbird/acceptance/0.4.2/README.md)。
+
 ## 文档
 
 - [`GUIDE.md`](GUIDE.md)：完整 CLI、日志、Task/Event 工作方式与排障指南；

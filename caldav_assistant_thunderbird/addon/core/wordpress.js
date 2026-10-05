@@ -38,6 +38,7 @@
       ).trim() || "wp",
       legacyHelperDir: String(config?.legacyHelperDir || "~/bin").trim(),
       allowUntrustedTls: Boolean(config?.allowUntrustedTls),
+      authorizedTlsOrigin: String(config?.authorizedTlsOrigin || ""),
       dailyWorkLogEnabled:
         typeof config?.dailyWorkLogEnabled === "boolean"
           ? config.dailyWorkLogEnabled
@@ -96,6 +97,9 @@
   async function saveConfig(config) {
     const normalized = normalizeConfig(config);
     autoWpCliFallback = false;
+    if (normalized.allowUntrustedTls) {
+      normalized.authorizedTlsOrigin = assertLocalInsecureTlsUrl(normalized.baseUrl).origin;
+    } else normalized.authorizedTlsOrigin = "";
     await AssistantStorage.saveSettings({wordpress: normalized});
     return normalized;
   }
@@ -191,7 +195,8 @@
 
     const useUntrustedLocalTls = Boolean(config.allowUntrustedTls);
     if (useUntrustedLocalTls) {
-      assertLocalInsecureTlsUrl(config.baseUrl);
+      const origin = assertLocalInsecureTlsUrl(config.baseUrl).origin;
+      if (config.authorizedTlsOrigin !== origin) throw new Error("请为当前 HTTPS 地址重新保存 TLS 授权。");
     }
 
     const bridge = useUntrustedLocalTls
@@ -224,9 +229,9 @@
       }
     }
     if (!response?.ok) {
-      throw new Error(
-        `WordPress HTTP ${response?.status || 0}: ${typeof data === "string" ? data : data?.message || response?.statusText || "request failed"}`
-      );
+      const error = new Error(`WordPress HTTP ${response?.status || 0}: ${typeof data === "string" ? data : data?.message || response?.statusText || "request failed"}`);
+      error.code = data?.code || "HTTP_FAILURE";
+      throw error;
     }
     return data;
   }
@@ -484,8 +489,8 @@
     throw new Error(`Unsupported WP-CLI WordPress request: ${method} ${route}`);
   }
 
-  async function request(path, options = {}) {
-    const config = await getConfig();
+  async function request(path, options = {}, override = null) {
+    const config = override || await getConfig();
     if (effectiveTransport(config) === "wp-cli") {
       return wpCliRequest(config, path, options);
     }
@@ -602,7 +607,7 @@
     return new Blob([bytes], {type: "image/png"});
   }
 
-  async function uploadMedia(blob, filename, parent = 0) {
+  async function uploadMedia(blob, filename, parent = 0, override = null) {
     const media = await request("/media", {
       method: "POST",
       headers: {
@@ -610,17 +615,18 @@
         "Content-Type": blob.type || "application/octet-stream",
       },
       body: blob,
-    });
+    }, override);
     if (parent && media?.id) {
       return request(`/media/${media.id}`, {
         method: "POST",
         json: {post: parent},
-      });
+      }, override);
     }
     return media;
   }
 
-  async function fullWriteTest() {
+  async function fullWriteTest(override = null) {
+    const testRequest = (path, options = {}) => request(path, options, override);
     const result = {
       action: "connection.wordpress-full-write",
       success: false,
@@ -635,7 +641,7 @@
     try {
       await validateTransportConfig();
       const marker = `CALDAV-ASSISTANT-TEST-${Date.now()}`;
-      const post = await request("/posts", {
+      const post = await testRequest("/posts", {
         method: "POST",
         json: {
           title: marker,
@@ -647,18 +653,18 @@
       result.postId = postId;
       result.steps.push({name: "create TEST draft post", success: true, postId});
 
-      const read = await request(`/posts/${postId}?context=edit`);
-      if (read?.id !== postId) throw new Error("WordPress post read-back failed.");
+      const read = await testRequest(`/posts/${postId}?context=edit`);
+      if (read?.id !== postId || rawTitle(read) !== marker || rawContent(read) !== "Temporary CalDAV Assistant connector test." || read.status !== "draft") throw new Error("WordPress post read-back failed.");
       result.steps.push({name: "read TEST post", success: true, postId});
 
-      const updated = await request(`/posts/${postId}`, {
+      const updated = await testRequest(`/posts/${postId}`, {
         method: "POST",
         json: {content: "Temporary CalDAV Assistant connector test. UPDATED."},
       });
       if (updated?.id !== postId) throw new Error("WordPress post update failed.");
-      const reread = await request(`/posts/${postId}?context=edit`);
-      const rawContent = reread?.content?.raw || reread?.content?.rendered || "";
-      if (!String(rawContent).includes("UPDATED")) {
+      const reread = await testRequest(`/posts/${postId}?context=edit`);
+      const contentRead = reread?.content?.raw || reread?.content?.rendered || "";
+      if (contentRead !== "Temporary CalDAV Assistant connector test. UPDATED." || reread.id !== postId || rawTitle(reread) !== marker || reread.status !== "draft") {
         throw new Error("WordPress post update read-back mismatch.");
       }
       result.steps.push({name: "update + read-back TEST post", success: true, postId});
@@ -666,21 +672,22 @@
       const media = await uploadMedia(
         pngBlob(),
         "caldav-assistant-connector-test.png",
-        postId
+        postId,
+        override
       );
       mediaId = media.id;
       result.mediaId = mediaId;
       result.steps.push({name: "upload TEST media", success: true, mediaId});
 
-      const mediaRead = await request(`/media/${mediaId}?context=edit`);
-      if (mediaRead?.id !== mediaId) throw new Error("WordPress media read-back failed.");
+      const mediaRead = await testRequest(`/media/${mediaId}?context=edit`);
+      if (mediaRead?.id !== mediaId || mediaRead.post !== postId) throw new Error("WordPress media read-back failed.");
       result.steps.push({name: "read TEST media", success: true, mediaId});
 
-      await request(`/media/${mediaId}?force=true`, {method: "DELETE"});
+      await testRequest(`/media/${mediaId}?force=true`, {method: "DELETE"});
       mediaId = null;
       result.steps.push({name: "delete TEST media", success: true});
 
-      await request(`/posts/${postId}?force=true`, {method: "DELETE"});
+      await testRequest(`/posts/${postId}?force=true`, {method: "DELETE"});
       postId = null;
       result.steps.push({name: "delete TEST post", success: true});
 
@@ -692,7 +699,7 @@
     } finally {
       if (mediaId) {
         try {
-          await request(`/media/${mediaId}?force=true`, {method: "DELETE"});
+          await testRequest(`/media/${mediaId}?force=true`, {method: "DELETE"});
           result.steps.push({name: "cleanup TEST media", success: true, mediaId});
         } catch (error) {
           result.steps.push({name: "cleanup TEST media", success: false, error: errorText(error)});
@@ -700,7 +707,7 @@
       }
       if (postId) {
         try {
-          await request(`/posts/${postId}?force=true`, {method: "DELETE"});
+          await testRequest(`/posts/${postId}?force=true`, {method: "DELETE"});
           result.steps.push({name: "cleanup TEST post", success: true, postId});
         } catch (error) {
           result.steps.push({name: "cleanup TEST post", success: false, error: errorText(error)});
@@ -711,6 +718,16 @@
     result.trace = await diagnosticTraceSince(result.startedAt);
     result.completedAt = new Date().toISOString();
     return AssistantStorage.persistResult(result, "connection");
+  }
+
+  async function dualWriteTest() {
+    const config = await getConfig();
+    const results = [];
+    for (const transport of ["wp-cli", "application-password"]) {
+      const result = await fullWriteTest({...config, transport});
+      results.push({...result, transport});
+    }
+    return AssistantStorage.persistResult({action: "connection.wordpress-dual-write", success: results.every(result => result.success), summary: "WP-CLI 与 REST 双路径验收：" + results.filter(result => result.success).length + "/2 通过", steps: results.flatMap(result => result.steps.map(step => ({...step, name: result.transport + " · " + step.name}))), results, startedAt: results[0].startedAt, completedAt: new Date().toISOString()}, "connection");
   }
 
   const MONTH_NAMES = [
@@ -739,19 +756,10 @@
   }
 
   function matchesDailyLogTitle(title, date = new Date()) {
-    const text = String(title || "").toLocaleLowerCase();
-    const month = MONTH_NAMES[date.getMonth()].toLocaleLowerCase();
-    const monthAbbr = month.slice(0, 3);
-    const weekday = WEEKDAY_NAMES[date.getDay()].toLocaleLowerCase();
-    const year = String(date.getFullYear());
-    const day = String(date.getDate());
-    const dayPattern = new RegExp("(^|[^0-9])" + day + "([^0-9]|$)");
-    return (
-      (text.includes(month) || text.includes(monthAbbr)) &&
-      dayPattern.test(text) &&
-      text.includes(year) &&
-      text.includes(weekday)
-    );
+    const text = String(title || "").toLowerCase().replace(/\s+/g, " ").trim();
+    const canonical = dailyLogTitle(date).toLowerCase();
+    const tokens = value => value.split(" ").sort().join(" ");
+    return tokens(text) === tokens(canonical) || tokens(text) === tokens(canonical.replace(MONTH_NAMES[date.getMonth()].toLowerCase(), MONTH_NAMES[date.getMonth()].slice(0, 3).toLowerCase())) || text === AssistantStorage.localDateKey(date);
   }
 
   function rawTitle(post) {
@@ -777,81 +785,54 @@
     return "caldav-assistant-log-" + Date.now() + "-" + Math.random().toString(16).slice(2);
   }
 
-  async function findDailyLogPost(date = new Date()) {
-    const config = await getConfig();
-
-    if (selectedTransport(config) === "wp-cli") {
-      const helper = await runLegacyHelper(config, "find-today-post.sh");
-      if (helper.available) {
-        if (Number(helper.exitCode ?? -1) !== 0) {
-          throw new Error(
-            "find-today-post.sh failed: " +
-            String(helper.stderr || helper.stdout || "unknown error").trim()
-          );
-        }
-        const helperId = helperPostId(helper.stdout, {strictLine: true});
-        if (helperId) {
-          return request(`/posts/${helperId}?context=edit`);
-        }
-        // The legacy helper deliberately exits 0 when today's post is missing.
-        return null;
-      }
+  async function dailyCandidates(date) {
+    // Enumerate every page. Never silently select the first of multiple matches.
+    const candidates = [];
+    for (let page = 1; ; page++) {
+      let rows;
+      try {rows = await request("/posts?context=edit&status=publish,draft,pending,private,future&per_page=100&page=" + page);}
+      catch (error) {if (page > 1 && error.code === "rest_post_invalid_page") break; throw error;}
+      if (!Array.isArray(rows)) throw new Error("Invalid WordPress post listing");
+      candidates.push(...rows.filter(post => matchesDailyLogTitle(rawTitle(post), date)));
+      if (rows.length < 100 || effectiveTransport(await getConfig()) === "wp-cli" || autoWpCliFallback) break;
     }
+    return candidates;
+  }
 
-    const posts = await request(
-      "/posts?context=edit&per_page=100&search=" +
-      encodeURIComponent(dailyLogSearchText(date))
-    );
-    return (Array.isArray(posts) ? posts : [])
-      .find(post => matchesDailyLogTitle(rawTitle(post), date)) || null;
+  async function selectDailyPost(day, postId) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !Number.isSafeInteger(Number(postId)) || Number(postId) < 1) throw new Error("Invalid daily target");
+    const date = new Date(day + "T12:00:00");
+    const post = await request(`/posts/${Number(postId)}?context=edit`);
+    if (!matchesDailyLogTitle(rawTitle(post), date) || post.status === "trash") throw new Error("Selected post does not match log date");
+    const settings = await AssistantStorage.getSettings();
+    const scope = (await getConfig()).baseUrl || (await getConfig()).wordpressPath;
+    const targets = {...settings.wordpressDailyTargets, [scope + "|" + day]: Number(postId)};
+    await AssistantStorage.saveSettings({wordpressDailyTargets: targets});
+    return {success: true, day, postId: Number(postId), steps: ["selection write", "read back", "compare"]};
   }
 
   async function ensureDailyLogPost(date = new Date()) {
     const title = dailyLogTitle(date);
-    let post = await findDailyLogPost(date);
-    if (post) return {post, title: rawTitle(post) || title, created: false};
-
+    const candidates = await dailyCandidates(date);
     const config = await getConfig();
-    if (selectedTransport(config) === "wp-cli") {
-      const helper = await runLegacyHelper(config, "create-post.sh");
-      if (helper.available) {
-        if (Number(helper.exitCode ?? -1) !== 0) {
-          throw new Error(
-            "create-post.sh failed: " +
-            String(helper.stderr || helper.stdout || "unknown error").trim()
-          );
-        }
-        const helperId = helperPostId(helper.stdout);
-        if (!helperId) {
-          throw new Error("create-post.sh did not report a WordPress post id.");
-        }
-        const read = await request(`/posts/${helperId}?context=edit`);
-        if (read?.id !== helperId || !matchesDailyLogTitle(rawTitle(read), date)) {
-          throw new Error("Legacy create-post.sh read-back mismatch.");
-        }
-        return {
-          post: read,
-          title: rawTitle(read) || title,
-          created: true,
-          legacyHelper: true,
-        };
-      }
-    }
-
-    post = await request("/posts", {
-      method: "POST",
-      json: {
-        title,
-        content: "",
-        status: "publish",
-      },
-    });
-
+    const settings = await AssistantStorage.getSettings();
+    const key = (config.baseUrl || config.wordpressPath) + "|" + AssistantStorage.localDateKey(date);
+    const chosen = settings.wordpressDailyTargets?.[key];
+    let post;
+    if (chosen) {
+      post = candidates.find(row => row.id === chosen);
+      if (!post) throw new Error("Selected daily post no longer matches; Outbox retained");
+    } else if (candidates.length > 1) {
+      const error = new Error("Ambiguous: multiple daily posts; Outbox retained");
+      error.candidates = candidates.map(post => ({id: post.id, title: rawTitle(post), status: post.status}));
+      error.day = AssistantStorage.localDateKey(date);
+      throw error;
+    } else post = candidates[0];
+    if (post) return {post, title: rawTitle(post), created: false};
+    post = await request("/posts", {method: "POST", json: {title, content: "", status: "publish"}});
     const read = await request(`/posts/${post.id}?context=edit`);
-    if (read?.id !== post.id || !matchesDailyLogTitle(rawTitle(read), date)) {
-      throw new Error("WordPress daily log create read-back mismatch.");
-    }
-    return {post: read, title: rawTitle(read) || title, created: true};
+    if (read?.id !== post.id || rawTitle(read) !== title || rawContent(read) !== "" || read.status !== "publish") throw new Error("WordPress daily log create read-back mismatch.");
+    return {post: read, title, created: true};
   }
 
   function currentTimeText(date = new Date()) {
@@ -921,12 +902,14 @@
     return blocks.join("\n");
   }
 
-  async function createLog({
+  async function executeLog({
     content,
     files = [],
     date = new Date(),
     prefixTime = true,
     marker = "",
+    pendingId = "",
+    savedMedia = [],
   }) {
     const logDate = date instanceof Date ? date : new Date(date);
     const result = {
@@ -971,7 +954,11 @@
 
       const before = await request(`/posts/${postId}?context=edit`);
       const previous = rawContent(before);
+      if (!matchesDailyLogTitle(rawTitle(before), logDate)) throw new Error("Daily post changed during read");
       if (previous.includes(`<!-- ${result.marker} -->`)) {
+        const expectedBlock = buildLogAppend(text, savedMedia, result.marker, logDate, prefixTime);
+        if ((files || []).length !== savedMedia.length || !previous.includes(expectedBlock)) throw new Error("Conflict: marker exists with different content");
+        if (previous.split(`<!-- ${result.marker} -->`).length !== 2) throw new Error("Conflict: duplicate marker");
         result.success = true;
         result.deduplicated = true;
         result.steps.push({
@@ -986,7 +973,9 @@
         return AssistantStorage.persistResult(result, "wordpress");
       }
 
-      for (const file of files || []) {
+      if (savedMedia.some(item => item.parent !== postId)) throw new Error("Uploaded attachments belong to another selected daily post; Outbox retained");
+      result.media = [...savedMedia];
+      for (const file of (files || []).slice(savedMedia.length)) {
         const uploaded = await uploadMedia(
           file,
           file.name || "attachment",
@@ -1000,7 +989,14 @@
             file.type || uploaded.mime_type || "application/octet-stream",
           parent: postId,
         };
+        const mediaRead = await request(`/media/${item.id}?context=edit`);
+        if (mediaRead.id !== item.id || mediaRead.post !== postId || mediaRead.source_url !== item.sourceUrl) throw new Error("WordPress media read-back mismatch");
         result.media.push(item);
+        if (pendingId) {
+          const pending = (await AssistantStorage.listWordPressOutbox()).find(row => row.id === pendingId);
+          if (!pending) throw new Error("Missing durable Outbox record");
+          await AssistantStorage.updateWordPressOutbox(pendingId, {payload: {...pending.payload, media: result.media}});
+        }
         result.steps.push({
           name: "upload WordPress media",
           success: true,
@@ -1018,7 +1014,7 @@
         prefixTime
       );
       const next = previous
-        ? previous.replace(/\s+$/, "") + "\n\n" + append
+        ? previous + "\n\n" + append
         : append;
 
       await request(`/posts/${postId}`, {
@@ -1028,7 +1024,7 @@
 
       const read = await request(`/posts/${postId}?context=edit`);
       const verified = rawContent(read);
-      if (!verified.includes(`<!-- ${result.marker} -->`)) {
+      if (verified !== next || read.id !== postId || rawTitle(read) !== rawTitle(before) || read.status !== before.status) {
         throw new Error("WordPress log append read-back mismatch.");
       }
 
@@ -1043,6 +1039,7 @@
         `已追加到 ${daily.title}（Post ${postId}），并完成回读验证。`;
     } catch (error) {
       result.summary = `WordPress log append failed: ${errorText(error)}`;
+      if (error.candidates) {result.candidates = error.candidates; result.day = error.day;}
       result.steps.push({
         name: "failure",
         success: false,
@@ -1054,11 +1051,50 @@
     return AssistantStorage.persistResult(result, "wordpress");
   }
 
+  let writeTail = Promise.resolve();
+  function exclusive(fn) {
+    if (globalThis.navigator?.locks) return navigator.locks.request("caldav-assistant-wordpress-write", fn);
+    const next = writeTail.then(fn, fn); writeTail = next.catch(() => {}); return next;
+  }
+
+  async function pendingCandidates() {
+    const records = await AssistantStorage.listWordPressOutbox();
+    const days = [...new Set(records.map(row => row.payload.dateKey || AssistantStorage.localDateKey(row.payload.startIso || row.payload.date)))];
+    const result = [];
+    for (const day of days) result.push({day, candidates: (await dailyCandidates(new Date(day + "T12:00:00"))).map(post => ({id: post.id, title: rawTitle(post), status: post.status}))});
+    return result;
+  }
+
+  function createLog(options) {
+    return exclusive(async () => {
+      const marker = safeLogMarker(options.marker);
+      let pending = (await AssistantStorage.listWordPressOutbox()).find(row => row.payload.marker === marker);
+      if (!pending) {
+        const files = [];
+        for (const file of options.files || []) files.push({name: file.name || "attachment", type: file.type, base64: bytesToBase64(new Uint8Array(await file.arrayBuffer()))});
+        const date = options.date || new Date();
+        pending = await AssistantStorage.enqueueWordPressOutbox({payload: {type: "manual-log", content: options.content, startIso: date.toISOString(), dateKey: AssistantStorage.localDateKey(date), timeText: currentTimeText(date), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, prefixTime: options.prefixTime !== false, marker, files}});
+      }
+      const payload = pending.payload;
+      const files = (payload.files || []).map(file => {
+        const blob = new Blob([Uint8Array.from(atob(file.base64), char => char.charCodeAt(0))], {type: file.type});
+        blob.name = file.name; return blob;
+      });
+      const result = await executeLog({content: payload.content, date: payload.dateKey ? new Date(payload.dateKey + "T" + (payload.timeText || "12:00") + ":00") : new Date(payload.startIso), prefixTime: payload.prefixTime === true, marker: payload.marker, files, pendingId: pending.id, savedMedia: payload.media || []});
+      if (result.success) await AssistantStorage.removeWordPressOutbox(pending.id);
+      else await AssistantStorage.updateWordPressOutbox(pending.id, {attempts: Number(pending.attempts || 0) + 1, lastError: result.summary});
+      return {...result, queued: !result.success, outboxId: pending.id};
+    });
+  }
+
   globalThis.AssistantWordPress = Object.freeze({
     getConfig,
     saveConfig,
     quickTest,
     fullWriteTest,
+    dualWriteTest,
     createLog,
+    selectDailyPost,
+    pendingCandidates,
   });
 })();

@@ -21,44 +21,19 @@ jobs:
       - name: Install typed development tooling
         run: npm install --no-package-lock
 
-      - name: Strict TypeScript core
+      - name: Syntax and full frozen-contract regression
         run: |
-          npm run typecheck
-          npm run test:typed
-
-      - name: Syntax and behavior
-        run: |
-          node --check addon/content/taskfix-window.js
-          node --check addon/api/TaskFix/implementation.js
-          node --check addon/api/ThunderbirdCalDAV/implementation.js
-          node --check addon/background.js
-          node --check addon/core/storage.js
-          node --check addon/core/executor.js
-          node --check addon/core/connection.js
-          node --check addon/core/wordpress.js
-          node --check addon/core/daily-log.js
-          node --check addon/workspace.js
-          node --check addon/task-picker.js
-          node --check addon/logs.js
-          node --check addon/tools.js
-          node --check addon/wordpress.js
-          node --check addon/record.js
-          node --check addon/today.js
-          node tests/taskfix-addon-harness.js
-          node tests/direct-caldav-api-harness.js
-          node tests/workflow-harness.js
-          node tests/connection-harness.js
-          node tests/wordpress-connector-harness.js
-          node tests/daily-log-harness.js
+          find addon -name '*.js' -print0 | xargs -0 -n1 node --check
+          npm test
           bash -n tests/real-thunderbird-caldav.sh
           bash -n tests/real-thunderbird-wordpress.sh
       - name: Build and verify XPI
         run: |
           chmod +x packaging/build-xpi.sh
-          packaging/build-xpi.sh /tmp/caldav-assistant-experimental-0.3.16.xpi
-          python3 tests/check-xpi.py /tmp/caldav-assistant-experimental-0.3.16.xpi
+          BUILT_XPI="$(packaging/build-xpi.sh | tail -1)"
+          python3 tests/check-xpi.py "$BUILT_XPI"
       - uses: actions/upload-artifact@v4
         with:
-          name: caldav-assistant-experimental-0.3.16
-          path: /tmp/caldav-assistant-experimental-0.3.16.xpi
+          name: caldav-assistant-thunderbird-${{ github.run_id }}-${{ github.run_attempt }}
+          path: caldav_assistant_thunderbird/dist/*.xpi
           if-no-files-found: error

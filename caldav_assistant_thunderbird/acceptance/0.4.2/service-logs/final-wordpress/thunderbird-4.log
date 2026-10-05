@@ -1,0 +1,8 @@
+1791191261663	Marionette	INFO	Marionette enabled
+1791191261716	Marionette	INFO	Listening on port 2828
+[Parent 902, Main Thread] WARNING: Failed to create DBus proxy for org.a11y.Bus: Failed to execute child process “dbus-launch” (No such file or directory)
+: 'glib warning', file checkouts/gecko/toolkit/xre/nsSigHandlers.cpp:200
+
+** (thunderbird-esr:902): WARNING **: 17:07:41.719: Failed to create DBus proxy for org.a11y.Bus: Failed to execute child process “dbus-launch” (No such file or directory)
+
+Exiting due to channel error.

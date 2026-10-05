@@ -1,0 +1,8 @@
+1791191266656	Marionette	INFO	Listening on port 2828
+[Parent 1143, Main Thread] WARNING: Failed to create DBus proxy for org.a11y.Bus: Failed to execute child process “dbus-launch” (No such file or directory)
+: 'glib warning', file checkouts/gecko/toolkit/xre/nsSigHandlers.cpp:200
+
+** (thunderbird-esr:1143): WARNING **: 17:07:46.661: Failed to create DBus proxy for org.a11y.Bus: Failed to execute child process “dbus-launch” (No such file or directory)
+
+JavaScript error: resource://services-settings/Database.sys.mjs, line 19: EmptyDatabaseError: "blocklists/addons-bloomfilters" has not been synced yet
+Exiting due to channel error.

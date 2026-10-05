@@ -26,6 +26,16 @@ function reset(){for(const k of Object.keys(store))delete store[k];order.length=
  reset(); // Concurrent requests share one queue: only one Start can publish.
  const concurrent=await Promise.all([AssistantExecutor.start(null,[seed]),AssistantExecutor.start(null,[seed])]);assert.equal(concurrent.filter(r=>r.success).length,1);
  reset();global.AssistantWordPress={getConfig:()=>{throw new Error('401')}};for(const action of ['stop','complete','cancel']){reset();assert((await AssistantExecutor.start(null,[seed])).success);assert((await AssistantExecutor[action]()).success);}
+ vm.runInThisContext(fs.readFileSync('addon/core/daily-log.js','utf8'));
+ // Local queue errors cannot turn verified task commits into failures.
+ for(const action of ['stop','complete','cancel']){reset();assert((await AssistantExecutor.start(null,[seed])).success);const done=await AssistantExecutor[action]();assert(done.success && done.verified);assert.equal((await AssistantStorage.getLastReceipt()).action,action);}
+ // A permanently pending network request must not block the next work action.
+ reset();global.AssistantWordPress={getConfig:async()=>({dailyWorkLogEnabled:true}),createLog:()=>new Promise(()=>{})};
+ assert((await AssistantExecutor.start(null,[seed])).success);const closed=await AssistantExecutor.stop();assert(closed.success);
+ assert.equal((await AssistantStorage.listWordPressOutbox()).length,1);
+ await AssistantStorage.persistResult({action:'wordpress.output-failed',success:false},'wordpress');
+ assert.equal((await AssistantStorage.getLastReceipt()).action,'stop');
+ selected=[{...seed,id:'b'}];assert((await AssistantExecutor.start(null,selected)).success);
  assert.equal(typeof AssistantExecutor.pause,'undefined');assert.equal(typeof AssistantExecutor.resume,'undefined');
  console.log('workflow-harness: PASS (selection, TOCTOU, 4 Actions, recurring, read-back failure, concurrency, WordPress isolation)');
 })().catch(e=>{console.error(e);process.exitCode=1});

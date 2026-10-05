@@ -245,10 +245,10 @@ echo "PASS: legacy find-today-post.sh/create-post.sh fixture prepared"
 
 echo "== Build production and instrumented XPI =="
 chmod +x "$ROOT/packaging/build-xpi.sh"
-"$ROOT/packaging/build-xpi.sh" "$TMP/base.xpi"
-python3 "$ROOT/tests/check-xpi.py" "$TMP/base.xpi"
+BASE_XPI="$("$ROOT/packaging/build-xpi.sh" "$TMP/base.xpi" | tail -1)"
+python3 "$ROOT/tests/check-xpi.py" "$BASE_XPI"
 mkdir -p "$TMP/addon"
-(cd "$TMP/addon" && unzip -q "$TMP/base.xpi")
+(cd "$TMP/addon" && unzip -q "$BASE_XPI")
 
 python3 - "$TMP/addon" "$APP_PASS" "$WPCLI_BRIDGE" "$WP_BASE_URL" "$HELPER_DIR" <<'PY'
 from pathlib import Path
@@ -426,7 +426,14 @@ setTimeout(() => {
 ''' + "\n")
 PY
 
-(cd "$TMP/addon" && zip -qr "$TMP/acceptance.xpi" .)
+ACCEPTANCE_ID="$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
+ACCEPTANCE_XPI="$TMP/acceptance-$ACCEPTANCE_ID.xpi"
+python3 - "$TMP/addon/build-info.json" "$ACCEPTANCE_ID" <<'PYID'
+import json,sys
+from pathlib import Path
+p=Path(sys.argv[1]);base=json.loads(p.read_text());p.write_text(json.dumps({"buildId":sys.argv[2],"kind":"instrumented-test-only","baseBuild":base})+"\n")
+PYID
+(cd "$TMP/addon" && zip -qr "$ACCEPTANCE_XPI" .)
 
 echo "== Start acceptance report endpoint =="
 cat >"$TMP/report_server.py" <<'PY'
@@ -470,7 +477,7 @@ certutil -A -d "sql:$PROFILE" \
   -i "$TMP/certs/ca.crt"
 certutil -L -d "sql:$PROFILE" | grep -F "CalDAV Assistant Test CA"
 EXT_ID='ZhouAndrew.thunderbird-taskfix-lab@addons.thunderbird.net'
-cp "$TMP/acceptance.xpi" "$PROFILE/extensions/$EXT_ID.xpi"
+cp "$ACCEPTANCE_XPI" "$PROFILE/extensions/$EXT_ID.xpi"
 cat >"$PROFILE/user.js" <<'EOF'
 user_pref("app.update.enabled", false);
 user_pref("browser.shell.checkDefaultBrowser", false);
