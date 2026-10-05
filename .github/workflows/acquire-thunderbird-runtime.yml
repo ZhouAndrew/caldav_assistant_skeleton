@@ -1,0 +1,19 @@
+name: acquire-thunderbird-runtime
+on:
+  push:
+    branches: [ci/thunderbird-040-runtime-20261005]
+permissions:
+  contents: read
+jobs:
+  runtime:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          curl -fL --retry 3 https://archive.mozilla.org/pub/thunderbird/releases/153.1.0esr/linux-x86_64/en-US/thunderbird-153.1.0esr.tar.xz -o thunderbird-153.1.0esr.tar.xz
+          sha256sum thunderbird-153.1.0esr.tar.xz > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: official-thunderbird-153.1.0esr
+          path: |
+            thunderbird-153.1.0esr.tar.xz
+            SHA256SUMS
