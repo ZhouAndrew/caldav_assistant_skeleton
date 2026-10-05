@@ -28,7 +28,12 @@ with zipfile.ZipFile(sys.argv[1]) as z:
     assert 'assistant-work-action' in workspace
     assert 'state.current' not in workspace and 'taskByRef' not in workspace
     for action in ('stop','complete','cancel'): assert action in workspace
-    assert 'deriveStartAvailability' in workspace
+    assert 'start-button' not in z.read('workspace.html').decode()
+    toolbar=z.read('content/native-start.js').decode()
+    background=z.read('background.js').decode()
+    assert 'task-actions-toolbar' in toolbar and 'task-actions-markcompleted' in toolbar
+    assert 'deriveStartAvailability' in background and 'AssistantExecutor.start(null,selection)' in background
+    assert 'updateTask' not in toolbar and 'planWorkAction' not in toolbar
     for n in names:
         if n.endswith('.html'):
             html=z.read(n).decode()

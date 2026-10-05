@@ -18,6 +18,59 @@
         "returns": {
           "type": "any"
         }
+      },
+      {
+        "name": "requestStartState",
+        "type": "function",
+        "parameters": []
+      },
+      {
+        "name": "setStartState",
+        "type": "function",
+        "parameters": [
+          {
+            "name": "windowId",
+            "type": "integer"
+          },
+          {
+            "name": "enabled",
+            "type": "boolean"
+          },
+          {
+            "name": "selection",
+            "type": "any"
+          }
+        ]
+      }
+    ],
+    "events": [
+      {
+        "name": "onSelectionChanged",
+        "type": "function",
+        "parameters": [
+          {
+            "name": "windowId",
+            "type": "integer"
+          },
+          {
+            "name": "selection",
+            "type": "any"
+          }
+        ]
+      },
+      {
+        "name": "onStartRequested",
+        "type": "function",
+        "parameters": [
+          {
+            "name": "windowId",
+            "type": "integer"
+          },
+          {
+            "name": "selection",
+            "type": "any"
+          }
+        ]
       }
     ]
   }

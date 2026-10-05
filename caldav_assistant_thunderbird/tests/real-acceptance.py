@@ -14,7 +14,7 @@ parser.add_argument('--xpi',required=True)
 parser.add_argument('--output',required=True)
 args=parser.parse_args()
 output=Path(args.output);output.mkdir(parents=True,exist_ok=True)
-root=Path(tempfile.mkdtemp(prefix='caldav-assistant-040-'))
+root=Path(tempfile.mkdtemp(prefix='caldav-assistant-041-'))
 profile=root/'profile';profile.mkdir()
 processes=[];logs=[];report={'xpi':str(Path(args.xpi).resolve()),'sha256':hashlib.sha256(Path(args.xpi).read_bytes()).hexdigest(),'checks':{}}
 client=None
@@ -67,32 +67,50 @@ try:
  (profile/'user.js').write_text('\n'.join(f'user_pref({json.dumps(k)}, {json.dumps(v)});' for k,v in prefs.items()))
  tb=start_tb();report['checks']['ThunderbirdStarts']=True
  print('CAPABILITIES',client.session,flush=True)
+ chrome('''const w=Services.wm.getMostRecentWindow("mail:3pane");w.document.getElementById("tabmail").openTab("tasks",{});w.calSwitchToTaskMode();w.__acceptanceNativeOriginals={progress:w.contextChangeTaskProgress,priority:w.contextChangeTaskPriority};''')
  install=chrome('''const done=arguments[arguments.length-1];(async()=>{const {AddonManager}=ChromeUtils.importESModule("resource://gre/modules/AddonManager.sys.mjs");const f=Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);f.initWithPath(arguments[0]);const install=await AddonManager.getInstallForFile(f);install.addListener({onInstallEnded(i,a){done({id:a.id,version:a.version,active:a.isActive})},onInstallFailed(i){done({error:i.error})}});await install.install();})().catch(e=>done({error:String(e),stack:e.stack}));''',[str(Path(args.xpi).resolve())],True)
- print('INSTALL',install,flush=True);assert install.get('version')=='0.4.0',install;report['checks']['XPIInstall']=True
+ print('INSTALL',install,flush=True);assert install.get('version')=='0.4.1',install;report['checks']['XPIInstall']=True
  report['thunderbird']=chrome('return Services.appinfo.version;')
  result=chrome('''const w=Services.wm.getMostRecentWindow("mail:3pane");return {url:w?.location.href,taskTree:!!w?.document.getElementById("calendar-task-tree"),tabs:w?.document.getElementById("tabmail")?.tabInfo.map(t=>({mode:t.mode.name,url:t.browser?.currentURI?.spec}))};''')
  print('WINDOW',result,flush=True)
- chrome('''const w=Services.wm.getMostRecentWindow("mail:3pane");w.calSwitchToTaskMode();''')
+ chrome('''const w=Services.wm.getMostRecentWindow("mail:3pane");w.document.getElementById("tabmail").openTab("tasks",{});w.calSwitchToTaskMode();''')
  result=wait(lambda:chrome('''const w=Services.wm.getMostRecentWindow("mail:3pane");const t=w.document.getElementById("calendar-task-tree");if(!t.__acceptanceFilter){t.__acceptanceFilter=true;t.updateFilter("all");}return t.mTaskArray?.length ? t.mTaskArray.map(x=>({id:x.id,title:x.title,recurrenceId:x.recurrenceId?.icalString || ""})):null;'''),45)
  print('TASKS',result,flush=True)
  ext=chrome('''const {ExtensionParent}=ChromeUtils.importESModule("resource://gre/modules/ExtensionParent.sys.mjs");const ext=ExtensionParent.GlobalManager.extensionMap.get("ZhouAndrew.thunderbird-taskfix-lab@addons.thunderbird.net");return {base:ext.baseURI.spec,views:[...ext.views].map(v=>({type:v.viewType,url:v.url,keys:Object.keys(v)}))};''')
  print('EXT',ext,flush=True);report['checks']['AddonLoads']=True
- chrome('''const w=Services.wm.getMostRecentWindow("mail:3pane");w.document.getElementById("tabmail").openTab("contentTab",{contentPage:arguments[0],url:arguments[0]});''',[ext['base']+'workspace.html'])
+ def toolbar():
+  return chrome("""const w=Services.wm.getMostRecentWindow('mail:3pane');const b=w.document.getElementById('caldav-assistant-task-start');return b?{disabled:b.disabled,id:b.getAttribute('data-task-id'),count:w.document.querySelectorAll('#caldav-assistant-task-start').length,parent:b.parentNode.id,previous:b.previousElementSibling?.id}:null;""")
+ def select(ids):
+  result=chrome("""const w=Services.wm.getMostRecentWindow('mail:3pane');const t=w.document.getElementById('calendar-task-tree');t.mTreeView.selection.clearSelection();for(const uid of arguments[0]){const i=t.mTaskArray.findIndex(x=>x.id===uid);if(i<0)throw new Error('Missing native row '+uid);t.mTreeView.selection.rangedSelect(i,i,true);}return t.selectedTasks.map(x=>({id:x.id,recurrenceId:x.recurrenceId?.icalString || ''}));""",[ids]);assert len(result)==len(ids),result;return result
+ # Verify the toolbar before any Assistant page has ever been opened.
+ wait(lambda:toolbar());assert toolbar()['count']==1 and toolbar()['parent']=='task-actions-toolbar' and toolbar()['previous']=='task-actions-markcompleted',toolbar()
+ assert chrome('return Services.wm.getMostRecentWindow("mail:3pane").document.getElementById("tabmail").currentTabInfo.mode.name;')=='tasks'
+ report['checks'].update(ToolbarStart=True,ToolbarLocation=True,ExactlyOne=True)
+ select([]);wait(lambda:toolbar()['disabled']);report['checks']['selection0']=True
+ select(['seed-a']);wait(lambda:not toolbar()['disabled'] and toolbar()['id']=='seed-a');report['checks']['selection1']=True
+ import base64
+ (output/'native-toolbar-start.png').write_bytes(base64.b64decode(client.screenshot()))
+ select(['seed-a','seed-b']);wait(lambda:toolbar()['disabled']);report['checks']['selectionMany']=True
+ select([]);wait(lambda:toolbar()['disabled']);select(['seed-b']);wait(lambda:not toolbar()['disabled'] and toolbar()['id']=='seed-b');report['checks']['selectionRefreshWithoutWorkPage']=True
+ chrome("""const w=Services.wm.getMostRecentWindow('mail:3pane');w.__acceptanceWorkTab=w.document.getElementById('tabmail').openTab('contentTab',{contentPage:arguments[0],url:arguments[0]});""",[ext['base']+'workspace.html'])
  def work(script,script_args=None):
+  chrome('''const w=Services.wm.getMostRecentWindow("mail:3pane");const t=w.document.getElementById("tabmail");const i=t.tabInfo.findIndex(x=>x.browser?.currentURI?.spec.endsWith("/workspace.html"));if(i>=0)t.switchToTab(i);''')
   return chrome('''const done=arguments[arguments.length-1];const b=Services.wm.getMostRecentWindow("mail:3pane").document.getElementById("tabmail").selectedBrowser;b.browsingContext.currentWindowGlobal.getActor("MarionetteCommands").executeScript(arguments[0],arguments[1],{timeout:20000}).then(done,e=>done({__error:String(e)}));''',[script,script_args or []],True)
  def select(ids):
   result=chrome('''const w=Services.wm.getMostRecentWindow("mail:3pane");const t=w.document.getElementById("calendar-task-tree");t.mTreeView.selection.clearSelection();for(const uid of arguments[0]){const i=t.mTaskArray.findIndex(x=>x.id===uid);if(i<0)throw new Error("Missing native row "+uid);t.mTreeView.selection.rangedSelect(i,i,true);}return t.selectedTasks.map(x=>({id:x.id,recurrenceId:x.recurrenceId?.icalString || ""}));''',[ids]);assert len(result)==len(ids),result;return result
  def ui():
-  result=work('''return {disabled:document.getElementById("start-button").disabled,selection:document.getElementById("selection-status").textContent,currentHidden:document.getElementById("current-work").hidden,title:document.getElementById("current-title").textContent,notice:document.getElementById("notice").textContent};''')
+  result=work('''return {selection:document.getElementById("selection-status").textContent,currentHidden:document.getElementById("current-work").hidden,title:document.getElementById("current-title").textContent,notice:document.getElementById("notice").textContent};''')
   assert '__error' not in result,result
-  return result
+  result['disabled']=toolbar()['disabled'];result['nativeId']=toolbar()['id'];return result
  def storage():
   result=work('return window.browser.storage.local.get(["caldavAssistant.currentWorkId","caldavAssistant.lastReceipt"]);')
   assert '__error' not in result,result
   return result
  def click(action,success=True):
   previous=storage().get('caldavAssistant.lastReceipt',{}).get('id')
-  if action=='start':script='document.getElementById("start-button").click();'
+  if action=='start':
+   chrome('''const w=Services.wm.getMostRecentWindow("mail:3pane");w.document.getElementById("tabmail").openTab("tasks",{});w.calSwitchToTaskMode();const b=w.document.getElementById("caldav-assistant-task-start");const r=b.getBoundingClientRect();if(!r.width || !r.height)throw new Error("Native Start is not visible");b.click();''')
+   script=''
   elif action=='cancel':script='document.querySelector("[data-action=cancel]").click();document.getElementById("cancel-confirm-yes").click();'
   else:script=f'document.querySelector("[data-action={action}]").click();'
   work(script)
@@ -126,23 +144,25 @@ try:
   assert t.description.value==expected['description'],text
   report.setdefault('serverReadbacks',[]).append({'action':receipt['action'],'uid':t.uid.value,'recurrenceId':target,'status':t.status.value,'percentComplete':(int(t.percent_complete.value) if hasattr(t,'percent_complete') else 0),'descriptionMatches':True})
  # The visible Work DOM comes from the unchanged installed package.
- wait(lambda:'start-button' in work('return document.body.innerHTML;'))
+ wait(lambda:'current-work' in work('return document.body.innerHTML;'));assert 'start-button' not in work('return document.body.innerHTML;')
  report['checks']['WorkUI']=True
  select([]);wait(lambda:ui()['disabled']);report['checks']['selection0']=True
- select(['seed-a']);wait(lambda:not ui()['disabled'] and 'Acceptance A' in ui()['selection']);report['checks']['selection1']=True
+ select(['seed-a']);wait(lambda:not ui()['disabled'] and ui()['nativeId']=='seed-a');report['checks']['selection1']=True
  select(['seed-a','seed-b']);wait(lambda:ui()['disabled']);report['checks']['selectionMany']=True
- select(['seed-b']);wait(lambda:not ui()['disabled'] and 'Acceptance B' in ui()['selection']);report['checks']['selectionRefresh']=True
- select(['seed-a']);wait(lambda:not ui()['disabled'] and 'Acceptance A' in ui()['selection'])
- # Change native selection and click the still-rendered A button in the same command.
- previous=storage().get('caldavAssistant.lastReceipt',{}).get('id')
- chrome('''const done=arguments[arguments.length-1];const w=Services.wm.getMostRecentWindow("mail:3pane");const t=w.document.getElementById("calendar-task-tree");t.mTreeView.selection.select(t.mTaskArray.findIndex(x=>x.id==="seed-b"));const b=w.document.getElementById("tabmail").selectedBrowser;b.browsingContext.currentWindowGlobal.getActor("MarionetteCommands").executeScript('document.getElementById("start-button").click();return document.getElementById("selection-status").textContent;',[],{timeout:20000}).then(done);''',[],True)
- stale=wait(lambda:(lambda r:r if r and r.get('id')!=previous else None)(storage().get('caldavAssistant.lastReceipt')))
- assert not stale['success'] and 'selection changed' in stale['error'],stale
- assert storage().get('caldavAssistant.currentWorkId') is None
- assert 'STATUS:NEEDS-ACTION' in http('GET','/acceptance/calendar/seed-a.ics')[1]
- assert 'STATUS:NEEDS-ACTION' in http('GET','/acceptance/calendar/seed-b.ics')[1]
+ select(['seed-b']);wait(lambda:not ui()['disabled'] and ui()['nativeId']=='seed-b');report['checks']['selectionRefresh']=True
+ select(['seed-a']);wait(lambda:not ui()['disabled'] and ui()['nativeId']=='seed-a')
+ # Queue a real native button command, then change selection before background execution.
+ for changed in [['seed-b'],[],['seed-a','seed-b']]:
+  select(['seed-a']);wait(lambda:not toolbar()['disabled'] and toolbar()['id']=='seed-a')
+  previous=storage().get('caldavAssistant.lastReceipt',{}).get('id')
+  chrome("""const w=Services.wm.getMostRecentWindow('mail:3pane');w.document.getElementById("tabmail").openTab("tasks",{});w.calSwitchToTaskMode();w.document.getElementById('caldav-assistant-task-start').click();const t=w.document.getElementById('calendar-task-tree');t.mTreeView.selection.clearSelection();for(const uid of arguments[0])t.mTreeView.selection.rangedSelect(t.mTaskArray.findIndex(x=>x.id===uid),t.mTaskArray.findIndex(x=>x.id===uid),true);""",[changed])
+  stale=wait(lambda:(lambda r:r if r and r.get('id')!=previous else None)(storage().get('caldavAssistant.lastReceipt')))
+  assert not stale['success'] and 'selection changed' in stale['error'],stale
+  assert storage().get('caldavAssistant.currentWorkId') is None
+  assert 'STATUS:NEEDS-ACTION' in http('GET','/acceptance/calendar/seed-a.ics')[1]
+  assert 'STATUS:NEEDS-ACTION' in http('GET','/acceptance/calendar/seed-b.ics')[1]
  report['checks']['TOCTOU']=True
- select(['seed-a']);wait(lambda:not ui()['disabled'] and 'Acceptance A' in ui()['selection'])
+ select(['seed-a']);wait(lambda:not ui()['disabled'] and ui()['nativeId']=='seed-a')
  # Server changes after selection must override the native cached Task data.
  latest=http('GET','/acceptance/calendar/seed-a.ics')[1].replace('PERCENT-COMPLETE:35','PERCENT-COMPLETE:41')
  http('PUT','/acceptance/calendar/seed-a.ics',latest)
@@ -153,7 +173,7 @@ try:
  report['checks']['secondStartGuard']=True
  stopped=click('stop');server_compare(stopped);assert storage()['caldavAssistant.currentWorkId'] is None;report['checks']['Stop']=True
  for uid,action in [('seed-b','complete'),('seed-c','cancel')]:
-  select([uid]);wait(lambda:not ui()['disabled'] and ('Acceptance B' if uid=='seed-b' else 'Acceptance C') in ui()['selection']);server_compare(click('start'));wait(lambda:not ui()['currentHidden']);server_compare(click(action));report['checks'][action.capitalize()]=True
+  select([uid]);wait(lambda:not ui()['disabled'] and ui()['nativeId']==uid);server_compare(click('start'));wait(lambda:not ui()['currentHidden']);server_compare(click(action));report['checks'][action.capitalize()]=True
  # Native recurring occurrence expansion, with real RECURRENCE-ID verification.
  stamp=datetime.now(timezone.utc).strftime('%Y%m%d')+'T090000Z'
  recur=f'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Acceptance//EN\r\nBEGIN:VTODO\r\nUID:recurring\r\nDTSTAMP:{stamp}\r\nDTSTART:{stamp}\r\nDUE:{stamp}\r\nRRULE:FREQ=DAILY;COUNT=3\r\nSUMMARY:Acceptance Recurring\r\nSTATUS:NEEDS-ACTION\r\nPERCENT-COMPLETE:0\r\nDESCRIPTION:Original recurring text\r\nEND:VTODO\r\nEND:VCALENDAR\r\n'
@@ -161,11 +181,11 @@ try:
  chrome('''const {cal}=ChromeUtils.importESModule("resource:///modules/calendar/calUtils.sys.mjs");cal.manager.getCalendarById("acceptance-calendar").refresh();Services.wm.getMostRecentWindow("mail:3pane").document.getElementById("calendar-task-tree").updateFilter("throughsevendays");''')
  recurring_rows=wait(lambda:chrome('''const t=Services.wm.getMostRecentWindow("mail:3pane").document.getElementById("calendar-task-tree");return t.mTaskArray.filter(x=>x.id==="recurring" && x.recurrenceId).map(x=>x.recurrenceId.icalString);''') or None)
  assert recurring_rows,recurring_rows
- select(['recurring']);wait(lambda:not ui()['disabled'] and 'Acceptance Recurring' in ui()['selection']);rec_start=click('start');assert rec_start['target']['recurrenceId'];server_compare(rec_start);wait(lambda:not ui()['currentHidden']);server_compare(click('stop'));report['checks']['Recurring']=True
+ select(['recurring']);wait(lambda:not ui()['disabled'] and ui()['nativeId']=='recurring');rec_start=click('start');assert rec_start['target']['recurrenceId'];server_compare(rec_start);wait(lambda:not ui()['currentHidden']);server_compare(click('stop'));report['checks']['Recurring']=True
  # Restart is a genuine process exit followed by the same isolated profile.
  chrome('''Services.wm.getMostRecentWindow("mail:3pane").document.getElementById("calendar-task-tree").updateFilter("all");''')
  wait(lambda:chrome('return Services.wm.getMostRecentWindow("mail:3pane").document.getElementById("calendar-task-tree").mTaskArray.some(x=>x.id==="seed-a");'))
- select(['seed-a']);wait(lambda:not ui()['disabled'] and 'Acceptance A' in ui()['selection']);before_restart=click('start');server_compare(before_restart)
+ select(['seed-a']);wait(lambda:not ui()['disabled'] and ui()['nativeId']=='seed-a');before_restart=click('start');server_compare(before_restart)
  pointer=storage()['caldavAssistant.currentWorkId'];client.delete_session();client=None
  tb.terminate();tb.wait(timeout=20);assert tb.poll() is not None
  tb=start_tb()
@@ -175,15 +195,34 @@ try:
  assert storage()['caldavAssistant.currentWorkId']==pointer
  server_compare(click('stop'));report['checks']['Restart']=True
  # Offline CalDAV cannot produce success from its local cache.
- chrome('''const w=Services.wm.getMostRecentWindow("mail:3pane");w.calSwitchToTaskMode();w.document.getElementById("calendar-task-tree").updateFilter("all");''')
+ chrome('''const w=Services.wm.getMostRecentWindow("mail:3pane");w.document.getElementById("tabmail").openTab("tasks",{});w.calSwitchToTaskMode();w.document.getElementById("calendar-task-tree").updateFilter("all");''')
  wait(lambda:chrome('return Services.wm.getMostRecentWindow("mail:3pane").document.getElementById("calendar-task-tree").mTaskArray.some(x=>x.id==="seed-a");'))
- select(['seed-a']);wait(lambda:not ui()['disabled'] and 'Acceptance A' in ui()['selection'])
+ select(['seed-a']);wait(lambda:not ui()['disabled'] and ui()['nativeId']=='seed-a')
  chrome('Services.io.offline=true;')
- wait(lambda:not ui()['disabled'] and 'Acceptance A' in ui()['selection'])
+ wait(lambda:not ui()['disabled'] and ui()['nativeId']=='seed-a')
  failed=click('start',False);assert not failed['verified'] and storage()['caldavAssistant.currentWorkId'] is None
  chrome('Services.io.offline=false;')
  assert 'STATUS:NEEDS-ACTION' in http('GET','/acceptance/calendar/seed-a.ics')[1]
  report['checks']['OfflineReject']=True
+ # Repeat activation and late DOM recreation must preserve exactly one entry.
+ work('window.browser.TaskFix.activate();window.browser.TaskFix.activate();')
+ chrome("""Services.wm.getMostRecentWindow('mail:3pane').document.getElementById('caldav-assistant-task-start').remove();""")
+ wait(lambda:toolbar() and toolbar()['count']==1 and toolbar()['previous']=='task-actions-markcompleted')
+ report['checks']['ReinjectAndRecreate']=True
+ # Exercise actual addon disable/re-enable/uninstall, not a simulated cleanup callback.
+ def addon_action(action):
+  return chrome("""const done=arguments[arguments.length-1];const {AddonManager}=ChromeUtils.importESModule('resource://gre/modules/AddonManager.sys.mjs');AddonManager.getAddonByID('ZhouAndrew.thunderbird-taskfix-lab@addons.thunderbird.net').then(a=>a[arguments[0]]()).then(()=>done(true),e=>done({error:String(e)}));""",[action],True)
+ chrome('''const w=Services.wm.getMostRecentWindow("mail:3pane");w.__acceptanceExpectedNative={progress:w.__taskfixAddonState.originals.contextChangeTaskProgress,priority:w.__taskfixAddonState.originals.contextChangeTaskPriority};''')
+ assert addon_action('disable') is True
+ wait(lambda:toolbar() is None)
+ assert chrome("""const w=Services.wm.getMostRecentWindow('mail:3pane');return w.contextChangeTaskProgress===w.__acceptanceExpectedNative.progress && w.contextChangeTaskPriority===w.__acceptanceExpectedNative.priority && !w.document.getElementById('task-actions-status') && !w.document.getElementById('task-context-menu-status');""")
+ report['checks']['DisableCleanup']=True
+ assert addon_action('enable') is True
+ wait(lambda:toolbar() and toolbar()['count']==1)
+ report['checks']['ReenableExactlyOne']=True
+ assert addon_action('uninstall') is True
+ wait(lambda:toolbar() is None)
+ report['checks']['UninstallCleanup']=True
  # Remove only this isolated collection and verify its actual absence.
  http('DELETE','/acceptance/calendar/')
  import urllib.error
@@ -195,6 +234,10 @@ try:
  print('REAL THUNDERBIRD / RADICALE ACCEPTANCE: PASS',flush=True)
 except Exception as e:
  import traceback
+
+ try:
+  report['nativeDebug']=chrome('''const w=Services.wm.getMostRecentWindow("mail:3pane");const b=w.document.getElementById("caldav-assistant-task-start");return {button:b?.outerHTML,bridge:!!w.__caldavAssistantStartBridge,ui:!!w.__caldavAssistantStartUI,selected:w.document.getElementById("calendar-task-tree")?.selectedTasks?.map(t=>({id:t.id,cal:t.calendar?.id})),windowId:w.windowUtils.outerWindowID};''')
+ except Exception:pass
  report['error']=str(e);report['traceback']=traceback.format_exc();print(report['traceback'],flush=True)
 finally:
  if client:

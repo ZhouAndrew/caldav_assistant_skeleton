@@ -53,6 +53,10 @@ function appendTaskFixLog(event, details = {}) {
 }
 
 this.TaskFix = class extends ExtensionCommon.ExtensionAPI {
+  _startWindowIds = new WeakMap();
+  _nextStartWindowId = 1;
+  _selectionListeners = new Set();
+  _startListeners = new Set();
   _activated = false;
   _inject = null;
   _startupRetryTimer = null;
@@ -112,6 +116,13 @@ this.TaskFix = class extends ExtensionCommon.ExtensionAPI {
         }
         try {
           scriptLoader.loadSubScript(scriptURL, window, "UTF-8");
+          if(!this._startWindowIds.has(window)) this._startWindowIds.set(window,this._nextStartWindowId++);
+          const windowId=this._startWindowIds.get(window);
+          window.__caldavAssistantStartBridge={
+            selectionChanged:refs=>{for(const fire of this._selectionListeners) fire.async(windowId,refs);},
+            start:refs=>{for(const fire of this._startListeners) fire.async(windowId,refs);}
+          };
+          scriptLoader.loadSubScript(extension.rootURI.resolve("content/native-start.js"),window,"UTF-8");
         } catch (error) {
           appendTaskFixLog("inject-failed", {
             message: String(error?.message || error),
@@ -166,6 +177,8 @@ this.TaskFix = class extends ExtensionCommon.ExtensionAPI {
 
     for (const window of windowMediator.getEnumerator(null)) {
       try {
+        window.__caldavAssistantStartUI?.cleanup();
+        delete window.__caldavAssistantStartBridge;
         window.__taskfixAddonCleanup?.();
       } catch (error) {
         console.error("[TaskFix] Failed to clean up a window", error);
@@ -194,7 +207,7 @@ this.TaskFix = class extends ExtensionCommon.ExtensionAPI {
     })).filter(ref => ref.id && ref.calendarId);
   }
 
-  getAPI() {
+  getAPI(context) {
     return {
       TaskFix: {
         activate: () => {
@@ -202,6 +215,20 @@ this.TaskFix = class extends ExtensionCommon.ExtensionAPI {
           this._activate();
         },
         getSelectedTasks: async () => this._selectedTaskRefs(),
+        requestStartState: () => {
+          for(const window of windowMediator.getEnumerator(null)) window.__caldavAssistantStartUI?.refresh();
+        },
+        setStartState: (windowId,enabled,refs) => {
+          for(const window of windowMediator.getEnumerator(null)) {
+            if(this._startWindowIds.get(window)===windowId) window.__caldavAssistantStartUI?.update(enabled,refs);
+          }
+        },
+        onSelectionChanged: new ExtensionCommon.EventManager({context,name:"TaskFix.onSelectionChanged",
+          register:fire=>{this._selectionListeners.add(fire);return()=>this._selectionListeners.delete(fire);}
+        }).api(),
+        onStartRequested: new ExtensionCommon.EventManager({context,name:"TaskFix.onStartRequested",
+          register:fire=>{this._startListeners.add(fire);return()=>this._startListeners.delete(fire);}
+        }).api(),
       },
     };
   }
