@@ -181,18 +181,17 @@ this.TaskFix = class extends ExtensionCommon.ExtensionAPI {
   }
 
   _selectedTaskRefs() {
-    for (const window of windowMediator.getEnumerator(null)) {
-      if (!this._isMessengerWindow(window)) continue;
-      const selected = window.getTaskFixSelectedTasks?.();
-      if (!Array.isArray(selected) || !selected.length) continue;
-      return selected.map(task => ({
-        id: String(task?.id || ""),
-        calendarId: String(task?.calendar?.superCalendar?.id || task?.calendar?.id || ""),
-        recurrenceId: String(task?.recurrenceId?.icalString || ""),
-        title: String(task?.title || ""),
-      })).filter(ref => ref.id && ref.calendarId);
-    }
-    return [];
+    const window = windowMediator.getMostRecentWindow("mail:3pane");
+    if (!window || !this._isMessengerWindow(window)) return [];
+    const tree = window.document.getElementById("calendar-task-tree");
+    const selected = tree ? Array.from(tree.selectedTasks || []) : [];
+    if (!Array.isArray(selected)) return [];
+    return selected.map(task => ({
+      id:String(task?.id || ""),
+      calendarId:String(task?.calendar?.superCalendar?.id || task?.calendar?.id || ""),
+      recurrenceId:String(task?.recurrenceId?.icalString || ""),
+      title:String(task?.title || ""),
+    })).filter(ref => ref.id && ref.calendarId);
   }
 
   getAPI() {

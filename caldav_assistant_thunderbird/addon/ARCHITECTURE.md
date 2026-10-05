@@ -1,70 +1,44 @@
-# CalDAV Assistant Thunderbird — program boundary
+# CalDAV Assistant 0.4.0
 
-> **FROZEN implementation/framework contract:** `../FROZEN_IMPLEMENTATION_CONTRACT.md`
->
-> **FROZEN product contract:** `../FROZEN_PRODUCT_CONTRACT.md`
+Thunderbird 153.0.2–153.1.x. Select a Task in Thunderbird's native Tasks UI,
+then use Work. Zero or multiple selected Tasks disable Start. An existing
+currentWorkId prevents a second Start. There is no Assistant Task selector.
 
-The canonical add-on is functional and Thunderbird-native.
+## Business and effect boundaries
 
-## Source of truth
+`src/core.ts` is the canonical pure business source. TypeScript generates
+`addon/core/action-plan.js`; do not maintain separate handwritten rules.
+It validates identity, native selection snapshots, the four actions, session
+history and exact read-back comparisons. Inputs include time and unique tokens;
+the core does not access the clock, browser APIs, storage, DOM or network.
 
-- Thunderbird/CalDAV = Task and Event facts.
-- `browser.storage.local` = settings, `currentWorkId`, audit/history and Outbox.
-- WordPress = explicit long-form/daily records.
+`core/executor.js` serializes actions in the background, rereads native selection
+and the actual Task, rereads currentWorkId, executes the pure plan, performs an
+authenticated CalDAV calendar-multiget, compares, verifies pointer persistence,
+and records the receipt. The native provider boundary supports cached calendars;
+o successful write alone produces a successful workflow receipt.
 
-There is no second Assistant Task database and no writable Assistant workflow state
-machine.
+## Task facts and recovery
 
-## Task selection
+Thunderbird/CalDAV owns Task and Event data. currentWorkId is the only active-work
+pointer: Calendar id, UID and recurrence id. Start, Stop, Complete and Cancel are
+actions. Task status remains the standard VTODO status, never an action name.
+The VTODO DESCRIPTION retains user text and append-only session records with
+pre-Start status/progress. Stop restores those values; Complete sets COMPLETED
+and 100 percent; Cancel sets CANCELLED. No runtime migration or cached Task object
+is used. Restart reads the pointer and actual Task/session history.
 
-There is no Task Picker.
+Work, Today, Record, Logs, WordPress and Tools remain available. WordPress is an
+independent output module and is deferred from the 0.4.0 mainline acceptance;
+workflow actions do not call it.
 
-The user selects a Task in Thunderbird's native Tasks UI. CalDAV Assistant reads
-that native selection. If the selection is empty or ambiguous, the Assistant shows
-guidance and performs no fallback selection UI.
+## Verification
 
-## Functional architecture
-
-```text
-native UI event
--> pure state/workflow function
--> next state + effects
--> thin effect runner
--> Thunderbird/CalDAV/storage/WordPress adapters
--> verified result
--> pure state update
--> render
-```
-
-Workflow policy is expressed with pure functions and immutable data. Side effects
-exist only at explicit boundaries.
-
-## Work lifecycle
-
-```text
-Thunderbird native selection -> Start -> Stop | Complete | Cancel
-```
-
-`currentWorkId` is the only Assistant-owned dynamic work pointer and identifies a
-Task by Calendar id + VTODO UID + recurrence id.
-
-Pause, Resume and Switch Away are legacy migration/history only.
-
-## Reliability
-
-All authoritative writes use:
-
-```text
-write -> read back -> compare -> receipt
-```
-
-Work VEVENT is auxiliary history. WordPress and Work VEVENT failures do not become
-Task truth.
-
-## Top-level UI
-
-Exactly:
-
-```text
-Work | Today | Record | Logs | WordPress | Tools
-```
+Run `npm test`, then `bash packaging/build-xpi.sh`. Production ZIPs are
+reproducible and exclude documentation, tests and development dependencies.
+`tests/real-thunderbird-caldav.sh --thunderbird /path/to/thunderbird --xvfb /path/to/Xvfb
+--xpi /absolute/path/to/final.xpi --output /path/to/evidence` installs the exact
+unchanged XPI into an isolated profile and drives real native Tasks and Work UI.
+It uses isolated Radicale data and checks server VTODOs independently, recurring
+identity, selection races, all actions, same-profile process restart and cleanup.
+Requires Radicale, vobject and marionette_driver on Python's import path.

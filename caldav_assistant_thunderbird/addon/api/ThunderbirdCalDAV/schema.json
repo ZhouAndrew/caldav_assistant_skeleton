@@ -14,41 +14,6 @@
         }
       },
       {
-        "name": "setCalendarDisplayed",
-        "type": "function",
-        "async": true,
-        "description": "Use Thunderbird's native composite Calendar selector to show or hide one calendar.",
-        "parameters": [
-          {
-            "name": "calendarId",
-            "type": "string"
-          },
-          {
-            "name": "displayed",
-            "type": "boolean"
-          }
-        ],
-        "returns": {
-          "type": "any"
-        }
-      },
-      {
-        "name": "listNativeTasks",
-        "type": "function",
-        "async": true,
-        "description": "Read tasks through Thunderbird's native task filter/recurrence engine and currently displayed calendars.",
-        "parameters": [
-          {
-            "name": "options",
-            "type": "any",
-            "optional": true
-          }
-        ],
-        "returns": {
-          "type": "any"
-        }
-      },
-      {
         "name": "listTasks",
         "type": "function",
         "async": true,
@@ -107,6 +72,11 @@
           {
             "name": "recurrenceId",
             "type": "string",
+            "optional": true
+          },
+          {
+            "name": "authoritative",
+            "type": "boolean",
             "optional": true
           }
         ],

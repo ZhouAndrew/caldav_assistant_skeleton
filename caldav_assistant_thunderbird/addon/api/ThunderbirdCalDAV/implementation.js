@@ -33,16 +33,6 @@ const TASK_STATUSES = new Set([
 // These are Thunderbird's own task filter identifiers from the built-in
 // task sidebar / calendar-task-tree. Keep the identifiers, not a copied
 // reimplementation of their semantics.
-const NATIVE_TASK_FILTERS = new Set([
-  "throughcurrent",
-  "throughtoday",
-  "throughsevendays",
-  "notstarted",
-  "overdue",
-  "completed",
-  "open",
-  "all",
-]);
 
 const LOG_FILE_PREFIX = "caldav-assistant-experimental-";
 const LOG_FILE_SUFFIX = ".log";
@@ -982,56 +972,6 @@ function mainCompositeCalendar() {
   return cal.view.getCompositeCalendar(window);
 }
 
-function nativeVisibleCalendars() {
-  const composite = mainCompositeCalendar();
-  if (!composite) {
-    return allCalendars().filter(calendar => !calendar.getProperty("disabled"));
-  }
-  return Array.from(composite.getCalendars() || []).filter(
-    calendar => !calendar.getProperty("disabled")
-  );
-}
-
-function nativeTaskTree() {
-  const window = mainMailWindow();
-  return window?.document?.getElementById?.("calendar-task-tree") || null;
-}
-
-function createNativeTaskFilter(filterName = "open", searchText = "") {
-  const name = String(filterName || "open");
-  if (!NATIVE_TASK_FILTERS.has(name)) {
-    throw new ExtensionError("Unsupported Thunderbird Task filter: " + name);
-  }
-
-  // Thunderbird loads calendar-filter.js into the main mail window itself.
-  // Instantiate that exact native calFilter class instead of reimplementing
-  // its task-date/status/recurrence rules in the add-on. This works even when
-  // the built-in Tasks tab/tree is not currently open.
-  const window = mainMailWindow();
-  const Filter = window?.calFilter;
-  if (typeof Filter !== "function") {
-    throw new ExtensionError(
-      "Thunderbird native calFilter is unavailable in the main mail window"
-    );
-  }
-
-  const filter = new Filter();
-  filter.itemType = Ci.calICalendar.ITEM_FILTER_TYPE_TODO;
-  filter.selectedDate = cal.dtz.now();
-  filter.filterText = String(searchText || "");
-  filter.applyFilter(name);
-  return {filter, tree: nativeTaskTree()};
-}
-
-async function readNativeFilteredTasks(filter, calendar) {
-  const items = [];
-  const stream = cal.iterate.streamValues(filter.getItems(calendar));
-  for await (const chunk of stream) {
-    items.push(...chunk);
-  }
-  return items;
-}
-
 function calendarView(calendar, composite = null) {
   const displayed = composite
     ? Boolean(composite.getCalendarById(calendar.id))
@@ -1108,9 +1048,6 @@ function taskView(item) {
       String(item.calendar?.superCalendar?.id || item.calendar?.id || "") +
       "::" + String(item.id || "") +
       "::" + String(item.recurrenceId?.icalString || ""),
-    paused:
-      String(item.getProperty("X-CALDAV-ASSISTANT-PAUSED") || "").toUpperCase() ===
-      "TRUE",
   };
 }
 
@@ -1295,13 +1232,6 @@ function applyTaskChanges(item, changes) {
   if ("categories" in changes) setCategories(item, changes.categories);
   if ("due" in changes) item.dueDate = fromInputDate(changes.due);
   if ("start" in changes) item.entryDate = fromInputDate(changes.start);
-  if ("paused" in changes) {
-    if (changes.paused) {
-      item.setProperty("X-CALDAV-ASSISTANT-PAUSED", "TRUE");
-    } else {
-      item.deleteProperty("X-CALDAV-ASSISTANT-PAUSED");
-    }
-  }
 
   if ("status" in changes) {
     const status = normalizeTaskStatus(changes.status);
@@ -1433,46 +1363,6 @@ async function listCalendarsApi() {
   return allCalendars().map(calendar => calendarView(calendar, composite));
 }
 
-async function setCalendarDisplayedApi(calendarId, displayed) {
-  const composite = mainCompositeCalendar();
-  if (!composite) {
-    throw new ExtensionError("Thunderbird native Calendar selector is unavailable");
-  }
-  const calendar = calendarById(calendarId);
-  const isDisplayed = Boolean(composite.getCalendarById(calendar.id));
-  if (Boolean(displayed) && !isDisplayed) {
-    composite.addCalendar(calendar);
-  } else if (!displayed && isDisplayed) {
-    composite.removeCalendar(calendar);
-  }
-  return calendarView(calendar, composite);
-}
-
-async function listNativeTasksApi(options = {}) {
-  const {filter, tree} = createNativeTaskFilter(
-    options?.filter || "open",
-    options?.searchText || ""
-  );
-  const batches = await Promise.all(
-    nativeVisibleCalendars()
-      .filter(calendar => calendarSupports(calendar, "task"))
-      .map(async calendar =>
-        (await readNativeFilteredTasks(filter, calendar))
-          .filter(item => item?.isTodo?.())
-      )
-  );
-  const items = batches.flat();
-
-  // Reuse the native tree's active sort column/direction when available.
-  const column = tree?.mTreeView?.selectedColumn;
-  if (column && cal.unifinder?.sortItems) {
-    const key = column.getAttribute("sortKey") || column.getAttribute("itemproperty");
-    const modifier = tree?.mTreeView?.sortDirection === "descending" ? -1 : 1;
-    cal.unifinder.sortItems(items, key, modifier);
-  }
-  return items.map(taskView);
-}
-
 async function listTasksApi(calendarId = "") {
   const filter =
     Ci.calICalendar.ITEM_FILTER_TYPE_TODO |
@@ -1505,9 +1395,50 @@ async function listEventsApi(calendarId = "", start = "", end = "") {
   return batches.flat();
 }
 
-async function getTaskApi(calendarId, itemId, recurrenceId = "") {
+function taskProvider(calendar) {
+  const implementation = calendar.wrappedJSObject || calendar;
+  return implementation.mUncachedCalendar?.wrappedJSObject || implementation.mUncachedCalendar || implementation;
+}
+
+async function readAuthoritativeTask(calendar, itemId, recurrenceId) {
+  if (calendar.type !== "caldav") return findItem(calendar, itemId, "task", recurrenceId);
+  const provider = taskProvider(calendar);
+  const io = Cc["@mozilla.org/network/io-service;1"].getService(Ci.nsIIOService);
+  if (io.offline) throw new ExtensionError("Unavailable: CalDAV is offline");
+  if (typeof provider.getUpdatedItem !== "function") throw new ExtensionError("Unavailable: authoritative CalDAV read is unsupported");
+  const existing = await findItem(provider, itemId, "task", recurrenceId);
+  // Use Thunderbird's authenticated provider, not a second CalDAV client.
+  // getUpdatedItem performs real calendar-multiget and publishes only after response processing.
+  await new Promise((resolve, reject) => {
+    const timer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
+    timer.initWithCallback(() => reject(new ExtensionError("Unavailable: CalDAV read-back timed out")), 15000, Ci.nsITimer.TYPE_ONE_SHOT);
+    provider.getUpdatedItem(existing.parentItem || existing, {
+      QueryInterface: ChromeUtils.generateQI(["calIOperationListener"]),
+      get wrappedJSObject() { return this; },
+      onGetResult() {},
+      async onOperationComplete(_calendar, status, _operation, _id, detail) {
+        timer.cancel();
+        if (!Components.isSuccessCode(status)) {
+          reject(new ExtensionError("Unavailable: CalDAV read-back failed " + status));
+          return;
+        }
+        try {
+          // Cached CalDAV delegates cache publication to its supplied listener.
+          // Mirror the provider's normal no-listener path, using the server-parsed item.
+          if (provider.isCached && detail?.id) await provider.mOfflineStorage.modifyItem(detail, null);
+          resolve();
+        } catch (error) { reject(error); }
+      },
+    });
+  });
+  return findItem(provider, itemId, "task", recurrenceId);
+}
+
+async function getTaskApi(calendarId, itemId, recurrenceId = "", authoritative = false) {
   const calendar = calendarById(calendarId);
-  const item = await findItem(calendar, itemId, "task", recurrenceId);
+  const item = authoritative
+    ? await readAuthoritativeTask(calendar, itemId, recurrenceId)
+    : await findItem(calendar, itemId, "task", recurrenceId);
   return taskView(item);
 }
 
@@ -1608,8 +1539,6 @@ this.ThunderbirdCalDAV = class extends ExtensionAPI {
     return {
       ThunderbirdCalDAV: {
         listCalendars: listCalendarsApi,
-        setCalendarDisplayed: setCalendarDisplayedApi,
-        listNativeTasks: listNativeTasksApi,
         listTasks: listTasksApi,
         listEvents: listEventsApi,
         getTask: getTaskApi,

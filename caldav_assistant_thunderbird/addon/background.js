@@ -111,3 +111,12 @@ function startupOnce() {
 browser.runtime.onInstalled.addListener(() => startupOnce().catch(console.error));
 browser.runtime.onStartup.addListener(() => startupOnce().catch(console.error));
 startupOnce().catch(error => console.error("[CalDAVAssistant] startup failed", error));
+
+// All pages use the same serialized effect boundary.
+browser.runtime.onMessage.addListener(message => {
+  if (message?.type !== "assistant-work-action") return undefined;
+  if (!["start","stop","complete","cancel"].includes(message.action)) return Promise.reject(new Error("Validation: invalid action"));
+  return message.action === "start"
+    ? AssistantExecutor.start(null,message.selectionAtClick)
+    : AssistantExecutor[message.action]();
+});

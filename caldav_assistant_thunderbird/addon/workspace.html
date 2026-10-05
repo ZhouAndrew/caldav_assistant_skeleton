@@ -25,11 +25,12 @@
     <section class="card current-work-card">
       <div class="section-title">
         <h2>当前工作</h2>
-        <a id="task-picker-link" class="button-link" href="task-picker.html">选择 Task</a>
+        <span id="selection-hint" class="task-secondary">请在 Thunderbird 原生 Tasks 中选择</span>
       </div>
 
       <div id="no-current" class="empty-state">
-        当前没有正在工作的 Task。
+        <div id="selection-status">请先在 Thunderbird 原生 Tasks 中选择一个 Task。</div>
+        <button id="start-button" class="primary" disabled>开始</button>
       </div>
 
       <div id="current-work" hidden>
@@ -54,10 +55,7 @@
   </main>
 
   <script src="core/storage.js"></script>
-  <script src="core/wordpress.js"></script>
-  <script src="core/daily-log.js"></script>
   <script src="core/action-plan.js"></script>
-  <script src="core/executor.js"></script>
   <script src="workspace.js"></script>
 </body>
 </html>

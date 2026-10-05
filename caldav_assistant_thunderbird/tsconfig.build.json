@@ -1,0 +1,1 @@
+{"extends":"./tsconfig.json","compilerOptions":{"outFile":"addon/core/action-plan.js","removeComments":false},"include":["src/core.ts"]}

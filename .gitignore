@@ -14,3 +14,5 @@ dist/
 caldav_assistant.egg-info/*.*
 node_modules/
 .typed-build/
+
+caldav_assistant_thunderbird/artifacts/

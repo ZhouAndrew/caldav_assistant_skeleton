@@ -78,8 +78,6 @@ function renderResult(result) {
 
 async function saveSettings() {
   const changed = await AssistantStorage.saveSettingsWithUndo({
-    taskView: $("task-view").value || "incomplete",
-    taskCalendarId: $("task-calendar").value,
     workCalendarId: $("work-calendar").value,
   });
 
@@ -88,7 +86,7 @@ async function saveSettings() {
     success: true,
     startedAt: new Date().toISOString(),
     completedAt: new Date().toISOString(),
-    summary: "Task / Calendar 设置已保存。",
+    summary: "Calendar 测试设置已保存。",
     steps: [{
       component: "Settings",
       operation: "save defaults",
@@ -112,26 +110,12 @@ async function undoSettings() {
     return;
   }
   await load();
-  $("save-result").textContent = "✓ 已撤销刚才的 Calendar / 视图设置。";
+  $("save-result").textContent = "✓ 已撤销刚才的 Calendar 设置。";
 }
 
 async function load() {
   calendars = await browser.ThunderbirdCalDAV.listCalendars();
   const settings = await AssistantStorage.getSettings();
-
-  $("task-calendar").replaceChildren();
-  option($("task-calendar"), "", "全部 Task Calendar");
-  for (
-    const calendar of calendars.filter(
-      item => item.supportsTasks && !item.disabled
-    )
-  ) {
-    option(
-      $("task-calendar"),
-      calendar.id,
-      calendar.name + (calendar.readOnly ? " · 只读" : "")
-    );
-  }
 
   $("work-calendar").replaceChildren();
   for (
@@ -142,12 +126,6 @@ async function load() {
     option($("work-calendar"), calendar.id, calendar.name);
   }
 
-  $("task-view").value = settings.taskView || "incomplete";
-  const taskCalendarExists = [...$("task-calendar").options].some(
-    item => item.value === (settings.taskCalendarId || "")
-  );
-  $("task-calendar").value =
-    taskCalendarExists ? (settings.taskCalendarId || "") : "";
 
   if (
     [...$("work-calendar").options].some(

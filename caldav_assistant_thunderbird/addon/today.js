@@ -13,8 +13,7 @@ function localDay(iso) {
 function actionLabel(action) {
   return {
     start: "开始",
-    pause: "暂停",
-    resume: "继续",
+    stop: "停止",
     complete: "完成",
     cancel: "取消",
   }[action] || action;
@@ -43,7 +42,7 @@ function actionLabel(action) {
     const tr = document.createElement("tr");
     const values = [
       new Date(record.timestamp).toLocaleTimeString(),
-      record.details && record.details.task && record.details.task.title || "—",
+      record.details?.actual?.title || record.details?.target?.id || "—",
       actionLabel(record.action),
       record.success ? "成功" : "失败",
     ];
