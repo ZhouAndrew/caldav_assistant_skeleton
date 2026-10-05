@@ -6,12 +6,13 @@
 
 - Enumerate daily-post candidates across REST pages and WP-CLI; reject ambiguity instead of choosing the first post.
 - Display IDs, titles and statuses in WordPress settings. An explicit date/post selection is saved with storage read-back, scoped to the configured site, and reused after restart.
-- Persist manual text and attachment bytes before attempting any remote write. Preserve existing workflow Outbox records, dates and idempotency markers.
+- Persist manual text and attachment bytes before attempting any remote write. Freeze the original display date/time/timezone for retry; preserve existing workflow Outbox dates and idempotency markers.
 - Compare the entire post content, ID, title and status after writing. Reject conflicting or repeated markers. Preserve existing text and published status.
 - Retry an unavailable output after restart. Never silently evict pending records at a queue size limit. Serialize queue writes and remote log sends across add-on pages with Web Locks.
 - Persist uploaded attachment metadata before appending. Validate media ownership and reject changing a target that already owns uploaded attachments.
 - Bind local self-signed HTTPS authorization to its exact origin. Saving settings is the explicit authorization action. Status refresh does not reset form inputs.
 - Run both WP-CLI and REST when the full write-test button is clicked, regardless of the selected transport. Explicit transports never silently fall back.
+- Serialize audit writes and keep WordPress receipts separate from the last workflow receipt.
 - Project verified closed VTODO DESCRIPTION sessions into the durable Outbox after successful Task/receipt commit. Send in the independent output path; never wait for network access or roll back a Task because WordPress failed.
 - Preserve the verified native Tasks toolbar Start, sole currentWorkId, four work actions and pure functional core. WordPress remains independent of Task truth.
 

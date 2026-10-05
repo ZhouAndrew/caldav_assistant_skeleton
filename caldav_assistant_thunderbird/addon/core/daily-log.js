@@ -95,6 +95,7 @@
       taskTitle: String(task?.title || "(untitled task)"),
       workEventUid: String(event?.id || ""),
       dateKey,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       startIso: start.toISOString(),
       endIso: end.toISOString(),
       content:

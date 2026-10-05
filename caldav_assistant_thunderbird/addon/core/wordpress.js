@@ -1059,7 +1059,7 @@
 
   async function pendingCandidates() {
     const records = await AssistantStorage.listWordPressOutbox();
-    const days = [...new Set(records.map(row => AssistantStorage.localDateKey(row.payload.startIso || row.payload.date)))];
+    const days = [...new Set(records.map(row => row.payload.dateKey || AssistantStorage.localDateKey(row.payload.startIso || row.payload.date)))];
     const result = [];
     for (const day of days) result.push({day, candidates: (await dailyCandidates(new Date(day + "T12:00:00"))).map(post => ({id: post.id, title: rawTitle(post), status: post.status}))});
     return result;
@@ -1072,14 +1072,15 @@
       if (!pending) {
         const files = [];
         for (const file of options.files || []) files.push({name: file.name || "attachment", type: file.type, base64: bytesToBase64(new Uint8Array(await file.arrayBuffer()))});
-        pending = await AssistantStorage.enqueueWordPressOutbox({payload: {type: "manual-log", content: options.content, startIso: (options.date || new Date()).toISOString(), prefixTime: options.prefixTime !== false, marker, files}});
+        const date = options.date || new Date();
+        pending = await AssistantStorage.enqueueWordPressOutbox({payload: {type: "manual-log", content: options.content, startIso: date.toISOString(), dateKey: AssistantStorage.localDateKey(date), timeText: currentTimeText(date), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone, prefixTime: options.prefixTime !== false, marker, files}});
       }
       const payload = pending.payload;
       const files = (payload.files || []).map(file => {
         const blob = new Blob([Uint8Array.from(atob(file.base64), char => char.charCodeAt(0))], {type: file.type});
         blob.name = file.name; return blob;
       });
-      const result = await executeLog({content: payload.content, date: new Date(payload.startIso), prefixTime: payload.prefixTime === true, marker: payload.marker, files, pendingId: pending.id, savedMedia: payload.media || []});
+      const result = await executeLog({content: payload.content, date: payload.dateKey ? new Date(payload.dateKey + "T" + (payload.timeText || "12:00") + ":00") : new Date(payload.startIso), prefixTime: payload.prefixTime === true, marker: payload.marker, files, pendingId: pending.id, savedMedia: payload.media || []});
       if (result.success) await AssistantStorage.removeWordPressOutbox(pending.id);
       else await AssistantStorage.updateWordPressOutbox(pending.id, {attempts: Number(pending.attempts || 0) + 1, lastError: result.summary});
       return {...result, queued: !result.success, outboxId: pending.id};

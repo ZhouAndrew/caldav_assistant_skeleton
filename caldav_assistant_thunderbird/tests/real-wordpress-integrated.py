@@ -129,6 +129,24 @@ try:
  post=json.loads(wp('post','get',str(chosen),'--format=json'));assert post['post_content'].count('REAL OUTAGE RETAINED')==1;check['NoDuplicateOnRecovery']=True
  # Historical date retry must use its own original daily post.
  historical=ui('return window.AssistantWordPress.createLog({content:"Historical integration log",date:new Date("2026-09-01T10:00:00"),marker:"historical-integration-marker"});');assert historical['success'];assert 'September 1' in historical['post']['title'];check['OriginalDateRetained']=True
+ # Verify automatic output from real native Task actions, not only manual records.
+ client.delete_session();client=None;tb.terminate();tb.wait(timeout=20)
+ private_config=profile/'wordpress-fixture.json'
+ private_config.write_text(json.dumps({"transport":"application-password","baseUrl":"https://localhost:18443","username":"acceptance","applicationPassword":(r/'wp-app-password.txt').read_text().strip(),"allowUntrustedTls":True,"authorizedTlsOrigin":"https://localhost:18443","dailyWorkLogEnabled":True,"dailyTargets":{"https://localhost:18443|"+day:chosen}}))
+ private_config.chmod(0o600)
+ child_out=out/'native-task-output';child_out.mkdir(exist_ok=True)
+ with (child_out/'run.log').open('w') as log:
+  subprocess.run([os.sys.executable,str(Path(__file__).with_name('real-acceptance.py')),'--thunderbird',str(r/'thunderbird/thunderbird'),'--xvfb',str(r/'deps/usr/bin/Xvfb'),'--xpi',str(xpi),'--output',str(child_out),'--wordpress-config',str(private_config)],env=env,stdout=log,stderr=log,check=True)
+ native=json.loads((child_out/'report.json').read_text());assert native.get('checks',{}).get('WordPressOnlineOutboxAck'),native
+ content=json.loads(wp('post','get',str(chosen),'--format=json'))['post_content']
+ closed_tokens=[]
+ for receipt in native['receipts']:
+  if receipt['success'] and receipt['action']!='start':
+   history=[json.loads(part.split('\n')[0]) for part in receipt['expected']['description'].split('\n[CalDAV Assistant session v1] ')[1:]]
+   closed_tokens.append([row for row in history if row['end'] and row['result']==receipt['action']][-1]['token'])
+ assert all(content.count('caldav-assistant-work-'+token+'-')==1 for token in closed_tokens),closed_tokens
+ check['RealNativeActionsAutomaticWordPressOutput']=True
+ report['automaticSessionCount']=len(closed_tokens)
  report['success']=all(check.values());print(json.dumps(report,indent=2),flush=True)
 except Exception as e:
  report['success']=False;report['error']=str(e);raise

@@ -178,7 +178,7 @@
     await browser.storage.local.remove(KEY_AUDIT_LEGACY);
   }
 
-  async function appendAudit(entry) {
+  async function appendAuditUnlocked(entry) {
     await migrateLegacyAudit();
     const timestamp = entry?.timestamp || nowIso();
     const dateKey = localDateKey(timestamp) || localDateKey();
@@ -326,12 +326,20 @@
     }
 
     try {
-      await saveLastReceipt(value);
+      if (scope === "wordpress") await setValue("caldavAssistant.lastWordPressReceipt", value);
+      else await saveLastReceipt(value);
     } catch (error) {
       value.cacheSaved = false;
       value.cacheError = String(error?.message || error || "Unknown receipt cache error");
     }
     return value;
+  }
+
+  let auditTail = Promise.resolve();
+  function appendAudit(record) {
+    if (globalThis.navigator?.locks) return navigator.locks.request("caldav-assistant-audit", () => appendAuditUnlocked(record));
+    const next = auditTail.then(() => appendAuditUnlocked(record), () => appendAuditUnlocked(record));
+    auditTail = next.catch(() => {}); return next;
   }
 
   globalThis.AssistantStorage = Object.freeze({

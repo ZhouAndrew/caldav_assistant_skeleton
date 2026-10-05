@@ -44,6 +44,7 @@
       } catch (error) {
         // The authoritative Task and currentWorkId have already committed. Output is independent.
         committed.wordpressOutput = {success:false,error:String(error?.message || error)};
+        await AssistantStorage.persistResult({action:"wordpress.queue-session",success:false,summary:committed.wordpressOutput.error},"wordpress");
       }
     }
     return committed;
