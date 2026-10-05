@@ -25,7 +25,7 @@ The original hash-specific acceptance document is historical and retains its the
 
 The interrupted work left no uncommitted source changes. The stale 0.3.16 README was updated and evidence was checked into the release tree. CI was corrected to run the current full harness, pass the real driver's named arguments and test the unchanged release XPI. WordPress CI now prepares a disposable fixture for the already accepted integrated driver rather than instrumenting a different addon copy.
 
-Direct Git transport in the new execution environment has no usable remote credentials. Authenticated GitHub Git-data operations publish the recovered source tree. `accepted-source.bundle` preserves the original three local commits and their exact hashes, based on `fc59b2aab246e689a302e0a153e6ecaec77c2f37`; publication commit metadata can differ. To recover the original accepted history after cloning:
+The original accepted commits were uploaded intact and protected as GitHub branch `recovery/accepted-thunderbird-0.4.2`. The publication branch includes accepted commit `5ae563e24868e1454fcc6ca564ad78e707afbdaf` as an ancestor. `accepted-source.bundle` also preserves the original three commits, based on `fc59b2aab246e689a302e0a153e6ecaec77c2f37`. An isolated checkout of the exact accepted commit reproduced the original Build ID with byte-identical XPI output and the same SHA-256. To recover the accepted history from the bundle after cloning:
 
 ```bash
 git bundle verify caldav_assistant_thunderbird/acceptance/0.4.2/accepted-source.bundle
