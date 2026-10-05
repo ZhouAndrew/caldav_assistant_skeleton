@@ -12,6 +12,7 @@
 - Persist uploaded attachment metadata before appending. Validate media ownership and reject changing a target that already owns uploaded attachments.
 - Bind local self-signed HTTPS authorization to its exact origin. Saving settings is the explicit authorization action. Status refresh does not reset form inputs.
 - Run both WP-CLI and REST when the full write-test button is clicked, regardless of the selected transport. Explicit transports never silently fall back.
+- Project verified closed VTODO DESCRIPTION sessions into the durable Outbox after successful Task/receipt commit. Send in the independent output path; never wait for network access or roll back a Task because WordPress failed.
 - Preserve the verified native Tasks toolbar Start, sole currentWorkId, four work actions and pure functional core. WordPress remains independent of Task truth.
 
 ## Permanent packaging requirement
