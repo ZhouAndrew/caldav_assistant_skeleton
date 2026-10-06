@@ -1,4 +1,4 @@
-"""Unique package identity; explicit identity is only for verified byte reproduction."""
+"""Unique package identity; an existing identity can only be reused from an exact reference XPI."""
 from pathlib import Path
 from datetime import datetime, timezone
 import hashlib, json, os, subprocess, sys, uuid, zipfile
@@ -6,12 +6,32 @@ import hashlib, json, os, subprocess, sys, uuid, zipfile
 root=Path(__file__).resolve().parent.parent
 addon=root/'addon'
 version=json.loads((addon/'manifest.json').read_text())['version']
-reproduce_build_id=os.environ.get('CALDAV_REPRODUCE_BUILD_ID')
-build_id=reproduce_build_id or datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+uuid.uuid4().hex
-if not all(c.isalnum() or c in '-_' for c in build_id): raise SystemExit('Invalid build ID')
+
+reference_text=os.environ.get('CALDAV_REPRODUCE_FROM_XPI','').strip()
+reference=Path(reference_text).expanduser().resolve() if reference_text else None
+reference_bytes=None
+reference_info=None
+if reference:
+ if not reference.is_file():
+  raise SystemExit(f'Reproduction reference XPI not found: {reference}')
+ reference_bytes=reference.read_bytes()
+ try:
+  with zipfile.ZipFile(reference) as z:
+   if z.testzip(): raise SystemExit('Reproduction reference XPI is corrupt')
+   reference_info=json.loads(z.read('build-info.json'))
+ except (KeyError, json.JSONDecodeError, zipfile.BadZipFile) as error:
+  raise SystemExit(f'Invalid reproduction reference XPI: {error}')
+ build_id=str(reference_info.get('buildId') or '')
+ if not build_id:
+  raise SystemExit('Reproduction reference XPI has no buildId')
+else:
+ build_id=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+uuid.uuid4().hex
+
+if not all(c.isalnum() or c in '-_' for c in build_id):
+ raise SystemExit('Invalid build ID')
 
 out=Path(sys.argv[1]) if len(sys.argv)>1 and sys.argv[1] else root/'dist'/f'caldav-assistant-thunderbird-{version}-{build_id}.xpi'
-if not reproduce_build_id and build_id not in out.name:
+if not reference and build_id not in out.name:
  out=out.with_name(out.stem+'-'+build_id+out.suffix)
 out=out.resolve();out.parent.mkdir(parents=True,exist_ok=True)
 if out.exists(): raise SystemExit('Refusing to overwrite a packaged build')
@@ -22,23 +42,31 @@ source_hash=hashlib.sha256(b''.join(name.encode()+b'\0'+data for name,data in so
 commit=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()
 source_dirty=bool(subprocess.check_output(['git','-C',str(root),'status','--porcelain'],text=True))
 
-if reproduce_build_id:
- expected_digest=os.environ.get('CALDAV_REPRODUCE_SOURCE_DIGEST','').strip()
- expected_commit=os.environ.get('CALDAV_REPRODUCE_SOURCE_COMMIT','').strip()
- if not expected_digest or not expected_commit:
-  raise SystemExit('Reproduction mode requires CALDAV_REPRODUCE_SOURCE_DIGEST and CALDAV_REPRODUCE_SOURCE_COMMIT')
+if reference:
  if source_dirty:
   raise SystemExit('Refusing reproduction from a dirty source tree')
- if source_hash != expected_digest:
-  raise SystemExit(f'Reproduction source digest mismatch: expected {expected_digest}, got {source_hash}')
- if commit != expected_commit:
-  raise SystemExit(f'Reproduction source commit mismatch: expected {expected_commit}, got {commit}')
+ if str(reference_info.get('version') or '') != version:
+  raise SystemExit(f'Reproduction version mismatch: reference {reference_info.get("version")}, source {version}')
+ if str(reference_info.get('sourceDigest') or '') != source_hash:
+  raise SystemExit('Reproduction source digest does not match the reference XPI')
+ if str(reference_info.get('sourceCommit') or '') != commit:
+  raise SystemExit('Reproduction source commit does not match the reference XPI')
 
 info={'buildId':build_id,'version':version,'sourceCommit':commit,'sourceDigest':source_hash,'sourceDirty':source_dirty}
 files['build-info.json']=(json.dumps(info,indent=2)+'\n').encode()
 with zipfile.ZipFile(out,'x',compression=zipfile.ZIP_DEFLATED) as z:
  for name,data in sorted(files.items()):
-  entry=zipfile.ZipInfo(name,(2026,1,1,0,0,0));entry.compress_type=zipfile.ZIP_DEFLATED;entry.external_attr=0o100644<<16;z.writestr(entry,data)
+  entry=zipfile.ZipInfo(name,(2026,1,1,0,0,0))
+  entry.compress_type=zipfile.ZIP_DEFLATED
+  entry.external_attr=0o100644<<16
+  z.writestr(entry,data)
 with zipfile.ZipFile(out) as z:
- if z.testzip():raise SystemExit('Corrupt package')
+ if z.testzip():
+  out.unlink(missing_ok=True)
+  raise SystemExit('Corrupt package')
+
+if reference_bytes is not None and out.read_bytes()!=reference_bytes:
+ out.unlink(missing_ok=True)
+ raise SystemExit('Reproduction archive differs from the reference XPI')
+
 print(out)
