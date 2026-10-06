@@ -11,6 +11,7 @@ with tempfile.TemporaryDirectory() as tmp:
  subprocess.run(['python3','tests/check-xpi.py',str(original)],check=True)
  with zipfile.ZipFile(original) as z:
   info=json.loads(z.read('build-info.json'))
+  assert info['sourceDirty'] is False,'clean packaged addon was marked dirty'
   assert all(i.date_time==(2026,1,1,0,0,0) for i in z.infolist())
 
  reproduce_env={**os.environ,'CALDAV_REPRODUCE_FROM_XPI':str(original)}
@@ -35,6 +36,21 @@ with tempfile.TemporaryDirectory() as tmp:
  )
  assert old_id_attempt.returncode != 0,'changed source reused the accepted 0.4.2 build ID'
  assert not (tmp/'old-id.xpi').exists(),'failed old-ID reproduction left an artifact behind'
+
+ # Reproduction is also refused if any packaged addon source is dirty.
+ dirty_probe=Path('addon/.reproduction-dirty-probe')
+ dirty_probe.write_text('dirty\n')
+ try:
+  dirty_attempt=subprocess.run(
+   ['python3','packaging/build-xpi.py',str(tmp/'dirty-output.xpi')],
+   env=reproduce_env,
+   capture_output=True,
+   text=True,
+  )
+ finally:
+  dirty_probe.unlink(missing_ok=True)
+ assert dirty_attempt.returncode != 0,'dirty addon source was accepted for reproduction'
+ assert not (tmp/'dirty-output.xpi').exists(),'dirty reproduction left an artifact behind'
 
  # A caller cannot substitute another file that merely claims a published build ID.
  tampered=tmp/'tampered-reference.xpi'
