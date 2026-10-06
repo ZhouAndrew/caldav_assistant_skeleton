@@ -9,16 +9,18 @@ for (const id of ["quick-capture", "capture-result", "open-post", "post-preview"
 const requests = [];
 let outcome = {success: true, post: {link: "http://example.test/today?view=full#end"}};
 let release;
-let scrollCalls = [];
+const notifications = [];
 const context = {
   document: {getElementById: id => nodes.get(id)}, URL, Date,
+  Event: class {constructor(type) {this.type = type;}},
+  window: {dispatchEvent(event) {notifications.push(event.type);}},
   AssistantWordPress: {async createLog(payload) {
     requests.push(payload);
     if (release === null) await new Promise(resolve => {release = resolve;});
     return outcome;
   }},
   browser: {tabs: {getCurrent: async () => ({id: 7})},
-    PostPreview: {scrollToBottom: async (...args) => {scrollCalls.push(args);}}},
+    PostPreview: {}},
 };
 vm.runInNewContext(fs.readFileSync("addon/quick-capture.js", "utf8"), context);
 const capture = nodes.get("quick-capture");
@@ -37,19 +39,13 @@ function drop(files) {
 }
 (async () => {
   assert.deepEqual(Object.keys(capture.listeners).sort(), ["dragover", "drop", "paste"]);
-  assert.deepEqual(Object.keys(preview.listeners), ["load"]);
+  assert.deepEqual(Object.keys(preview.listeners), []);
   assert([...nodes].filter(([id]) => id !== "quick-capture")
     .every(([, node]) => !node.listeners.paste && !node.listeners.drop && !node.listeners.dragover));
   assert(!paste("  "));
   assert(paste("first\nsecond")); await flush();
   assert.equal(requests[0].content, "first\nsecond");
-  assert.equal(nodes.get("open-post").href, outcome.post.link);
-  const refreshed = new URL(preview.src);
-  assert.equal(refreshed.searchParams.get("view"), "full");
-  assert(refreshed.searchParams.has("refresh"));
-  assert.equal(refreshed.hash, "#end");
-  await preview.listeners.load();
-  assert.deepEqual(scrollCalls, [[7, preview.src]]);
+  assert.deepEqual(notifications, ["assistant-wordpress-appended"]);
   const image = {name: "clipboard.png", type: "image/png"};
   assert(paste("", [], [{kind: "file", getAsFile: () => image}])); await flush();
   assert.equal(requests[1].files[0], image);

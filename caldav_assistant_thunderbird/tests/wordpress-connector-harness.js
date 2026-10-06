@@ -389,13 +389,19 @@ for (const path of ["addon/core/storage.js", "addon/core/wordpress.js"]) {
   const date = new Date(2026, 9, 5, 15, 7);
   const canonical = "October 5 Monday 2026";
   posts.clear();
+  assert((await AssistantWordPress.readDailyLogPost(date)) === null, "read-only missing Post must be null");
+  assert(posts.size === 0, "read-only preview created a daily Post");
   posts.set(500,{id:500,title:{raw:canonical},content:{raw:"Original content"},status:"publish"});
   posts.set(501,{id:501,title:{raw:"October 5  Monday 2026"},content:{raw:"Other candidate"},status:"draft"});
+  let previewAmbiguous = false;
+  try {await AssistantWordPress.readDailyLogPost(date);} catch (error) {previewAmbiguous = /Ambiguous/.test(error.message);}
+  assert(previewAmbiguous, "read-only preview silently chose an ambiguous Post");
   const blocked = await AssistantWordPress.createLog({content:"Kept across restart",date,marker:"recover-old-1"});
   assert(!blocked.success && blocked.queued && blocked.candidates.length === 2, "Ambiguous target was silently chosen");
   assert((await AssistantStorage.listWordPressOutbox()).length === 1, "Failed manual log not durable");
   assert(posts.get(500).content.raw === "Original content" && posts.get(501).content.raw === "Other candidate", "Ambiguity changed posts");
   await AssistantWordPress.selectDailyPost("2026-10-05",500);
+  assert((await AssistantWordPress.readDailyLogPost(date)).id === 500, "read-only preview ignored daily selection");
   vm.runInThisContext(fs.readFileSync("addon/core/wordpress.js", "utf8"));
   const recovery = await AssistantDailyLog.flushOutbox();
   assert(recovery.sent === 1 && recovery.failed === 0, "Saved daily choice lost on service reload");

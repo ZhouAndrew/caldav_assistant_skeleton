@@ -153,6 +153,24 @@ try:
  wp('option','update','home','http://127.0.0.1:18880');wp('option','update','siteurl','http://127.0.0.1:18880')
  config('wp-cli','http://127.0.0.1:18880')
  page('workspace')
+ wait(lambda:ui('return document.getElementById("preview-status").textContent==="今天尚无日志 Post。";'))
+ assert wp('post','list','--post_type=post','--format=ids')==''
+ assert not ui('return AssistantStorage.listWordPressOutbox();')
+ check['EmptyPreviewDoesNotCreatePost']=True
+ initial=int(wp('post','create','--post_title='+time.strftime('%B %-d %A %Y'),'--post_content=EXISTING POST BEFORE CAPTURE','--post_status=publish','--porcelain'))
+ # Reload without performing any capture: the independent component reads the existing Post.
+ ui('location.reload();');wait(lambda:ui('return document.readyState==="complete";'))
+ wait(lambda:ui('return !document.getElementById("post-preview").hidden && document.getElementById("preview-status").textContent==="";'))
+ state=preview_state();assert 'EXISTING POST BEFORE CAPTURE' in state['text'] and state['height']-state['viewport']-state['y']<=2,state
+ assert latest() is None
+ assert not ui('return AssistantStorage.listWordPressOutbox();')
+ assert wp('post','get',str(initial),'--field=post_content')=='EXISTING POST BEFORE CAPTURE'
+ check['IndependentExistingPostOnOpen']=True
+ ui('document.getElementById("quick-capture").remove();document.getElementById("refresh-post").click();')
+ wait(lambda:ui('return document.getElementById("preview-status").textContent==="";'))
+ assert 'EXISTING POST BEFORE CAPTURE' in preview_state()['text']
+ check['PreviewWithoutQuickCapture']=True
+ ui('location.reload();');wait(lambda:ui('return document.readyState==="complete";'))
  chrome('Cc["@mozilla.org/widget/clipboardhelper;1"].getService(Ci.nsIClipboardHelper).copyString("CAPTURE REAL TEXT");')
  paste();first=receipt(None);last_url=verify_preview(first);check['TrustedTextPaste']=True
  # Paste a real screenshot through the OS clipboard using Thunderbird's native image format.
