@@ -288,7 +288,19 @@ for (const path of ["addon/core/storage.js", "addon/core/wordpress.js"]) {
     transport: "wp-cli",
     wordpressPath: "/var/www/html/wordpress",
     wpCliCommand: "sudo -n -u www-data /usr/local/bin/wp",
+    legacyHelperDir: "/obsolete/helper/path",
   });
+  const migratedWpCliConfig = await AssistantWordPress.getConfig();
+  assert(
+    !Object.prototype.hasOwnProperty.call(migratedWpCliConfig, "legacyHelperDir"),
+    "obsolete legacy helper setting was still advertised after migration"
+  );
+  const wordpressUiSource = fs.readFileSync("addon/wordpress.html", "utf8") + fs.readFileSync("addon/wordpress.js", "utf8");
+  assert(!wordpressUiSource.includes("wp-helper-dir"), "obsolete helper directory remained visible in WordPress UI");
+  assert(
+    wordpressUiSource.includes("clearDailyPostSelection"),
+    "WordPress UI does not expose stale daily-target recovery"
+  );
   const cliQuick = await AssistantWordPress.quickTest();
   assert(cliQuick.success, "WordPress WP-CLI quick test failed");
   assert(cliQuick.transport === "wp-cli", "explicit WP-CLI transport was not selected");
@@ -416,10 +428,34 @@ for (const path of ["addon/core/storage.js", "addon/core/wordpress.js"]) {
   const mismatch = await AssistantWordPress.createLog({content:"Must compare whole post",date,marker:"mismatch"});
   assert(!mismatch.success && mismatch.queued, "Partial marker-only readback accepted changed content");
   global.fetch = originalFetch;
+  await AssistantStorage.removeWordPressOutbox(mismatch.outboxId);
+
+  // A persisted daily target can become stale when its post is renamed/deleted.
+  // The pending state must report that fact and provide an explicit reset path.
+  posts.clear();
+  posts.set(600,{id:600,title:{raw:canonical},content:{raw:"Stale chosen post"},status:"publish"});
+  posts.set(601,{id:601,title:{raw:"October 5  Monday 2026"},content:{raw:"Replacement post"},status:"publish"});
+  const staleQueued = await AssistantWordPress.createLog({content:"Recover stale target",date,marker:"stale-target-recovery"});
+  assert(!staleQueued.success && staleQueued.candidates.length === 2, "stale-target setup did not require explicit selection");
+  await AssistantWordPress.selectDailyPost("2026-10-05",600);
+  posts.get(600).title = {raw:"Renamed away from daily log",rendered:"Renamed away from daily log"};
+  const staleFailure = await AssistantDailyLog.flushOutbox();
+  assert(staleFailure.failed === 1 && staleFailure.sent === 0, "stale saved target was silently redirected");
+  const staleState = (await AssistantWordPress.pendingCandidates()).find(item => item.day === "2026-10-05");
+  assert(staleState?.selectedPostId === 600, "stale saved target id was not reported");
+  assert(staleState?.selectionValid === false, "stale saved target was reported as valid");
+  assert(staleState?.candidates.length === 1 && staleState.candidates[0].id === 601, "remaining valid candidate was not exposed");
+  await AssistantWordPress.clearDailyPostSelection("2026-10-05");
+  const clearedState = (await AssistantWordPress.pendingCandidates()).find(item => item.day === "2026-10-05");
+  assert(clearedState?.selectedPostId === null && clearedState?.selectionValid === true, "stale target clear did not read back");
+  const staleRecovered = await AssistantDailyLog.flushOutbox();
+  assert(staleRecovered.sent === 1 && staleRecovered.failed === 0, "stale target Outbox could not recover");
+  assert(posts.get(601).content.raw.includes("Recover stale target"), "recovered log did not reach the remaining daily post");
+
   // Concurrent storage mutations must never lose pending rows.
   await Promise.all(Array.from({length:510},(_,i)=>AssistantStorage.enqueueWordPressOutbox({id:"bulk-"+i,payload:{marker:"bulk-"+i}})));
-  assert((await AssistantStorage.listWordPressOutbox()).length === 511, "Outbox silently evicted or lost records");
-  console.log("wordpress-connector-harness: PASS (transport, ambiguity, restart, durable manual logs, conflict, full comparison, 510 concurrent records)");
+  assert((await AssistantStorage.listWordPressOutbox()).length === 510, "Outbox silently evicted or lost records");
+  console.log("wordpress-connector-harness: PASS (transport, stale-target recovery, helper migration, ambiguity, restart, durable manual logs, conflict, full comparison, 510 concurrent records)");
 })().catch(error => {
   console.error(error);
   process.exitCode = 1;
