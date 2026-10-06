@@ -36,7 +36,6 @@
       wpCliCommand: String(
         config?.wpCliCommand || config?.wpCliExecutable || "wp"
       ).trim() || "wp",
-      legacyHelperDir: String(config?.legacyHelperDir || "~/bin").trim(),
       allowUntrustedTls: Boolean(config?.allowUntrustedTls),
       authorizedTlsOrigin: String(config?.authorizedTlsOrigin || ""),
       dailyWorkLogEnabled:
@@ -312,27 +311,6 @@
     return String(result?.stdout || "").trim();
   }
 
-
-  async function runLegacyHelper(config, helperName) {
-    const bridge = browser.ThunderbirdCalDAV?.runWordPressHelper;
-    if (typeof bridge !== "function" || !config.legacyHelperDir) {
-      return {available: false, exitCode: null, stdout: "", stderr: ""};
-    }
-    return bridge({
-      helperDir: config.legacyHelperDir,
-      helperName,
-    });
-  }
-
-  function helperPostId(text, {strictLine = false} = {}) {
-    const source = String(text || "");
-    if (strictLine) {
-      const line = source.split(/\r?\n/).map(x => x.trim()).find(x => /^\d+$/.test(x));
-      return line ? Number(line) : 0;
-    }
-    const matches = [...source.matchAll(/(?:^|\D)(\d+)(?=\D|$)/g)];
-    return matches.length ? Number(matches[matches.length - 1][1]) : 0;
-  }
 
   function wpCliPostView(record) {
     const id = Number(record?.ID ?? record?.id ?? 0);
@@ -805,10 +783,28 @@
     const post = await request(`/posts/${Number(postId)}?context=edit`);
     if (!matchesDailyLogTitle(rawTitle(post), date) || post.status === "trash") throw new Error("Selected post does not match log date");
     const settings = await AssistantStorage.getSettings();
-    const scope = (await getConfig()).baseUrl || (await getConfig()).wordpressPath;
-    const targets = {...settings.wordpressDailyTargets, [scope + "|" + day]: Number(postId)};
+    const config = await getConfig();
+    const scope = config.baseUrl || config.wordpressPath;
+    const key = scope + "|" + day;
+    const targets = {...settings.wordpressDailyTargets, [key]: Number(postId)};
     await AssistantStorage.saveSettings({wordpressDailyTargets: targets});
+    const readBack = await AssistantStorage.getSettings();
+    if (Number(readBack.wordpressDailyTargets?.[key]) !== Number(postId)) throw new Error("Daily target selection read-back mismatch");
     return {success: true, day, postId: Number(postId), steps: ["selection write", "read back", "compare"]};
+  }
+
+  async function clearDailyPostSelection(day) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error("Invalid daily target date");
+    const settings = await AssistantStorage.getSettings();
+    const config = await getConfig();
+    const scope = config.baseUrl || config.wordpressPath;
+    const key = scope + "|" + day;
+    const targets = {...(settings.wordpressDailyTargets || {})};
+    delete targets[key];
+    await AssistantStorage.saveSettings({wordpressDailyTargets: targets});
+    const readBack = await AssistantStorage.getSettings();
+    if (readBack.wordpressDailyTargets?.[key] !== undefined) throw new Error("Daily target reset read-back mismatch");
+    return {success: true, day, steps: ["selection clear", "read back", "compare"]};
   }
 
   async function ensureDailyLogPost(date = new Date()) {
@@ -1060,8 +1056,20 @@
   async function pendingCandidates() {
     const records = await AssistantStorage.listWordPressOutbox();
     const days = [...new Set(records.map(row => row.payload.dateKey || AssistantStorage.localDateKey(row.payload.startIso || row.payload.date)))];
+    const settings = await AssistantStorage.getSettings();
+    const config = await getConfig();
+    const scope = config.baseUrl || config.wordpressPath;
     const result = [];
-    for (const day of days) result.push({day, candidates: (await dailyCandidates(new Date(day + "T12:00:00"))).map(post => ({id: post.id, title: rawTitle(post), status: post.status}))});
+    for (const day of days) {
+      const candidates = (await dailyCandidates(new Date(day + "T12:00:00"))).map(post => ({id: post.id, title: rawTitle(post), status: post.status}));
+      const selectedPostId = Number(settings.wordpressDailyTargets?.[scope + "|" + day] || 0) || null;
+      result.push({
+        day,
+        candidates,
+        selectedPostId,
+        selectionValid: !selectedPostId || candidates.some(post => post.id === selectedPostId),
+      });
+    }
     return result;
   }
 
@@ -1095,6 +1103,7 @@
     dualWriteTest,
     createLog,
     selectDailyPost,
+    clearDailyPostSelection,
     pendingCandidates,
   });
 })();
