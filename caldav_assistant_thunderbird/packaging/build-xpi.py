@@ -64,7 +64,12 @@ files={p.relative_to(addon).as_posix():p.read_bytes() for p in sorted(addon.rglo
 files.pop('build-info.json',None)
 source_hash=hashlib.sha256(b''.join(name.encode()+b'\0'+data for name,data in sorted(files.items()))).hexdigest()
 commit=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()
-source_dirty=bool(subprocess.check_output(['git','-C',str(root),'status','--porcelain'],text=True))
+# Provenance applies to the bytes that can enter the XPI, not unrelated test,
+# documentation, or CI artifacts elsewhere in the repository.
+source_dirty=bool(subprocess.check_output(
+ ['git','-C',str(root),'status','--porcelain','--','addon'],
+ text=True,
+))
 
 if reference:
  if source_dirty:
