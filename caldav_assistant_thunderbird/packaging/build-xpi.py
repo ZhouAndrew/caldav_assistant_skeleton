@@ -30,6 +30,30 @@ else:
 if not all(c.isalnum() or c in '-_' for c in build_id):
  raise SystemExit('Invalid build ID')
 
+# Published release XPIs are the trusted build-ID registry. A caller cannot
+# redefine an already published ID by pointing reproduction mode at another file.
+known_artifact=None
+releases=root/'releases'
+if releases.is_dir():
+ for candidate in sorted(releases.rglob('*.xpi')):
+  try:
+   with zipfile.ZipFile(candidate) as z:
+    candidate_info=json.loads(z.read('build-info.json'))
+  except (KeyError, json.JSONDecodeError, zipfile.BadZipFile):
+   continue
+  if str(candidate_info.get('buildId') or '') == build_id:
+   known_artifact=candidate.resolve()
+   break
+if known_artifact:
+ known_bytes=known_artifact.read_bytes()
+ if reference_bytes is None:
+  raise SystemExit(f'Build ID {build_id} already belongs to {known_artifact}')
+ if reference_bytes != known_bytes:
+  raise SystemExit(f'Reproduction reference does not match published artifact for build ID {build_id}')
+ reference_bytes=known_bytes
+ with zipfile.ZipFile(known_artifact) as z:
+  reference_info=json.loads(z.read('build-info.json'))
+
 out=Path(sys.argv[1]) if len(sys.argv)>1 and sys.argv[1] else root/'dist'/f'caldav-assistant-thunderbird-{version}-{build_id}.xpi'
 if not reference and build_id not in out.name:
  out=out.with_name(out.stem+'-'+build_id+out.suffix)
