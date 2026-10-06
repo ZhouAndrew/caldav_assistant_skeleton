@@ -55,7 +55,7 @@ if known_artifact:
   reference_info=json.loads(z.read('build-info.json'))
 
 out=Path(sys.argv[1]) if len(sys.argv)>1 and sys.argv[1] else root/'dist'/f'caldav-assistant-thunderbird-{version}-{build_id}.xpi'
-if not reference and build_id not in out.name:
+if build_id not in out.name:
  out=out.with_name(out.stem+'-'+build_id+out.suffix)
 out=out.resolve();out.parent.mkdir(parents=True,exist_ok=True)
 if out.exists(): raise SystemExit('Refusing to overwrite a packaged build')
