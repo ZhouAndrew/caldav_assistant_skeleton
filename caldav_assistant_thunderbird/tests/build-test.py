@@ -18,11 +18,12 @@ with tempfile.TemporaryDirectory() as tmp:
  replica_requests=[tmp/'replica-a.xpi',tmp/'replica-b.xpi']
  replicas=[]
  for requested in replica_requests:
-  actual=Path(subprocess.check_output(
+  output=subprocess.check_output(
    ['bash','packaging/build-xpi.sh',str(requested)],
    text=True,
    env=reproduce_env,
-  ).strip())
+  ).strip().splitlines()
+  actual=Path(output[-1])
   replicas.append(actual)
   assert info['buildId'] in actual.name,'reproduction filename lost the reused Build ID'
   assert actual != requested,'arbitrary reproduction filename was accepted unchanged'
