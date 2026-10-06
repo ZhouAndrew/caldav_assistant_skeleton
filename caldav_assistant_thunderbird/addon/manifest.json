@@ -2,7 +2,7 @@
   "manifest_version": 2,
   "name": "CalDAV Assistant",
   "description": "Native Thunderbird task work controls and verified durable WordPress logging.",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "author": "ZhouAndrew",
   "background": {
     "scripts": [
@@ -22,6 +22,14 @@
     }
   },
   "experiment_apis": {
+    "PostPreview": {
+      "schema": "api/PostPreview/schema.json",
+      "parent": {
+        "scopes": ["addon_parent"],
+        "paths": [["PostPreview"]],
+        "script": "api/PostPreview/implementation.js"
+      }
+    },
     "TaskFix": {
       "schema": "api/TaskFix/schema.json",
       "parent": {

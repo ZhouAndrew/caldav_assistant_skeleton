@@ -52,10 +52,22 @@
         </div>
       </div>
     </section>
+    <section class="card">
+      <h2>快速追加</h2>
+      <textarea id="quick-capture" aria-label="快速追加" placeholder="粘贴文字 / 图片 / 文件，或将文件拖到这里"></textarea>
+      <p><span id="capture-result" role="status" aria-live="polite"></span> <a id="open-post" target="_blank" rel="noopener noreferrer" hidden>打开 Post</a></p>
+    </section>
+    <section class="card">
+      <h2>Post 预览</h2>
+      <p id="preview-status" class="muted">追加成功后显示今天的完整 Post。</p>
+      <iframe id="post-preview" title="今天的完整 WordPress Post" hidden></iframe>
+    </section>
   </main>
 
   <script src="core/storage.js"></script>
   <script src="core/action-plan.js"></script>
+  <script src="core/wordpress.js"></script>
   <script src="workspace.js"></script>
+  <script src="quick-capture.js"></script>
 </body>
 </html>

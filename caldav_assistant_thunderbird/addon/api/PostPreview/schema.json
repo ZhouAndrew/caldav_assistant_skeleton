@@ -1,0 +1,1 @@
+[{"namespace":"PostPreview","description":"Scroll the Work page's real WordPress iframe across origins.","functions":[{"name":"scrollToBottom","type":"function","async":true,"parameters":[{"name":"tabId","type":"integer"},{"name":"url","type":"string"}],"returns":{"type":"any"}}]}]
