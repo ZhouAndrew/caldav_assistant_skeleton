@@ -432,6 +432,7 @@ for (const path of ["addon/core/storage.js", "addon/core/wordpress.js"]) {
 
   // A persisted daily target can become stale when its post is renamed/deleted.
   // The pending state must report that fact and provide an explicit reset path.
+  await AssistantWordPress.clearDailyPostSelection("2026-10-05");
   posts.clear();
   posts.set(600,{id:600,title:{raw:canonical},content:{raw:"Stale chosen post"},status:"publish"});
   posts.set(601,{id:601,title:{raw:"October 5  Monday 2026"},content:{raw:"Replacement post"},status:"publish"});
