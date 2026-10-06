@@ -15,11 +15,19 @@ with tempfile.TemporaryDirectory() as tmp:
   assert all(i.date_time==(2026,1,1,0,0,0) for i in z.infolist())
 
  reproduce_env={**os.environ,'CALDAV_REPRODUCE_FROM_XPI':str(original)}
- replicas=[tmp/'replica-a.xpi',tmp/'replica-b.xpi']
- for path in replicas:
-  subprocess.run(['bash','packaging/build-xpi.sh',str(path)],check=True,env=reproduce_env)
-  subprocess.run(['python3','tests/check-xpi.py',str(path)],check=True)
-  assert path.read_bytes()==original.read_bytes(),'reference reproduction changed archive bytes'
+ replica_requests=[tmp/'replica-a.xpi',tmp/'replica-b.xpi']
+ replicas=[]
+ for requested in replica_requests:
+  actual=Path(subprocess.check_output(
+   ['bash','packaging/build-xpi.sh',str(requested)],
+   text=True,
+   env=reproduce_env,
+  ).strip())
+  replicas.append(actual)
+  assert info['buildId'] in actual.name,'reproduction filename lost the reused Build ID'
+  assert actual != requested,'arbitrary reproduction filename was accepted unchanged'
+  subprocess.run(['python3','tests/check-xpi.py',str(actual)],check=True)
+  assert actual.read_bytes()==original.read_bytes(),'reference reproduction changed archive bytes'
 
  accepted=Path('releases/0.4.2/caldav-assistant-thunderbird-0.4.2-20261005T090627Z-bb8c684b828b46b3a4cdba3bdd62a91e.xpi')
  assert accepted.is_file(),'accepted 0.4.2 release artifact missing'
