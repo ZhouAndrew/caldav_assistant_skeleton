@@ -74,7 +74,7 @@ def preview_state():
 def verify_preview(result,previous_url=None):
  assert result['success'] and result['logSaved'],result
  assert any(step['name']=='append + read-back daily WordPress log' for step in result['steps']),result
- wait(lambda:ui('return document.getElementById("preview-status").textContent==="" && !document.getElementById("post-preview").hidden;'))
+ wait(lambda:ui('return document.getElementById("preview-status").textContent==="" && !document.getElementById("post-preview").hidden && (!arguments[0] || document.getElementById("post-preview").src !== arguments[0]);',[previous_url]))
  url=ui('return document.getElementById("post-preview").src;')
  assert '?refresh=' in url and (not previous_url or previous_url!=url),url
  assert ui('return document.getElementById("open-post").href;')==result['post']['link']
@@ -166,13 +166,14 @@ try:
  assert not ui('return AssistantStorage.listWordPressOutbox();')
  assert wp('post','get',str(initial),'--field=post_content')=='EXISTING POST BEFORE CAPTURE'
  check['IndependentExistingPostOnOpen']=True
- ui('document.getElementById("quick-capture").remove();document.getElementById("refresh-post").click();')
+ ui('document.getElementById("quick-capture").closest("section").remove();document.getElementById("refresh-post").click();')
  wait(lambda:ui('return document.getElementById("preview-status").textContent==="";'))
  assert 'EXISTING POST BEFORE CAPTURE' in preview_state()['text']
  check['PreviewWithoutQuickCapture']=True
  ui('location.reload();');wait(lambda:ui('return document.readyState==="complete";'))
+ last_url=ui('return document.getElementById("post-preview").src;')
  chrome('Cc["@mozilla.org/widget/clipboardhelper;1"].getService(Ci.nsIClipboardHelper).copyString("CAPTURE REAL TEXT");')
- paste();first=receipt(None);last_url=verify_preview(first);check['TrustedTextPaste']=True
+ paste();first=receipt(None);last_url=verify_preview(first,last_url);check['TrustedTextPaste']=True
  # Paste a real screenshot through the OS clipboard using Thunderbird's native image format.
  screenshot=client.screenshot()
  chrome('''const image=atob(arguments[0]);const img=Cc["@mozilla.org/image/tools;1"].getService(Ci.imgITools).decodeImageFromBuffer(image,image.length,"image/png");const t=Cc["@mozilla.org/widget/transferable;1"].createInstance(Ci.nsITransferable);t.init(null);t.addDataFlavor("application/x-moz-nativeimage");t.setTransferData("application/x-moz-nativeimage",img);Services.clipboard.setData(t,null,Services.clipboard.kGlobalClipboard);''',[screenshot])
