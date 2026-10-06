@@ -31,6 +31,7 @@ jobs:
           fi
       - name: Build current XPI
         run: |
+          npm ci
           chmod +x packaging/build-xpi.sh
           XPI_PATH="$(packaging/build-xpi.sh | tail -1)"
           python3 tests/check-xpi.py "$XPI_PATH"
