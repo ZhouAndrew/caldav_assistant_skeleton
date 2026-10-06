@@ -64,12 +64,33 @@ files={p.relative_to(addon).as_posix():p.read_bytes() for p in sorted(addon.rglo
 files.pop('build-info.json',None)
 source_hash=hashlib.sha256(b''.join(name.encode()+b'\0'+data for name,data in sorted(files.items()))).hexdigest()
 commit=subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'],text=True).strip()
-# Provenance applies to the bytes that can enter the XPI, not unrelated test,
-# documentation, or CI artifacts elsewhere in the repository.
-source_dirty=bool(subprocess.check_output(
- ['git','-C',str(root),'status','--porcelain','--','addon'],
+
+# Provenance must describe exactly the bytes that can enter this XPI. Compare
+# the current packaged file set with HEAD itself instead of relying on git
+# status, which can include excluded files and omit ignored package inputs.
+repo_prefix=subprocess.check_output(
+ ['git','-C',str(root),'rev-parse','--show-prefix'],
  text=True,
-))
+).strip()
+addon_repo_prefix=repo_prefix+'addon/'
+tracked_names={
+ path[len(addon_repo_prefix):]
+ for path in subprocess.check_output(
+  ['git','-C',str(root),'ls-tree','-r','--name-only','HEAD','--',addon_repo_prefix],
+  text=True,
+ ).splitlines()
+ if path.startswith(addon_repo_prefix) and Path(path).suffix in {'.js','.json','.html','.css','.png','.svg'}
+}
+current_names=set(files)
+source_dirty=current_names != tracked_names
+if not source_dirty:
+ for name,data in files.items():
+  head_data=subprocess.check_output(
+   ['git','-C',str(root),'show',f'HEAD:{addon_repo_prefix}{name}']
+  )
+  if data != head_data:
+   source_dirty=True
+   break
 
 if reference:
  if source_dirty:
