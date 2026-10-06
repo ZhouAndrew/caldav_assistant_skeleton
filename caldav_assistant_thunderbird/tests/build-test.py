@@ -46,9 +46,27 @@ with tempfile.TemporaryDirectory() as tmp:
  assert old_id_attempt.returncode != 0,'changed source reused the accepted 0.4.2 build ID'
  assert not (tmp/'old-id.xpi').exists(),'failed old-ID reproduction left an artifact behind'
 
- # Reproduction is also refused if any packaged addon source is dirty.
- dirty_probe=Path('addon/.reproduction-dirty-probe')
- dirty_probe.write_text('dirty\n')
+ # A change to an excluded addon file must not taint XPI provenance.
+ excluded=Path('addon/README.md')
+ excluded_original=excluded.read_bytes()
+ try:
+  excluded.write_bytes(excluded_original+b'\nnot packaged\n')
+  excluded_output=Path(subprocess.check_output(
+   ['python3','packaging/build-xpi.py',str(tmp/'excluded-change.xpi')],
+   text=True,
+  ).strip())
+  with zipfile.ZipFile(excluded_output) as z:
+   excluded_info=json.loads(z.read('build-info.json'))
+   assert excluded_info['sourceDirty'] is False,'excluded addon file tainted XPI provenance'
+   assert 'README.md' not in z.namelist(),'excluded README unexpectedly entered XPI'
+ finally:
+  excluded.write_bytes(excluded_original)
+
+ # Reproduction is refused if any actual package input is dirty, including
+ # ignored/untracked files that git status would normally hide.
+ dirty_probe=Path('addon/build/generated.js')
+ dirty_probe.parent.mkdir(parents=True,exist_ok=True)
+ dirty_probe.write_text('globalThis.__dirtyPackageProbe = true;\n')
  try:
   dirty_attempt=subprocess.run(
    ['python3','packaging/build-xpi.py',str(tmp/'dirty-output.xpi')],
@@ -56,9 +74,21 @@ with tempfile.TemporaryDirectory() as tmp:
    capture_output=True,
    text=True,
   )
+  dirty_normal=Path(subprocess.check_output(
+   ['python3','packaging/build-xpi.py',str(tmp/'dirty-normal.xpi')],
+   text=True,
+  ).strip())
+  with zipfile.ZipFile(dirty_normal) as z:
+   dirty_info=json.loads(z.read('build-info.json'))
+   assert dirty_info['sourceDirty'] is True,'ignored packaged JS was not marked dirty'
+   assert 'build/generated.js' in z.namelist(),'ignored packaged JS was not actually packaged'
  finally:
   dirty_probe.unlink(missing_ok=True)
- assert dirty_attempt.returncode != 0,'dirty addon source was accepted for reproduction'
+  try:
+   dirty_probe.parent.rmdir()
+  except OSError:
+   pass
+ assert dirty_attempt.returncode != 0,'dirty package input was accepted for reproduction'
  assert not (tmp/'dirty-output.xpi').exists(),'dirty reproduction left an artifact behind'
 
  # A caller cannot substitute another file that merely claims a published build ID.
