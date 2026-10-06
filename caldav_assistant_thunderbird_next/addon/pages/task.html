@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CalDAV Assistant</title>
+  <link rel="stylesheet" href="app.css">
+  <script defer src="common.js"></script>
+  <script defer src="task.js"></script>
+</head>
+<body data-page="tasks">
+  <header>
+    <h1 id="title" data-i18n="taskPageTitle">Task</h1>
+    <nav id="app-nav" aria-label="CalDAV Assistant"></nav>
+  </header>
+  <main>
+    <p><a href="task-picker.html" data-i18n="actionBack">Back</a></p>
+
+    <div id="error" class="notice" hidden></div>
+    <div id="notice" class="notice" hidden></div>
+
+    <section class="detail-grid">
+      <div class="detail-card">
+        <span class="label" data-i18n="status">Status</span>
+        <strong id="status"></strong>
+      </div>
+      <div class="detail-card">
+        <span class="label" data-i18n="progress">Progress</span>
+        <strong id="progress"></strong>
+      </div>
+      <div class="detail-card">
+        <span class="label" data-i18n="elapsed">Elapsed</span>
+        <strong id="elapsed">00:00:00</strong>
+      </div>
+    </section>
+
+    <h2 data-i18n="description">Description</h2>
+    <pre id="description" class="description"></pre>
+
+    <div id="actions" class="actions"></div>
+  </main>
+</body>
+</html>

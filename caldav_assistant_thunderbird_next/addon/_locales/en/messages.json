@@ -1,0 +1,314 @@
+{
+  "extensionName": {
+    "message": "CalDAV Assistant Experimental"
+  },
+  "extensionDescription": {
+    "message": "Thunderbird-native CalDAV Assistant with verified VTODO workflow and work logs stored in each Task description."
+  },
+  "navTaskPicker": {
+    "message": "Tasks"
+  },
+  "navToday": {
+    "message": "Today"
+  },
+  "navLogs": {
+    "message": "Logs"
+  },
+  "navSettings": {
+    "message": "Settings"
+  },
+  "navTools": {
+    "message": "Tools"
+  },
+  "navWordPress": {
+    "message": "WordPress"
+  },
+  "taskPickerTitle": {
+    "message": "Choose a Task"
+  },
+  "taskPageTitle": {
+    "message": "Task"
+  },
+  "todayTitle": {
+    "message": "Today"
+  },
+  "logsTitle": {
+    "message": "Logs"
+  },
+  "settingsTitle": {
+    "message": "Settings"
+  },
+  "toolsTitle": {
+    "message": "Tools"
+  },
+  "wordpressTitle": {
+    "message": "WordPress"
+  },
+  "searchPlaceholder": {
+    "message": "Search Tasks"
+  },
+  "filterLabel": {
+    "message": "Filter"
+  },
+  "filterAll": {
+    "message": "All"
+  },
+  "filterNotStarted": {
+    "message": "Not Started"
+  },
+  "filterOverdue": {
+    "message": "Overdue"
+  },
+  "filterOpen": {
+    "message": "Open"
+  },
+  "filterCompleted": {
+    "message": "Completed"
+  },
+  "filterThroughCurrent": {
+    "message": "Through Current"
+  },
+  "filterThroughToday": {
+    "message": "Through Today"
+  },
+  "filterThroughSevenDays": {
+    "message": "Next Seven Days"
+  },
+  "calendarLabel": {
+    "message": "Calendar"
+  },
+  "allCalendars": {
+    "message": "All calendars"
+  },
+  "actionStart": {
+    "message": "Start"
+  },
+  "actionStop": {
+    "message": "Stop"
+  },
+  "actionComplete": {
+    "message": "Complete"
+  },
+  "actionCancel": {
+    "message": "Cancel"
+  },
+  "actionOpenTask": {
+    "message": "Open Task"
+  },
+  "actionRefresh": {
+    "message": "Refresh"
+  },
+  "actionRetry": {
+    "message": "Retry"
+  },
+  "actionSave": {
+    "message": "Save"
+  },
+  "actionBack": {
+    "message": "Back"
+  },
+  "actionQuickTest": {
+    "message": "Quick Test"
+  },
+  "actionFullTest": {
+    "message": "Full Write Test"
+  },
+  "loading": {
+    "message": "Loading…"
+  },
+  "currentWork": {
+    "message": "Current work"
+  },
+  "noCurrentWork": {
+    "message": "No active Task"
+  },
+  "elapsed": {
+    "message": "Elapsed"
+  },
+  "status": {
+    "message": "Status"
+  },
+  "progress": {
+    "message": "Progress"
+  },
+  "description": {
+    "message": "Description"
+  },
+  "due": {
+    "message": "Due"
+  },
+  "calendar": {
+    "message": "Calendar"
+  },
+  "categories": {
+    "message": "Categories"
+  },
+  "taskUntitled": {
+    "message": "(untitled Task)"
+  },
+  "noMatchingTasks": {
+    "message": "No matching Tasks."
+  },
+  "taskWorkLogMalformed": {
+    "message": "This Task's Assistant work log is malformed. Workflow actions are disabled to protect the Task description."
+  },
+  "taskFinishedOpenSession": {
+    "message": "This finished Task still has an open Assistant work session. Recovery is required before changing it."
+  },
+  "currentPointerStale": {
+    "message": "The current-work pointer does not match an open work session. Recovery is required."
+  },
+  "openSessionNotCurrent": {
+    "message": "This Task has an open work session but is not the current Task. Recovery is required."
+  },
+  "taskFinished": {
+    "message": "This Task is finished."
+  },
+  "anotherTaskActive": {
+    "message": "Another Task is currently active."
+  },
+  "todayMalformedWorkLog": {
+    "message": "A Task has a malformed Assistant work log and was skipped."
+  },
+  "recoveryRequired": {
+    "message": "Recovery is required before workflow actions can continue."
+  },
+  "startupReady": {
+    "message": "CalDAV Assistant is ready."
+  },
+  "startupFailed": {
+    "message": "CalDAV Assistant startup did not complete."
+  },
+  "settingsSaved": {
+    "message": "Settings saved."
+  },
+  "wordpressTransport": {
+    "message": "Transport"
+  },
+  "wordpressAuto": {
+    "message": "Auto"
+  },
+  "wordpressRest": {
+    "message": "Application Password (REST)"
+  },
+  "wordpressWpCli": {
+    "message": "WP-CLI"
+  },
+  "wordpressBaseUrl": {
+    "message": "WordPress URL"
+  },
+  "wordpressUsername": {
+    "message": "Username"
+  },
+  "wordpressApplicationPassword": {
+    "message": "Application Password"
+  },
+  "wordpressPath": {
+    "message": "WordPress path"
+  },
+  "wordpressCliCommand": {
+    "message": "WP-CLI command"
+  },
+  "wordpressAllowUntrustedTls": {
+    "message": "Allow untrusted TLS"
+  },
+  "wordpressDailyLog": {
+    "message": "Write closed work sessions to WordPress"
+  },
+  "wordpressOutbox": {
+    "message": "WordPress Outbox"
+  },
+  "wordpressQueued": {
+    "message": "The Task change succeeded; the WordPress log was queued for retry."
+  },
+  "wordpressRetry": {
+    "message": "Retry WordPress Outbox"
+  },
+  "connectionReadable": {
+    "message": "Thunderbird Calendar provider is readable."
+  },
+  "connectionWritePassed": {
+    "message": "VTODO write/read-back test passed."
+  },
+  "connectionFailed": {
+    "message": "Connection test failed."
+  },
+  "logsEmpty": {
+    "message": "No log records."
+  },
+  "todayEmpty": {
+    "message": "No work sessions started today."
+  },
+  "startupStageSettings": {
+    "message": "Migrating settings…"
+  },
+  "startupStageLegacy": {
+    "message": "Migrating the active Task…"
+  },
+  "startupStageRecovery": {
+    "message": "Recovering current work…"
+  },
+  "startupStageReady": {
+    "message": "Ready"
+  },
+  "migratedSettings": {
+    "message": "Existing settings were migrated."
+  },
+  "migratedPassword": {
+    "message": "Existing WordPress credentials were preserved."
+  },
+  "languageSystem": {
+    "message": "Use Thunderbird/system language"
+  },
+  "languageEnglish": {
+    "message": "English"
+  },
+  "languageChineseSimplified": {
+    "message": "简体中文"
+  },
+  "statusNeedsAction": {
+    "message": "Needs Action"
+  },
+  "statusInProgress": {
+    "message": "In Progress"
+  },
+  "statusCompleted": {
+    "message": "Completed"
+  },
+  "statusCancelled": {
+    "message": "Cancelled"
+  },
+  "commandFailed": {
+    "message": "Task action failed."
+  },
+  "queryIncomplete": {
+    "message": "Some calendars could not be read."
+  },
+  "taskLoadFailed": {
+    "message": "Task could not be loaded."
+  },
+  "calendarLoadFailed": {
+    "message": "Task calendars could not be loaded."
+  },
+  "startupNotReady": {
+    "message": "CalDAV Assistant is not ready yet."
+  },
+  "todayDate": {
+    "message": "Date"
+  },
+  "resultStop": {
+    "message": "Stopped"
+  },
+  "resultComplete": {
+    "message": "Completed"
+  },
+  "resultCancel": {
+    "message": "Cancelled"
+  },
+  "sessionOpen": {
+    "message": "In progress"
+  },
+  "openSelectedTask": {
+    "message": "Open selected Task"
+  }
+}

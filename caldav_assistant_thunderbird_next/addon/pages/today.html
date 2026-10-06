@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CalDAV Assistant</title>
+  <link rel="stylesheet" href="app.css">
+  <script defer src="common.js"></script>
+  <script defer src="today.js"></script>
+</head>
+<body data-page="today">
+  <header>
+    <h1 data-i18n="todayTitle">Today</h1>
+    <nav id="app-nav" aria-label="CalDAV Assistant"></nav>
+  </header>
+  <main>
+    <section class="controls">
+      <label>
+        <span data-i18n="todayDate">Date</span>
+        <input id="date" type="date">
+      </label>
+      <button id="refresh" type="button" data-i18n="actionRefresh">Refresh</button>
+    </section>
+
+    <div id="message" class="notice" hidden></div>
+    <div id="sessions" class="session-list"></div>
+    <div id="empty" class="empty" hidden data-i18n="todayEmpty">No work sessions started today.</div>
+  </main>
+</body>
+</html>
