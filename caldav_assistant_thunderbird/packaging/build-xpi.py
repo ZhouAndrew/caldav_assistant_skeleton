@@ -73,13 +73,14 @@ repo_prefix=subprocess.check_output(
  text=True,
 ).strip()
 addon_repo_prefix=repo_prefix+'addon/'
+addon_local_prefix='addon/'
 tracked_names={
- path[len(addon_repo_prefix):]
+ path[len(addon_local_prefix):]
  for path in subprocess.check_output(
-  ['git','-C',str(root),'ls-tree','-r','--name-only','HEAD','--',addon_repo_prefix],
+  ['git','-C',str(root),'ls-tree','-r','--name-only','HEAD','--',addon_local_prefix],
   text=True,
  ).splitlines()
- if path.startswith(addon_repo_prefix) and Path(path).suffix in {'.js','.json','.html','.css','.png','.svg'}
+ if path.startswith(addon_local_prefix) and Path(path).suffix in {'.js','.json','.html','.css','.png','.svg'}
 }
 current_names=set(files)
 source_dirty=current_names != tracked_names
