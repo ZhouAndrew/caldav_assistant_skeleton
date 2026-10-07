@@ -315,3 +315,8 @@ python -m pytest -q
 - `caldav_assistant.api.v1`
 
 `caldav_assistant.internal` 不属于兼容性承诺。
+
+## License
+
+This project is licensed under the **GNU General Public License v3.0 or later** (`GPL-3.0-or-later`). See [LICENSE](LICENSE).
+
