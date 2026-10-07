@@ -1,5 +1,6 @@
 import { DOMParser } from '@xmldom/xmldom';
 import { createCalDAV } from '../.build/caldav.js';
+import { createWork } from '../.build/work.js';
 import { projectTasks } from '../.build/tasks.js';
 import assert from 'node:assert/strict';
 import { createTransport } from '../.build/transport.js';
@@ -26,7 +27,25 @@ try {
   const resources = await client.tasks(found);
   assert.equal(resources.length, 1);
   assert.equal(projectTasks(found.url, resources[0])[0].title, 'Updated');
-  console.log('PASS real Radicale: create/read-back/update/read-back/stale ETag rejection/data preservation');
+  let pointer = null;
+  const work = createWork(transport,{read:()=>pointer,publish:value=>{pointer=value;}});
+  const task = projectTasks(found.url,resources[0])[0];
+  await work.run('start',task,'2026-10-07T00:00:00Z','real-session-1');
+  assert.ok(pointer);
+  await work.run('stop',task,'2026-10-07T00:01:00Z','unused');
+  assert.equal(pointer,null);
+  await work.run('start',task,'2026-10-07T00:02:00Z','real-session-2');
+  await work.run('complete',task,'2026-10-07T00:03:00Z','unused');
+  assert.equal(pointer,null);
+  assert.equal(projectTasks(found.url,await transport.read(href))[0].status,'COMPLETED');
+  const cancelHref = `${calendar}cancel.ics`;
+  await transport.writeVerified(cancelHref,text.replace('UID:transport-test','UID:cancel-test'),null,sameSummary);
+  const cancelTask = projectTasks(found.url,await transport.read(cancelHref))[0];
+  await work.run('start',cancelTask,'2026-10-07T00:04:00Z','real-cancel');
+  await work.run('cancel',cancelTask,'2026-10-07T00:05:00Z','unused');
+  assert.equal(pointer,null);
+  assert.equal(projectTasks(found.url,await transport.read(cancelHref))[0].status,'CANCELLED');
+  console.log('PASS real Radicale: canonical work start/stop/restart/complete +  create/read-back/update/read-back/stale ETag rejection/data preservation');
 } finally {
   await transport.request('DELETE', calendar);
 }

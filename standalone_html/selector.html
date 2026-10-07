@@ -4,5 +4,5 @@
 <section class="card"><h2>连接 CalDAV</h2><form id="connect"><label>服务器地址 <input type="url" name="url" required placeholder="http://andrew.local:5232/" autocomplete="url"></label><label>用户名 <input name="username" autocomplete="username" required></label><label>密码 <input type="password" name="password" autocomplete="current-password" required></label><button type="submit">连接并读取</button></form></section>
 <div id="notice" class="notice" role="status" aria-live="polite">独立任务选择器测试页</div>
 <section class="card"><h2>选择任务</h2><label>搜索 <input id="query" type="search"></label><div id="task-list"></div></section>
-<section class="card"><h2>所选任务详情</h2><div id="task-details" aria-live="polite"></div></section>
+<section class="card"><h2>所选任务详情</h2><p id="current-work" role="status"></p><div><button type="button" data-action="start" disabled>Start / 开始</button><button type="button" data-action="stop" disabled>Stop / 停止</button><button type="button" data-action="complete" disabled>Complete / 完成</button><button type="button" data-action="cancel" disabled>Cancel / 取消</button></div><div id="task-details" aria-live="polite"></div></section>
 </main><script type="module" src=".build/selector.js"></script></body></html>

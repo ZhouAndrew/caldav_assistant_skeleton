@@ -53,3 +53,13 @@ Strict TypeScript compilation and 12 tests passed, including exact identity reje
 Root LICENSE was synchronized from current upstream main (GNU GPL version 3). Runtime iCalendar parsing continues to reuse ical.js 2.2.1, whose MPL-2.0 notice is preserved in THIRD_PARTY/ical.js-LICENSE; do not relabel third-party code. Future deliverables must retain notices and corresponding source/build instructions.
 
 Next concrete step: finish browser acceptance, then wire the existing pure action core through the independent CalDAV adapter with full intended-field verification before publishing currentWorkId.
+
+## Increment 4 — reuse canonical work core (2026-10-07)
+
+The standalone build generates an ES module from the unchanged canonical Thunderbird TypeScript core. There is no second implementation of action rules. The adapter reads fresh server data, plans Start/Stop/Complete/Cancel, conditionally writes using ETag, then checks the canonical workflow fields and the complete semantic iCalendar structure before publishing currentWorkId. Property/component ordering may normalize; loss or changes to unrelated data reject validation. Recurring series and recurrence exceptions refuse mutation until occurrence behavior is implemented.
+
+The selector preview now exposes four actions. currentWorkId is persisted per server origin and username; credentials are not persisted. Selection and reconnection cannot interrupt an in-flight work action. This remains an incremental preview, not a complete migration or approved release.
+
+Strict compilation and 16 tests pass. Real disposable Radicale start/stop/restart/complete and start/cancel pass alongside discovery, read-back and stale-ETag protection. Browser automation includes start/stop but remains unexecuted locally because Chromium is unavailable. Restart recovery, uncertain writes, full page migration and WordPress migration remain acceptance gates.
+
+Build a preview with `python scripts/build-preview.py` after `npm test`. Each archive has a unique name and BUILD.json, compiled modules, the local ical.js runtime, notices and rebuilding sources. Run the static server as described in START.txt. Browser CORS and certificate trust still apply.

@@ -17,8 +17,13 @@ try {
   await page.evaluate(() => document.addEventListener('task-selected', event => { globalThis.selectedTaskId = event.detail; }));
   await page.getByRole('button', {name:'Browser task'}).click();
   assert.deepEqual(JSON.parse(await page.evaluate(() => globalThis.selectedTaskId)), [process.env.CALDAV_TEST_URL + 'browser/', 'browser-task', null]);
-  await page.getByText('已从服务器重新读取任务详情。工作操作尚未接入。').waitFor();
+  await page.getByText('已从服务器重新读取任务详情。').waitFor();
   await page.locator('#task-details').getByRole('heading', {name:'Browser task'}).waitFor();
+  await page.getByRole('button',{name:'Start / 开始',exact:true}).click();
+  await page.getByText('操作已写入并回读验证。').waitFor();
+  await page.getByRole('button',{name:'Stop / 停止',exact:true}).click();
+  await page.getByText('操作已写入并回读验证。').waitFor();
+  assert.equal(await page.getByRole('button',{name:'Start / 开始',exact:true}).isEnabled(),true);
   assert.deepEqual(errors, []);
   console.log('PASS browser + real Radicale: connect/discover/read/search/select taskId');
 } finally { await browser.close(); }
