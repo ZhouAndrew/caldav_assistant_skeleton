@@ -29,7 +29,7 @@
           <select id="wp-transport">
             <option value="auto">自动（优先 REST；网络失败时回退 WP-CLI）</option>
             <option value="application-password">Application Password / REST</option>
-            <option value="wp-cli">WP-CLI（兼容旧脚本）</option>
+            <option value="wp-cli">WP-CLI</option>
           </select>
         </label>
         <label>WordPress URL<input id="wp-url" placeholder="https://andrew.local"></label>
@@ -41,7 +41,6 @@
         </label>
         <label>WordPress 本地路径<input id="wp-path" placeholder="/var/www/html/wordpress"></label>
         <label>WP-CLI 命令 / 包装脚本<input id="wp-cli" placeholder="wp 或 /usr/local/bin/wp"></label>
-        <label>旧 WP-CLI helper 目录<input id="wp-helper-dir" placeholder="~/bin"></label>
       </div>
       <div class="tool-actions">
         <button id="save">保存 WordPress 设置</button>
