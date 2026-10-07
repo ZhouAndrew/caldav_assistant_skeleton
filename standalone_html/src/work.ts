@@ -35,17 +35,27 @@ export function planResource(action: Action, currentWorkId: string | null, selec
   component.updatePropertyWithValue('dtstamp',ICAL.Time.fromJSDate(new Date(at),true));
   return {plan,text:calendar.toString()};
 }
+export interface PendingAction {
+  readonly action: Action; readonly currentWorkId: string | null;
+  readonly selected: Task; readonly previous: Resource; readonly at: string; readonly token: string;
+}
+export interface Journal {
+  read(): PendingAction | null; save(value: PendingAction): void; clear(): void;
+}
 /** Effects are serialized. Pointer publication occurs only after authoritative validation. */
 export function createWork(transport: ReturnType<typeof createTransport>, state: {
   read(): string | null; publish(value: string | null): void;
-}) {
+}, journal?: Journal) {
   let busy = false;
   async function run(action: Action, selected: Task, at: string, token: string): Promise<Receipt> {
     if (busy) throw new CalDAVError('Conflict');
     busy = true;
     try {
+      if (journal?.read()) throw new CalDAVError('Conflict');
       const previous = await transport.read(selected.resourceUrl);
       const {plan,text} = planResource(action,state.read(),selected,previous,at,token);
+      // Persist intent before PUT; crashes and uncertain responses remain recoverable.
+      journal?.save({action,currentWorkId:state.read(),selected,previous,at,token});
       const receipt = await transport.writeVerified(selected.resourceUrl,text,previous.etag,(_expected,actual) => {
         try {
           const result = resolve({...previous,text:actual},selected);
@@ -53,8 +63,31 @@ export function createWork(transport: ReturnType<typeof createTransport>, state:
         } catch { return false; }
       });
       state.publish(plan.nextCurrentWorkId);
+      journal?.clear();
       return receipt;
     } finally { busy = false; }
   }
-  return Object.freeze({run});
+  async function recover(): Promise<'none' | 'applied' | 'unchanged'> {
+    if (busy) throw new CalDAVError('Conflict');
+    busy = true;
+    try {
+      const pending = journal?.read();
+      if (!pending) return 'none';
+      const {action,currentWorkId,selected,previous,at,token} = pending;
+      const {plan,text} = planResource(action,currentWorkId,selected,previous,at,token);
+      // Read-only recovery: never repeat PUT or infer success from status alone.
+      const actual = await transport.read(selected.resourceUrl);
+      if (sameCalendar(text,actual.text) && Core.compare(plan,resolve(actual,selected).task)) {
+        state.publish(plan.nextCurrentWorkId);
+        journal!.clear();
+        return 'applied';
+      }
+      if (actual.etag === previous.etag && sameCalendar(previous.text,actual.text)) {
+        journal!.clear();
+        return 'unchanged';
+      }
+      throw new CalDAVError('Conflict');
+    } finally { busy = false; }
+  }
+  return Object.freeze({run,recover});
 }

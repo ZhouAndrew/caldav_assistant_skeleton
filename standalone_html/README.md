@@ -63,3 +63,11 @@ The selector preview now exposes four actions. currentWorkId is persisted per se
 Strict compilation and 16 tests pass. Real disposable Radicale start/stop/restart/complete and start/cancel pass alongside discovery, read-back and stale-ETag protection. Browser automation includes start/stop but remains unexecuted locally because Chromium is unavailable. Restart recovery, uncertain writes, full page migration and WordPress migration remain acceptance gates.
 
 Build a preview with `python scripts/build-preview.py` after `npm test`. Each archive has a unique name and BUILD.json, compiled modules, the local ical.js runtime, notices and rebuilding sources. Run the static server as described in START.txt. Browser CORS and certificate trust still apply.
+
+## Increment 5 — durable uncertain-write recovery (2026-10-07)
+
+Before a workflow PUT, the browser persists a per-account pending intent containing the original resource, action inputs and session token (never credentials). A verified receipt publishes currentWorkId and clears intent. Failed or interrupted writes disable actions until reconnection. Recovery only performs GET: it re-plans through the canonical pure core and compares the entire semantic calendar plus workflow fields before publishing. An unchanged original ETag/content clears an unapplied intent; divergent server data retains the record and blocks mutation. Storage failure before intent persistence prevents PUT; failure after server commit remains recoverable. Connections are serialized while recovery runs.
+
+Strict compilation and 19 tests passed, covering lost responses for all four actions, refusal to repeat pending writes, conflicting external changes and local persistence failures. Disposable real Radicale transport/workflow integration passed. Browser acceptance now covers reload with current work and a server-committed PUT whose response is deliberately dropped; this new browser path awaits execution/CI. Earlier connect/search/select CI run 37564294588 is confirmed successful, but is not evidence for these new paths.
+
+Full plugin UI, Event editing, recurrence mutation and independent WordPress/Quick Capture/Post preview migration remain incomplete. Next: confirm new browser recovery acceptance, then migrate the existing workspace pages and independent output adapters.

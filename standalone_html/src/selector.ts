@@ -1,4 +1,4 @@
-import { createWork, type Action } from './work.js';
+import { createWork, type Action, type PendingAction } from './work.js';
 import { AssistantActionPlan as Core } from './generated-core.js';
 import { createTransport, CalDAVError } from './transport.js';
 import { createCalDAV } from './caldav.js';
@@ -12,12 +12,14 @@ let selectedTask: Task | null = null;
 let currentWorkId: string | null = null;
 let work: ReturnType<typeof createWork> | null = null;
 let working = false;
+let recoveryRequired = false;
+let connecting = false;
 const workNotice = document.querySelector<HTMLElement>('#current-work')!;
 const actions = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-action]'));
 function updateActions() {
   const selectedKey = selectedTask ? Core.identity({calendarId:selectedTask.calendarUrl,id:selectedTask.uid,recurrenceId:selectedTask.recurrenceId ?? ''}) : null;
   workNotice.textContent = currentWorkId === null ? '当前没有工作。' : '已有当前工作：请选择该任务进行停止、完成或取消。';
-  for (const button of actions) button.disabled = working || !work || !selectedTask ||
+  for (const button of actions) button.disabled = recoveryRequired || working || !work || !selectedTask ||
     selectedTask.recurring || selectedTask.recurrenceId !== null || ['COMPLETED','CANCELLED'].includes(selectedTask.status) ||
     (button.dataset.action === 'start' ? currentWorkId !== null : selectedKey !== currentWorkId);
 }
@@ -33,6 +35,7 @@ for (const button of actions) button.addEventListener('click', async () => {
     render(); await showDetails(selected.taskId);
     notice.textContent = '操作已写入并回读验证。';
   } catch {
+    recoveryRequired = true;
     notice.textContent = '操作未确认成功，请重新连接读取服务器状态；不要重复提交。';
   } finally { working = false; updateActions(); }
 });
@@ -84,7 +87,8 @@ function render() {
 }
 form.addEventListener('submit', async event => {
   event.preventDefault();
-  if (working) return;
+  if (working || connecting) return;
+  connecting = true;
   const generation = ++loadGeneration;
   ++selectionGeneration; transport = null; work = null; selectedTask = null; updateActions(); details.replaceChildren();
   tasks = []; list.replaceChildren(); notice.textContent = '正在连接并读取任务……';
@@ -112,16 +116,23 @@ form.addEventListener('submit', async event => {
     work = createWork(connection,{read:()=>currentWorkId,publish:value=>{
       if (value === null) localStorage.removeItem(storageKey); else localStorage.setItem(storageKey,value);
       currentWorkId = value;
-    }});
+    }},{
+      read:()=>{const value=localStorage.getItem(storageKey+':pending'); return value === null ? null : JSON.parse(value) as PendingAction;},
+      save:value=>localStorage.setItem(storageKey+':pending',JSON.stringify(value)),
+      clear:()=>localStorage.removeItem(storageKey+':pending'),
+    });
+    await work.recover();
+    recoveryRequired = false;
     updateActions();
     transport = connection; tasks = Object.freeze(loaded); render(); notice.textContent = `已读取 ${tasks.length} 个任务。`;
   } catch (error) {
     if (generation !== loadGeneration) return;
-    tasks = []; list.replaceChildren();
+    tasks = []; list.replaceChildren(); work = null; transport = null; selectedTask = null; updateActions();
     notice.textContent = error instanceof CalDAVError && error.code === 'Permission'
       ? '认证失败，请检查用户名和密码。' : error instanceof CalDAVError && error.code === 'Validation'
-      ? '服务器数据无法完整验证，未显示部分结果。' : '连接失败，请检查地址、证书信任和服务器跨域设置。';
-  }
+      ? '服务器数据无法完整验证，未显示部分结果。' : error instanceof CalDAVError && error.code === 'Conflict'
+      ? '上次操作结果与服务器不一致，已保留恢复记录并停用操作，请核对服务器数据。' : '连接失败，请检查地址、证书信任和服务器跨域设置。';
+  } finally { connecting = false; }
 });
 query.addEventListener('input', render);
 

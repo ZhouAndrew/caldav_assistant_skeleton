@@ -21,9 +21,39 @@ try {
   await page.locator('#task-details').getByRole('heading', {name:'Browser task'}).waitFor();
   await page.getByRole('button',{name:'Start / 开始',exact:true}).click();
   await page.getByText('操作已写入并回读验证。').waitFor();
+  await page.reload();
+  await page.locator('[name=url]').fill(process.env.CALDAV_TEST_URL);
+  await page.locator('[name=username]').fill('test');
+  await page.locator('[name=password]').fill('test');
+  await page.getByRole('button', {name:'连接并读取'}).click();
+  await page.getByRole('button', {name:'Browser task'}).click();
+  await page.getByText('已从服务器重新读取任务详情。').waitFor();
+  assert.equal(await page.getByRole('button',{name:'Start / 开始',exact:true}).isEnabled(),false);
   await page.getByRole('button',{name:'Stop / 停止',exact:true}).click();
   await page.getByText('操作已写入并回读验证。').waitFor();
   assert.equal(await page.getByRole('button',{name:'Start / 开始',exact:true}).isEnabled(),true);
+  let dropped = false;
+  await page.route('**/browser/task.ics', async route => {
+    if (route.request().method() === 'PUT' && !dropped) {
+      dropped = true;
+      await route.fetch();
+      await route.abort();
+    } else await route.continue();
+  });
+  await page.getByRole('button',{name:'Start / 开始',exact:true}).click();
+  await page.getByText('操作未确认成功，请重新连接读取服务器状态；不要重复提交。').waitFor();
+  assert.equal(await page.getByRole('button',{name:'Start / 开始',exact:true}).isEnabled(),false);
+  await page.reload();
+  await page.locator('[name=url]').fill(process.env.CALDAV_TEST_URL);
+  await page.locator('[name=username]').fill('test');
+  await page.locator('[name=password]').fill('test');
+  await page.getByRole('button', {name:'连接并读取'}).click();
+  await page.getByRole('button', {name:'Browser task'}).click();
+  await page.getByText('已从服务器重新读取任务详情。').waitFor();
+  assert.equal(await page.getByRole('button',{name:'Start / 开始',exact:true}).isEnabled(),false);
+  await page.getByRole('button',{name:'Stop / 停止',exact:true}).click();
+  await page.getByText('操作已写入并回读验证。').waitFor();
+  assert.equal(await page.evaluate(()=>Object.keys(localStorage).some(key=>key.endsWith(':pending'))),false);
   assert.deepEqual(errors, []);
   console.log('PASS browser + real Radicale: connect/discover/read/search/select taskId');
 } finally { await browser.close(); }
