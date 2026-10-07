@@ -29,3 +29,16 @@ export function selectTasks(tasks: readonly Task[], query: string, includeFinish
   const text = query.trim().toLocaleLowerCase();
   return tasks.filter(task => (includeFinished || !['COMPLETED', 'CANCELLED'].includes(task.status)) && task.title.toLocaleLowerCase().includes(text));
 }
+
+export interface TaskDetails {
+  readonly task: Task;
+  readonly description: string;
+}
+/** Resolve a selector identity from a fresh resource; never trust a cached title/status. */
+export function readTaskDetails(calendarUrl: string, resource: Resource, taskId: string): TaskDetails {
+  const projected = projectTasks(calendarUrl, resource);
+  const index = projected.findIndex(task => task.taskId === taskId);
+  if (index < 0) throw new CalDAVError('NotFound');
+  const component = new ICAL.Component(ICAL.parse(resource.text)).getAllSubcomponents('vtodo')[index]!;
+  return Object.freeze({ task: projected[index]!, description: String(component.getFirstPropertyValue('description') ?? '') });
+}

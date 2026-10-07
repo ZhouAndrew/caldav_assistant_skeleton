@@ -1,6 +1,6 @@
 # CalDAV Assistant standalone HTML migration
 
-Status: first transport increment implemented; no standalone application/UI acceptance yet.
+Status: transport, discovery, selector and authoritative selected-task details implemented; browser UI acceptance remains pending.
 
 The user explicitly changed the Thunderbird-only scope on 2026-10-07: retain all existing plugin pages and interactions as independent HTML + JS, implement independent CalDAV access and a CalDAV-backed Task Selector. This supersedes the Thunderbird-only/native Tasks selection constraints for this directory. It does not change CLI/Public Python API contracts.
 
@@ -43,3 +43,13 @@ Implemented namespace-aware, fail-closed WebDAV multistatus parsing; principal â
 11 tests and strict application typecheck pass. The iCalendar dependency's declarations require skipLibCheck; application strict checks remain enabled. Real Radicale 3.8.1 discovery/REPORT and task projection passed in addition to the transport checks. Browser human-path test is implemented in tests/browser.mjs; browser installation/testing and remote CI are the next acceptance gate.
 
 Reproduce service tests with `python tests/run-services.py` after installing Radicale 3.8.1. Add `--browser` after `npx playwright install chromium` for actual connect/search/select against real disposable Radicale with explicit CORS configuration. The new standalone-html GitHub workflow runs these checks. No production server or user data is accessed.
+
+## Increment 3 â€” selected task details and reuse (2026-10-07)
+
+Selection still emits taskId only. A thin reader re-fetches the selected resource, resolves its exact calendar/UID/RECURRENCE-ID with the existing ical.js parser, and displays current title, status, date metadata and original description as text. Deleted/replaced identities fail closed. Reconnects and newer selections invalidate earlier responses. This is a read-only increment: workflow actions and full plugin page migration remain outstanding.
+
+Strict TypeScript compilation and 12 tests passed, including exact identity rejection and description preservation. Disposable real Radicale 3.8.1 transport/discovery checks passed again. Browser script now checks selected detail rendering, but could not execute here: Playwright Chromium is absent and its download repeatedly returned invalid/truncated archives. No browser acceptance is claimed.
+
+Root LICENSE was synchronized from current upstream main (GNU GPL version 3). Runtime iCalendar parsing continues to reuse ical.js 2.2.1, whose MPL-2.0 notice is preserved in THIRD_PARTY/ical.js-LICENSE; do not relabel third-party code. Future deliverables must retain notices and corresponding source/build instructions.
+
+Next concrete step: finish browser acceptance, then wire the existing pure action core through the independent CalDAV adapter with full intended-field verification before publishing currentWorkId.

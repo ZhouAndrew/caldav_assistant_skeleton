@@ -35,3 +35,14 @@ test('duplicate identities refuse ambiguous task selection', () => {
   const text = 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\n' + 'BEGIN:VTODO\r\nUID:one\r\nEND:VTODO\r\n'.repeat(2) + 'END:VCALENDAR\r\n';
   assert.throws(() => projectTasks('https://test/calendar/', {url:'https://test/task.ics',etag:'"1"',text}), {code:'Validation'});
 });
+
+test('fresh details resolve exact identity and reject deleted or replaced tasks', async () => {
+  const {readTaskDetails} = await import('../.build/tasks.js');
+  const calendar = 'https://test/calendar/';
+  const resource = {url:calendar+'task.ics',etag:'"2"',text:'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VTODO\r\nUID:one\r\nSUMMARY:Fresh title\r\nDESCRIPTION:Original\\nSecond line\r\nEND:VTODO\r\nEND:VCALENDAR\r\n'};
+  const identity = JSON.stringify([calendar,'one',null]);
+  const result = readTaskDetails(calendar,resource,identity);
+  assert.equal(result.task.title,'Fresh title');
+  assert.equal(result.description,'Original\nSecond line');
+  assert.throws(() => readTaskDetails(calendar,resource,JSON.stringify([calendar,'deleted',null])), {code:'NotFound'});
+});
