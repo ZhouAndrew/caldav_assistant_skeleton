@@ -33,3 +33,13 @@ This validates HTTP transport under Node's fetch, not browser CORS/TLS or the fu
 5. Browser and real service human-path acceptance, restart recovery, conflict and offline tests.
 
 No plugin UI or stable XPI bytes were changed by this increment.
+
+## Increment 2 — discovery and selector (2026-10-07)
+
+Implemented namespace-aware, fail-closed WebDAV multistatus parsing; principal → calendar-home → calendar discovery; VTODO REPORT; pure task projections with calendar/UID/RECURRENCE-ID identity and preserved timezone/date-only metadata. Recurring masters are marked and are not expanded or guessed as instances. Missing fields, duplicate identities and partial server failures reject the entire scan.
+
+`selector.html` is a standalone read-only integration page using the existing workspace stylesheet. It connects, discovers calendars, lists unfinished tasks, searches and emits `task-selected` with taskId only. It does not implement workflow actions yet, and does not claim that all plugin pages have migrated. Credentials are kept in memory. A static server must serve this directory after `npm ci && npm test`; opening via file:// is not the supported module path.
+
+11 tests and strict application typecheck pass. The iCalendar dependency's declarations require skipLibCheck; application strict checks remain enabled. Real Radicale 3.8.1 discovery/REPORT and task projection passed in addition to the transport checks. Browser human-path test is implemented in tests/browser.mjs; browser installation/testing and remote CI are the next acceptance gate.
+
+Reproduce service tests with `python tests/run-services.py` after installing Radicale 3.8.1. Add `--browser` after `npx playwright install chromium` for actual connect/search/select against real disposable Radicale with explicit CORS configuration. The new standalone-html GitHub workflow runs these checks. No production server or user data is accessed.

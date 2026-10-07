@@ -1,1 +1,1 @@
-{"name":"caldav-assistant-standalone-html","private":true,"type":"module","scripts":{"test":"tsc -p tsconfig.json && node --test tests/*.test.mjs"},"devDependencies":{"typescript":"5.9.3"}}
+{"name":"caldav-assistant-standalone-html","private":true,"type":"module","scripts":{"test":"tsc -p tsconfig.json && node --test tests/*.test.mjs"},"devDependencies":{"@xmldom/xmldom":"0.9.12","playwright":"1.62.1","typescript":"5.9.3"},"dependencies":{"ical.js":"2.2.1"}}

@@ -1,3 +1,6 @@
+import { DOMParser } from '@xmldom/xmldom';
+import { createCalDAV } from '../.build/caldav.js';
+import { projectTasks } from '../.build/tasks.js';
 import assert from 'node:assert/strict';
 import { createTransport } from '../.build/transport.js';
 const baseUrl = process.env.CALDAV_TEST_URL;
@@ -16,6 +19,13 @@ try {
   assert.notEqual(updated.resource.etag, created.resource.etag);
   await assert.rejects(transport.writeVerified(href, text, created.resource.etag, sameSummary), { code: 'Conflict' });
   assert.match((await transport.read(href)).text, /SUMMARY:Updated/);
+  const client = createCalDAV(transport, baseUrl, text => new DOMParser().parseFromString(text, 'application/xml'));
+  const calendars = await client.discover();
+  const found = calendars.find(item => item.url.endsWith(calendar));
+  assert.ok(found);
+  const resources = await client.tasks(found);
+  assert.equal(resources.length, 1);
+  assert.equal(projectTasks(found.url, resources[0])[0].title, 'Updated');
   console.log('PASS real Radicale: create/read-back/update/read-back/stale ETag rejection/data preservation');
 } finally {
   await transport.request('DELETE', calendar);
