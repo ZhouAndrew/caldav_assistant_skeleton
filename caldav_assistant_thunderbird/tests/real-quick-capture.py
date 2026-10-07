@@ -10,6 +10,7 @@ from marionette_driver.marionette import Marionette
 p=argparse.ArgumentParser();p.add_argument('--runtime',required=True);p.add_argument('--xpi',required=True);p.add_argument('--output',required=True);a=p.parse_args()
 r=Path(a.runtime).resolve();xpi=Path(a.xpi).resolve();out=Path(a.output).resolve();out.mkdir(parents=True,exist_ok=True)
 profile=Path(tempfile.mkdtemp(prefix='wp-integration-'))
+footer_fixture=r/'wp/wp-content/mu-plugins/article-bottom-acceptance.php'
 env={**os.environ,'LD_LIBRARY_PATH':str(r/'deps/usr/lib/x86_64-linux-gnu'),'DISPLAY':'127.0.0.1:97','DBUS_SESSION_BUS_ADDRESS':'disabled:','NO_AT_BRIDGE':'1','GTK_A11Y':'none','MOZ_DISABLE_CONTENT_SANDBOX':'1','MOZ_DISABLE_RDD_SANDBOX':'1'}
 processes=[];logs=[];client=None;report={'sha256':hashlib.sha256(xpi.read_bytes()).hexdigest(),'build':json.loads(zipfile.ZipFile(xpi).read('build-info.json')),'checks':{}};check=report['checks']
 def launch(cmd,name):
@@ -70,7 +71,7 @@ def latest():
 def receipt(previous):
  return wait(lambda:(lambda r:r if r and r['marker']!=previous else None)(latest()))
 def preview_state():
- return chrome('''const done=arguments[arguments.length-1];const b=Services.wm.getMostRecentWindow("mail:3pane").document.getElementById("tabmail").selectedBrowser;const f=b.browsingContext.children[0];f.currentWindowGlobal.getActor("MarionetteCommands").executeScript("return {url:location.href,text:document.body.innerText,height:document.documentElement.scrollHeight,y:scrollY,viewport:innerHeight,resources:[...document.querySelectorAll('img,a')].map(n=>n.src || n.href)};",[],{timeout:20000}).then(done,e=>done({error:String(e)}));''',[],True)
+ return chrome('''const done=arguments[arguments.length-1];const b=Services.wm.getMostRecentWindow("mail:3pane").document.getElementById("tabmail").selectedBrowser;const f=b.browsingContext.children[0];f.currentWindowGlobal.getActor("MarionetteCommands").executeScript("return {url:location.href,text:document.body.innerText,height:document.documentElement.scrollHeight,y:scrollY,viewport:innerHeight,articleBottom:(document.querySelector(".entry-content, .wp-block-post-content")?.getBoundingClientRect().bottom ?? -9999)+scrollY,resources:[...document.querySelectorAll('img,a')].map(n=>n.src || n.href)};",[],{timeout:20000}).then(done,e=>done({error:String(e)}));''',[],True)
 def verify_preview(result,previous_url=None):
  assert result['success'] and result['logSaved'],result
  assert any(step['name']=='append + read-back daily WordPress log' for step in result['steps']),result
@@ -79,7 +80,7 @@ def verify_preview(result,previous_url=None):
  assert '?refresh=' in url and (not previous_url or previous_url!=url),url
  assert ui('return document.getElementById("open-post").href;')==result['post']['link']
  state=preview_state();assert state['url']==url,state
- assert state['height']-state['viewport']-state['y']<=2,state
+ assert abs(state['y']-max(0,state['articleBottom']-state['viewport']))<=2,state
  content=json.loads(wp('post','get',str(result['post']['id']),'--format=json'))['post_content']
  assert result['marker'] in content and content.rfind('<!-- caldav-assistant-log-')==content.index('<!-- '+result['marker']+' -->'),content[-300:]
  assert 'CAPTURE REAL TEXT' in state['text'],state
@@ -135,6 +136,8 @@ try:
   do_GET=do_POST=do_DELETE=do_PUT=handle_request
  server=http.server.ThreadingHTTPServer(('127.0.0.1',18443),Proxy);ctx=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER);ctx.load_cert_chain(cert,key);server.socket=ctx.wrap_socket(server.socket,server_side=True);threading.Thread(target=server.serve_forever,daemon=True).start()
  assert wp('option','get','blogname') == 'Isolated Acceptance', 'Refusing a non-fixture site'
+ footer_fixture.parent.mkdir(parents=True,exist_ok=True)
+ footer_fixture.write_text('''<?php add_action("wp_footer", function() { echo '<footer style="height:1800px">ARTICLE BOTTOM ACCEPTANCE FOOTER</footer>'; });''')
  wp('option','update','home','https://localhost:18443');wp('option','update','siteurl','https://localhost:18443');wp('rewrite','flush')
  old_posts=wp('post','list','--post_type=post','--format=ids').split()
  if old_posts:wp('post','delete',*old_posts,'--force')
@@ -157,14 +160,16 @@ try:
  assert wp('post','list','--post_type=post','--format=ids')==''
  assert not ui('return AssistantStorage.listWordPressOutbox();')
  check['EmptyPreviewDoesNotCreatePost']=True
- initial=int(wp('post','create','--post_title='+time.strftime('%B %-d %A %Y'),'--post_content=EXISTING POST BEFORE CAPTURE','--post_status=publish','--porcelain'))
+ initial=int(wp('post','create','--post_title='+time.strftime('%B %-d %A %Y'),'--post_content=EXISTING POST BEFORE CAPTURE'+('<p>ARTICLE BODY LINE</p>'*80),'--post_status=publish','--porcelain'))
  # Reload without performing any capture: the independent component reads the existing Post.
  ui('location.reload();');wait(lambda:ui('return document.readyState==="complete";'))
  wait(lambda:ui('return !document.getElementById("post-preview").hidden && document.getElementById("preview-status").textContent==="";'))
- state=preview_state();assert 'EXISTING POST BEFORE CAPTURE' in state['text'] and state['height']-state['viewport']-state['y']<=2,state
+ state=preview_state();assert 'EXISTING POST BEFORE CAPTURE' in state['text'] and abs(state['y']-max(0,state['articleBottom']-state['viewport']))<=2,state
  assert latest() is None
  assert not ui('return AssistantStorage.listWordPressOutbox();')
- assert wp('post','get',str(initial),'--field=post_content')=='EXISTING POST BEFORE CAPTURE'
+ assert wp('post','get',str(initial),'--field=post_content')=='EXISTING POST BEFORE CAPTURE'+('<p>ARTICLE BODY LINE</p>'*80)
+ assert state['height']-state['viewport']-state['y']>1000,state
+ check['ArticleEndExcludesLargeFooter']=True
  check['IndependentExistingPostOnOpen']=True
  ui('document.getElementById("quick-capture").closest("section").remove();document.getElementById("refresh-post").click();')
  wait(lambda:ui('return document.getElementById("preview-status").textContent==="";'))
@@ -208,6 +213,7 @@ try:
 except Exception as e:
  report['success']=False;report['error']=str(e);raise
 finally:
+ footer_fixture.unlink(missing_ok=True)
  (out/'report.json').write_text(json.dumps(report,indent=2)+'\n')
  if client:
   try:client.delete_session()
