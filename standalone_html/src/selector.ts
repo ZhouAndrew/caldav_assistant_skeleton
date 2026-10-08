@@ -3,7 +3,7 @@ import { AssistantActionPlan as Core } from './generated-core.js';
 import { createTransport, CalDAVError } from './transport.js';
 import { createCalDAV } from './caldav.js';
 import { projectTasks, selectTasks, readTaskDetails, type Task } from './tasks.js';
-import { createWordPress, WordPressError, type CaptureFile, type WordPressConfig } from './wordpress.js';
+import { createWordPress, createCaptureOutbox, openCaptureStore, WordPressError, type Capture, type CaptureFile, type CaptureStore, type WordPressConfig } from './wordpress.js';
 const form = document.querySelector<HTMLFormElement>('#connect')!;
 const notice = document.querySelector<HTMLElement>('#notice')!;
 const list = document.querySelector<HTMLElement>('#task-list')!;
@@ -148,6 +148,16 @@ const previewStatus = document.querySelector<HTMLElement>('#preview-status')!;
 const openPost = document.querySelector<HTMLAnchorElement>('#open-post')!;
 let wordpress: ReturnType<typeof createWordPress> | null = null;
 let captureTail = Promise.resolve();
+let captureStore:CaptureStore;
+try { captureStore=await openCaptureStore(); }
+catch {
+  // Storage availability must never stop the already initialized CalDAV lane.
+  const memory=new Map<string,Capture>();
+  captureStore={list:async()=>[...memory.values()],put:async value=>{memory.set(value.id,value);},delete:async id=>{memory.delete(id);}};
+  captureResult.textContent='浏览器持久存储不可用；本次会话仍可捕获。';
+}
+const captureOutbox=createCaptureOutbox(captureStore);
+async function showOutbox(prefix='') { const count=(await captureOutbox.list()).length;captureResult.textContent=prefix+(count?`待补写 ${count} 项。`:'Outbox 为空。'); }
 function readWordPressConfig(): WordPressConfig | null {
   const saved = localStorage.getItem('caldav-assistant.wordpress');
   if (!saved) return null;
@@ -176,6 +186,7 @@ wordpressForm.addEventListener('submit',event=>{
     localStorage.setItem('caldav-assistant.wordpress',JSON.stringify({baseUrl:config.baseUrl,username:config.username}));
     sessionStorage.setItem('caldav-assistant.wordpress.password',config.applicationPassword);
     previewStatus.textContent='WordPress 设置已保存；Application Password 仅保留到当前浏览器会话。';
+    void retryCaptures();
   } catch { wordpress=null;previewStatus.textContent='WordPress URL 无效。'; }
 });
 async function refreshPost() {
@@ -200,15 +211,23 @@ function appendCapture(content:string,files:readonly File[]) {
   captureTail=captureTail.then(async()=>{
     captureResult.textContent='正在追加……';
     try {
-      if(!wordpress) throw new WordPressError('Permission');
       const converted:CaptureFile[]=[];for(const file of files) converted.push({name:file.name||'clipboard.bin',type:file.type,bytes:await file.arrayBuffer()});
-      await wordpress.append({id:crypto.randomUUID(),at:new Date().toISOString(),content,files:converted});
-      capture.value='';captureResult.textContent='✓ 已追加并回读验证。';await refreshPost();
+      await captureOutbox.enqueue({id:crypto.randomUUID(),at:new Date().toISOString(),content,files:converted});capture.value='';
+      if(!wordpress) {await showOutbox('已持久保存；');return;}
+      const result=await captureOutbox.flush(wordpress);
+      captureResult.textContent=result.pending?`已持久保存，仍有 ${result.pending} 项等待补写。`:'✓ 已追加并回读验证。';
+      if(result.sent) await refreshPost();
     } catch(error) {
-      captureResult.textContent=error instanceof WordPressError&&error.code==='Permission'?'请先填写 WordPress 设置。':'追加失败；Task 操作不受影响。';
+      await showOutbox('追加暂未完成；Task 操作不受影响。');
     }
   });
 }
 capture.addEventListener('paste',event=>{const files=filesFrom(event.clipboardData);const content=event.clipboardData?.getData('text/plain')??'';if(!files.length&&!content.trim())return;event.preventDefault();appendCapture(content,files);});
 capture.addEventListener('dragover',event=>{if([...(event.dataTransfer?.types??[])].includes('Files'))event.preventDefault();});
 capture.addEventListener('drop',event=>{const files=filesFrom(event.dataTransfer);if(!files.length)return;event.preventDefault();appendCapture('',files);});
+async function retryCaptures() {
+  if(!wordpress) {await showOutbox('请先填写 WordPress 设置；');return;}
+  const result=await captureOutbox.flush(wordpress);captureResult.textContent=result.pending?`仍有 ${result.pending} 项等待补写。`:`✓ 已补写 ${result.sent} 项，Outbox 为空。`;if(result.sent)await refreshPost();
+}
+document.querySelector<HTMLButtonElement>('#retry-captures')!.addEventListener('click',()=>void retryCaptures());
+void showOutbox();

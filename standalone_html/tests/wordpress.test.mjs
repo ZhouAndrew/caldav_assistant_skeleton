@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {captureBlock,createWordPress} from '../.build/wordpress.js';
+import {captureBlock,createCaptureOutbox,createWordPress} from '../.build/wordpress.js';
 globalThis.btoa ??= value=>Buffer.from(value,'binary').toString('base64');
 test('capture block escapes text, filenames and URLs',()=>{
  const html=captureBlock({id:'one',at:'2026-10-08T00:00:00Z',content:'<script>x</script>'},[{url:'https://wp/a?x=1&y=2',type:'image/png',name:'<photo>'}]);
@@ -26,3 +26,11 @@ test('append creates, uploads, writes and reads back exact content',async()=>{
  assert.equal(receipt.verified,true);assert.match(receipt.post.content,/capture-1/);assert.equal(calls.filter(item=>item[1]==='POST').length,3);
 });
 function json(value){return new Response(JSON.stringify(value),{status:200,headers:{'Content-Type':'application/json'}});}
+test('durable outbox stops on failure and retries without losing order',async()=>{
+ const rows=[],store={list:async()=>rows.slice(),put:async value=>{rows.push(value);},delete:async id=>{rows.splice(rows.findIndex(item=>item.id===id),1);}};
+ const outbox=createCaptureOutbox(store),sent=[];
+ await outbox.enqueue({id:'two',at:'2026-10-08T00:01:00Z',content:'2',files:[]});await outbox.enqueue({id:'one',at:'2026-10-08T00:00:00Z',content:'1',files:[]});
+ assert.deepEqual(await outbox.flush({append:async capture=>{sent.push(capture.id);throw Error('offline');}}),{sent:0,pending:2});
+ assert.deepEqual(sent,['one']);sent.length=0;
+ assert.deepEqual(await outbox.flush({append:async capture=>{sent.push(capture.id);}}),{sent:2,pending:0});assert.deepEqual(sent,['one','two']);
+});

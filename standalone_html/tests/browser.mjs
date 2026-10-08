@@ -6,9 +6,9 @@ try {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(process.env.SELECTOR_TEST_URL);
-  await page.locator('[name=url]').fill(process.env.CALDAV_TEST_URL);
-  await page.locator('[name=username]').fill('test');
-  await page.locator('[name=password]').fill('test');
+  await page.locator('#connect [name=url]').fill(process.env.CALDAV_TEST_URL);
+  await page.locator('#connect [name=username]').fill('test');
+  await page.locator('#connect [name=password]').fill('test');
   await page.getByRole('button', {name:'连接并读取'}).click();
   await page.getByRole('button', {name:'Browser task'}).waitFor();
   await page.locator('#query').fill('no match');
@@ -21,7 +21,9 @@ try {
   await page.locator('#task-details').getByRole('heading', {name:'Browser task'}).waitFor();
   // WordPress is independently mocked: exercise settings, capture, read-back and iframe preview.
   let wordpressContent = '';
+  let wordpressOffline = false;
   await page.route('http://wordpress.test/**', async route => {
+    if(wordpressOffline) return route.abort();
     const request=route.request(), url=new URL(request.url());
     if(url.pathname==='/daily-post') return route.fulfill({status:200,contentType:'text/html',body:'<!doctype html><title>Daily</title><article>Full post</article>'});
     if(url.pathname.includes('/wp-json/wp/v2/posts') && url.searchParams.has('search')) {
@@ -37,10 +39,15 @@ try {
   await page.locator('#wordpress-connect [name=username]').fill('editor');
   await page.locator('#wordpress-connect [name=password]').fill('application-password');
   await page.getByRole('button',{name:'保存到本设备'}).click();
-  await page.locator('#quick-capture').evaluate(element=>element.dispatchEvent(new ClipboardEvent('paste',{clipboardData:new DataTransfer(),bubbles:true})));
+  wordpressOffline=true;
   await page.locator('#quick-capture').fill('Capture text');
   await page.locator('#quick-capture').evaluate(element=>{const data=new DataTransfer();data.setData('text/plain',element.value);element.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));});
-  await page.getByText('✓ 已追加并回读验证。').waitFor();
+  await page.getByText('已持久保存，仍有 1 项等待补写。').waitFor();
+  await page.reload();
+  await page.getByText('待补写 1 项。').waitFor();
+  wordpressOffline=false;
+  await page.getByRole('button',{name:'重试待补写'}).click();
+  await page.getByText('✓ 已补写 1 项，Outbox 为空。').waitFor();
   assert.match(wordpressContent,/Capture text/);
   await page.locator('#post-preview').waitFor({state:'visible'});
   assert.equal(await page.locator('#post-preview').contentFrame().locator('article').textContent(),'Full post');
@@ -48,12 +55,18 @@ try {
   await page.unroute('http://wordpress.test/**');
   await page.getByRole('button',{name:'刷新 Post'}).click();
   await page.getByText('读取 Post 失败；Task 操作不受影响。').waitFor();
+  await page.locator('#connect [name=url]').fill(process.env.CALDAV_TEST_URL);
+  await page.locator('#connect [name=username]').fill('test');
+  await page.locator('#connect [name=password]').fill('test');
+  await page.getByRole('button', {name:'连接并读取'}).click();
+  await page.getByRole('button', {name:'Browser task'}).click();
+  await page.getByText('已从服务器重新读取任务详情。').waitFor();
   await page.getByRole('button',{name:'Start / 开始',exact:true}).click();
   await page.getByText('操作已写入并回读验证。').waitFor();
   await page.reload();
-  await page.locator('[name=url]').fill(process.env.CALDAV_TEST_URL);
-  await page.locator('[name=username]').fill('test');
-  await page.locator('[name=password]').fill('test');
+  await page.locator('#connect [name=url]').fill(process.env.CALDAV_TEST_URL);
+  await page.locator('#connect [name=username]').fill('test');
+  await page.locator('#connect [name=password]').fill('test');
   await page.getByRole('button', {name:'连接并读取'}).click();
   await page.getByRole('button', {name:'Browser task'}).click();
   await page.getByText('已从服务器重新读取任务详情。').waitFor();
@@ -73,9 +86,9 @@ try {
   await page.getByText('操作未确认成功，请重新连接读取服务器状态；不要重复提交。').waitFor();
   assert.equal(await page.getByRole('button',{name:'Start / 开始',exact:true}).isEnabled(),false);
   await page.reload();
-  await page.locator('[name=url]').fill(process.env.CALDAV_TEST_URL);
-  await page.locator('[name=username]').fill('test');
-  await page.locator('[name=password]').fill('test');
+  await page.locator('#connect [name=url]').fill(process.env.CALDAV_TEST_URL);
+  await page.locator('#connect [name=username]').fill('test');
+  await page.locator('#connect [name=password]').fill('test');
   await page.getByRole('button', {name:'连接并读取'}).click();
   await page.getByRole('button', {name:'Browser task'}).click();
   await page.getByText('已从服务器重新读取任务详情。').waitFor();

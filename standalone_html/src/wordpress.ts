@@ -3,6 +3,7 @@ export interface DailyPost { readonly id: number; readonly title: string; readon
 export interface CaptureFile { readonly name: string; readonly type: string; readonly bytes: ArrayBuffer }
 export interface Capture { readonly id: string; readonly at: string; readonly content: string; readonly files: readonly CaptureFile[] }
 export interface CaptureReceipt { readonly post: DailyPost; readonly verified: true }
+export interface CaptureStore { list():Promise<readonly Capture[]>; put(capture:Capture):Promise<void>; delete(id:string):Promise<void> }
 
 export class WordPressError extends Error {
   constructor(readonly code: 'Permission'|'Unavailable'|'Validation'|'Conflict') { super(`WordPress ${code}`); }
@@ -74,4 +75,41 @@ export function createWordPress(options:{config:WordPressConfig;fetch:typeof fet
     return Object.freeze({post:actual,verified:true});
   }
   return Object.freeze({findDaily,append});
+}
+
+export function createCaptureOutbox(store:CaptureStore) {
+  let busy=false;
+  async function ordered() { return Object.freeze([...(await store.list())].sort((a,b)=>a.at.localeCompare(b.at)||a.id.localeCompare(b.id))); }
+  async function enqueue(capture:Capture) { await store.put(capture); }
+  async function flush(client:ReturnType<typeof createWordPress>) {
+    if(busy) return Object.freeze({sent:0,pending:(await ordered()).length});
+    busy=true;let sent=0;
+    try {
+      for(const capture of await ordered()) {
+        try { await client.append(capture);await store.delete(capture.id);sent++; }
+        catch { break; }
+      }
+      return Object.freeze({sent,pending:(await ordered()).length});
+    } finally { busy=false; }
+  }
+  return Object.freeze({enqueue,flush,list:ordered});
+}
+
+export function openCaptureStore():Promise<CaptureStore> {
+  return new Promise((resolve,reject)=>{
+    const request=indexedDB.open('caldav-assistant-standalone',1);
+    request.onupgradeneeded=()=>request.result.createObjectStore('wordpress-captures',{keyPath:'id'});
+    request.onerror=()=>reject(new WordPressError('Unavailable'));
+    request.onsuccess=()=>{
+      const db=request.result;
+      function operation<T>(mode:IDBTransactionMode,run:(store:IDBObjectStore)=>IDBRequest<T>) {
+        return new Promise<T>((ok,fail)=>{const tx=db.transaction('wordpress-captures',mode);const result=run(tx.objectStore('wordpress-captures'));result.onsuccess=()=>ok(result.result);result.onerror=()=>fail(new WordPressError('Unavailable'));});
+      }
+      resolve(Object.freeze({
+        list:async()=>Object.freeze(await operation<Capture[]>('readonly',store=>store.getAll())),
+        put:async (capture:Capture)=>{await operation('readwrite',store=>store.put(capture));},
+        delete:async (id:string)=>{await operation('readwrite',store=>store.delete(id));},
+      }));
+    };
+  });
 }
