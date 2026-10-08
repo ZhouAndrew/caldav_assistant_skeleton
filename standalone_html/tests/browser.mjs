@@ -19,6 +19,35 @@ try {
   assert.deepEqual(JSON.parse(await page.evaluate(() => globalThis.selectedTaskId)), [process.env.CALDAV_TEST_URL + 'browser/', 'browser-task', null]);
   await page.getByText('已从服务器重新读取任务详情。').waitFor();
   await page.locator('#task-details').getByRole('heading', {name:'Browser task'}).waitFor();
+  // WordPress is independently mocked: exercise settings, capture, read-back and iframe preview.
+  let wordpressContent = '';
+  await page.route('http://wordpress.test/**', async route => {
+    const request=route.request(), url=new URL(request.url());
+    if(url.pathname==='/daily-post') return route.fulfill({status:200,contentType:'text/html',body:'<!doctype html><title>Daily</title><article>Full post</article>'});
+    if(url.pathname.includes('/wp-json/wp/v2/posts') && url.searchParams.has('search')) {
+      const body=wordpressContent ? [{id:9,link:'http://wordpress.test/daily-post',title:{rendered:'CalDAV Assistant Work Log 2026-10-08'},content:{raw:wordpressContent}}] : [];
+      return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(body)});
+    }
+    if(url.pathname.endsWith('/wp-json/wp/v2/posts') && request.method()==='POST') return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:9,link:'http://wordpress.test/daily-post',title:{rendered:'CalDAV Assistant Work Log 2026-10-08'},content:{raw:''}})});
+    if(url.pathname.endsWith('/wp-json/wp/v2/posts/9') && request.method()==='POST') {wordpressContent=JSON.parse(request.postData()).content;return route.fulfill({status:200,contentType:'application/json',body:'{"id":9}'});}
+    if(url.pathname.endsWith('/wp-json/wp/v2/posts/9') && url.searchParams.has('context')) return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:9,link:'http://wordpress.test/daily-post',title:{rendered:'CalDAV Assistant Work Log 2026-10-08'},content:{raw:wordpressContent}})});
+    return route.fulfill({status:404,body:'not found'});
+  });
+  await page.locator('#wordpress-connect [name=url]').fill('http://wordpress.test');
+  await page.locator('#wordpress-connect [name=username]').fill('editor');
+  await page.locator('#wordpress-connect [name=password]').fill('application-password');
+  await page.getByRole('button',{name:'保存到本设备'}).click();
+  await page.locator('#quick-capture').evaluate(element=>element.dispatchEvent(new ClipboardEvent('paste',{clipboardData:new DataTransfer(),bubbles:true})));
+  await page.locator('#quick-capture').fill('Capture text');
+  await page.locator('#quick-capture').evaluate(element=>{const data=new DataTransfer();data.setData('text/plain',element.value);element.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));});
+  await page.getByText('✓ 已追加并回读验证。').waitFor();
+  assert.match(wordpressContent,/Capture text/);
+  await page.locator('#post-preview').waitFor({state:'visible'});
+  assert.equal(await page.locator('#post-preview').contentFrame().locator('article').textContent(),'Full post');
+  // Break WordPress and prove the Task lane remains usable.
+  await page.unroute('http://wordpress.test/**');
+  await page.getByRole('button',{name:'刷新 Post'}).click();
+  await page.getByText('读取 Post 失败；Task 操作不受影响。').waitFor();
   await page.getByRole('button',{name:'Start / 开始',exact:true}).click();
   await page.getByText('操作已写入并回读验证。').waitFor();
   await page.reload();

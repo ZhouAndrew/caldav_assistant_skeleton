@@ -3,6 +3,7 @@ import { AssistantActionPlan as Core } from './generated-core.js';
 import { createTransport, CalDAVError } from './transport.js';
 import { createCalDAV } from './caldav.js';
 import { projectTasks, selectTasks, readTaskDetails, type Task } from './tasks.js';
+import { createWordPress, WordPressError, type CaptureFile, type WordPressConfig } from './wordpress.js';
 const form = document.querySelector<HTMLFormElement>('#connect')!;
 const notice = document.querySelector<HTMLElement>('#notice')!;
 const list = document.querySelector<HTMLElement>('#task-list')!;
@@ -137,3 +138,77 @@ form.addEventListener('submit', async event => {
 query.addEventListener('input', render);
 
 updateActions();
+
+// WordPress is an independent output lane. None of its state participates in CalDAV actions.
+const wordpressForm = document.querySelector<HTMLFormElement>('#wordpress-connect')!;
+const capture = document.querySelector<HTMLTextAreaElement>('#quick-capture')!;
+const captureResult = document.querySelector<HTMLElement>('#capture-result')!;
+const preview = document.querySelector<HTMLIFrameElement>('#post-preview')!;
+const previewStatus = document.querySelector<HTMLElement>('#preview-status')!;
+const openPost = document.querySelector<HTMLAnchorElement>('#open-post')!;
+let wordpress: ReturnType<typeof createWordPress> | null = null;
+let captureTail = Promise.resolve();
+function readWordPressConfig(): WordPressConfig | null {
+  const saved = localStorage.getItem('caldav-assistant.wordpress');
+  if (!saved) return null;
+  try {
+    const publicConfig = JSON.parse(saved) as {baseUrl?:unknown;username?:unknown};
+    const password = sessionStorage.getItem('caldav-assistant.wordpress.password') ?? '';
+    if (typeof publicConfig.baseUrl !== 'string' || typeof publicConfig.username !== 'string' || !password) return null;
+    return {baseUrl:publicConfig.baseUrl,username:publicConfig.username,applicationPassword:password};
+  } catch { return null; }
+}
+function connectWordPress(config: WordPressConfig) {
+  wordpress = createWordPress({config,fetch:fetch.bind(globalThis)});
+}
+const savedWordPress = localStorage.getItem('caldav-assistant.wordpress');
+if (savedWordPress) try {
+  const value=JSON.parse(savedWordPress) as {baseUrl?:string;username?:string};
+  if(value.baseUrl) (wordpressForm.elements.namedItem('url') as HTMLInputElement).value=value.baseUrl;
+  if(value.username) (wordpressForm.elements.namedItem('username') as HTMLInputElement).value=value.username;
+} catch { localStorage.removeItem('caldav-assistant.wordpress'); }
+const initialWordPress=readWordPressConfig();if(initialWordPress) connectWordPress(initialWordPress);
+wordpressForm.addEventListener('submit',event=>{
+  event.preventDefault();const data=new FormData(wordpressForm);
+  const config={baseUrl:String(data.get('url')),username:String(data.get('username')),applicationPassword:String(data.get('password'))};
+  try {
+    connectWordPress(config);
+    localStorage.setItem('caldav-assistant.wordpress',JSON.stringify({baseUrl:config.baseUrl,username:config.username}));
+    sessionStorage.setItem('caldav-assistant.wordpress.password',config.applicationPassword);
+    previewStatus.textContent='WordPress 设置已保存；Application Password 仅保留到当前浏览器会话。';
+  } catch { wordpress=null;previewStatus.textContent='WordPress URL 无效。'; }
+});
+async function refreshPost() {
+  previewStatus.textContent='正在独立读取今天的 Post……';
+  try {
+    if(!wordpress) throw new WordPressError('Permission');
+    const post=await wordpress.findDaily(new Date(),false);
+    if(!post) { preview.hidden=true;openPost.hidden=true;previewStatus.textContent='今天尚无日志 Post。';return; }
+    const url=new URL(post.link);if(!['http:','https:'].includes(url.protocol)) throw new WordPressError('Validation');
+    openPost.href=url.href;openPost.hidden=false;preview.src=url.href;preview.hidden=false;previewStatus.textContent='完整 Post 已直接载入 iframe。';
+  } catch(error) {
+    preview.hidden=true;openPost.hidden=true;
+    previewStatus.textContent=error instanceof WordPressError&&error.code==='Permission'?'请先填写 WordPress 设置。':'读取 Post 失败；Task 操作不受影响。';
+  }
+}
+document.querySelector<HTMLButtonElement>('#refresh-post')!.addEventListener('click',()=>void refreshPost());
+function filesFrom(data: DataTransfer | null): File[] {
+  const files=Array.from(data?.files??[]);if(files.length) return files;
+  return Array.from(data?.items??[]).filter(item=>item.kind==='file').map(item=>item.getAsFile()).filter((item):item is File=>item!==null);
+}
+function appendCapture(content:string,files:readonly File[]) {
+  captureTail=captureTail.then(async()=>{
+    captureResult.textContent='正在追加……';
+    try {
+      if(!wordpress) throw new WordPressError('Permission');
+      const converted:CaptureFile[]=[];for(const file of files) converted.push({name:file.name||'clipboard.bin',type:file.type,bytes:await file.arrayBuffer()});
+      await wordpress.append({id:crypto.randomUUID(),at:new Date().toISOString(),content,files:converted});
+      capture.value='';captureResult.textContent='✓ 已追加并回读验证。';await refreshPost();
+    } catch(error) {
+      captureResult.textContent=error instanceof WordPressError&&error.code==='Permission'?'请先填写 WordPress 设置。':'追加失败；Task 操作不受影响。';
+    }
+  });
+}
+capture.addEventListener('paste',event=>{const files=filesFrom(event.clipboardData);const content=event.clipboardData?.getData('text/plain')??'';if(!files.length&&!content.trim())return;event.preventDefault();appendCapture(content,files);});
+capture.addEventListener('dragover',event=>{if([...(event.dataTransfer?.types??[])].includes('Files'))event.preventDefault();});
+capture.addEventListener('drop',event=>{const files=filesFrom(event.dataTransfer);if(!files.length)return;event.preventDefault();appendCapture('',files);});

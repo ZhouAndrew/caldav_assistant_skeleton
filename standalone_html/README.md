@@ -71,3 +71,11 @@ Before a workflow PUT, the browser persists a per-account pending intent contain
 Strict compilation and 19 tests passed, covering lost responses for all four actions, refusal to repeat pending writes, conflicting external changes and local persistence failures. Disposable real Radicale transport/workflow integration passed. Browser acceptance now covers reload with current work and a server-committed PUT whose response is deliberately dropped; this new browser path awaits execution/CI. Earlier connect/search/select CI run 37564294588 is confirmed successful, but is not evidence for these new paths.
 
 Full plugin UI, Event editing, recurrence mutation and independent WordPress/Quick Capture/Post preview migration remain incomplete. Next: confirm new browser recovery acceptance, then migrate the existing workspace pages and independent output adapters.
+
+## Increment 6 — Workspace capture and independent Post preview (2026-10-08)
+
+The recovery browser path passed in GitHub Actions run 37597337290: real Chromium and disposable Radicale verified connect, selection, lifecycle, reload, deliberately lost PUT response and read-only recovery.
+
+The standalone Work page now retains the plugin navigation and adds its Quick Capture, Open Post and full iframe preview panels. A separate browser REST adapter finds or creates the exact daily Post, uploads pasted/dropped files, appends an escaped marker-bearing block and reads the Post back before success. Duplicate daily Posts fail closed. The iframe reads the Post directly from its public link. CalDAV never imports or awaits this adapter; WordPress errors are reported only in their own panels. URL and username may persist locally, while the Application Password is session-only.
+
+Strict compilation and 22 tests pass, including output escaping, duplicate detection and create/upload/append/read-back. Browser acceptance now mocks the WordPress server to test capture and the full iframe, deliberately takes WordPress offline, and then continues the real Radicale Start/Stop path. This new combined browser path awaits CI. Independent durable WordPress Outbox, the remaining Today/Record/Logs/WordPress/Tools pages, Event editing and recurrence mutation remain incomplete.
