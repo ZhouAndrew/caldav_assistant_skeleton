@@ -50,7 +50,9 @@ export function createWordPress(options:{config:WordPressConfig;fetch:typeof fet
     if(matches.length>1) throw new WordPressError('Conflict');
     if(matches[0]) return matches[0];
     if(!create) return null;
-    const created=project(await request('/posts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,status:'publish',content:''})}));
+    const result=await request('/posts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,status:'publish',content:''})});
+    if(!Number.isSafeInteger(result?.id)) throw new WordPressError('Validation');
+    const created=project(await request(`/posts/${result.id}?context=edit`));
     if(created.title!==title||created.content!=='') throw new WordPressError('Validation');
     return created;
   }

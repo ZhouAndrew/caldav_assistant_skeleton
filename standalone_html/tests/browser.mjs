@@ -28,7 +28,7 @@ try {
       const body=wordpressContent ? [{id:9,link:'http://wordpress.test/daily-post',title:{rendered:'CalDAV Assistant Work Log 2026-10-08'},content:{raw:wordpressContent}}] : [];
       return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(body)});
     }
-    if(url.pathname.endsWith('/wp-json/wp/v2/posts') && request.method()==='POST') return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:9,link:'http://wordpress.test/daily-post',title:{rendered:'CalDAV Assistant Work Log 2026-10-08'},content:{raw:''}})});
+    if(url.pathname.endsWith('/wp-json/wp/v2/posts') && request.method()==='POST') return route.fulfill({status:200,contentType:'application/json',body:'{"id":9}'});
     if(url.pathname.endsWith('/wp-json/wp/v2/posts/9') && request.method()==='POST') {wordpressContent=JSON.parse(request.postData()).content;return route.fulfill({status:200,contentType:'application/json',body:'{"id":9}'});}
     if(url.pathname.endsWith('/wp-json/wp/v2/posts/9') && url.searchParams.has('context')) return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:9,link:'http://wordpress.test/daily-post',title:{rendered:'CalDAV Assistant Work Log 2026-10-08'},content:{raw:wordpressContent}})});
     return route.fulfill({status:404,body:'not found'});

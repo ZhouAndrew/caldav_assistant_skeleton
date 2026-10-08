@@ -15,7 +15,7 @@ test('append creates, uploads, writes and reads back exact content',async()=>{
  let content='';const calls=[];
  const fetch=async(url,init={})=>{calls.push([String(url),init.method??'GET']);const path=new URL(url).pathname+new URL(url).search;
   if(path.includes('/posts?'))return json([]);
-  if(path.endsWith('/posts'))return json({id:9,link:'https://wp/p',title:{rendered:'CalDAV Assistant Work Log 2026-10-08'},content:{raw:''}});
+  if(path.endsWith('/posts'))return json({id:9});
   if(path.includes('/media'))return json({id:7,source_url:'https://wp/media/a.png',mime_type:'image/png'});
   if(path.endsWith('/posts/9')&&init.method==='POST'){content=JSON.parse(init.body).content;return json({id:9});}
   if(path.includes('/posts/9?'))return json({id:9,link:'https://wp/p',title:{rendered:'CalDAV Assistant Work Log 2026-10-08'},content:{raw:content}});

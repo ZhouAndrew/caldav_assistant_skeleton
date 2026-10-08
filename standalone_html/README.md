@@ -1,6 +1,6 @@
 # CalDAV Assistant standalone HTML migration
 
-Status: transport, discovery, selector and authoritative selected-task details implemented; browser UI acceptance remains pending.
+Status: CalDAV transport, discovery, selector, verified work actions and recovery are browser-tested; standalone Workspace/WordPress migration is in progress.
 
 The user explicitly changed the Thunderbird-only scope on 2026-10-07: retain all existing plugin pages and interactions as independent HTML + JS, implement independent CalDAV access and a CalDAV-backed Task Selector. This supersedes the Thunderbird-only/native Tasks selection constraints for this directory. It does not change CLI/Public Python API contracts.
 
