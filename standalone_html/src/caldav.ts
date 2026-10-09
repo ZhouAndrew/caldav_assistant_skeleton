@@ -79,9 +79,9 @@ export function createCalDAV(transport: ReturnType<typeof createTransport>, base
     }
     return Object.freeze(Array.from(new Map(calendars.map(calendar => [calendar.url, calendar])).values()));
   }
-  async function tasks(calendar: Calendar): Promise<readonly Resource[]> {
+  async function components(calendar: Calendar, component: 'VTODO'|'VEVENT'): Promise<readonly Resource[]> {
     const response = await transport.request('REPORT', calendar.url,
-      `<c:calendar-query xmlns:d="DAV:" xmlns:c="${CAL}"><d:prop><d:getetag/><c:calendar-data/></d:prop><c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VTODO"/></c:comp-filter></c:filter></c:calendar-query>`, { Depth: '1' });
+      `<c:calendar-query xmlns:d="DAV:" xmlns:c="${CAL}"><d:prop><d:getetag/><c:calendar-data/></d:prop><c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="${component}"/></c:comp-filter></c:filter></c:calendar-query>`, { Depth: '1' });
     const resources = parseMultistatus(await response.text(), parse).map(entry => {
       const etag = property(entry.props, DAV, 'getetag')?.textContent;
       const text = property(entry.props, CAL, 'calendar-data')?.textContent;
@@ -91,5 +91,5 @@ export function createCalDAV(transport: ReturnType<typeof createTransport>, base
     if (new Set(resources.map(resource => resource.url)).size !== resources.length) throw new CalDAVError('Validation');
     return Object.freeze(resources);
   }
-  return Object.freeze({ discover, tasks });
+  return Object.freeze({ discover, tasks:(calendar:Calendar)=>components(calendar,'VTODO'), events:(calendar:Calendar)=>components(calendar,'VEVENT') });
 }

@@ -62,6 +62,8 @@ Access-Control-Expose-Headers = ETag
                 request('MKCALENDAR', '/test/browser/', '<c:mkcalendar xmlns:c="urn:ietf:params:xml:ns:caldav"/>')
                 text = '\r\n'.join(['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Browser Test//EN','BEGIN:VTODO','UID:browser-task','DTSTAMP:20261007T000000Z','SUMMARY:Browser task','STATUS:NEEDS-ACTION','END:VTODO','END:VCALENDAR',''])
                 request('PUT', '/test/browser/task.ics', text)
+                event = '\r\n'.join(['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Browser Test//EN','BEGIN:VEVENT','UID:browser-event','DTSTAMP:20261009T000000Z','SUMMARY:Browser lesson','DTSTART;TZID=Asia/Shanghai:20261009T090000','DTEND;TZID=Asia/Shanghai:20261009T100000','LOCATION:Room 1','END:VEVENT','END:VCALENDAR',''])
+                request('PUT', '/test/browser/event.ics', event)
                 subprocess.run(['node', 'tests/browser.mjs'], env=env, check=True)
         except Exception:
             print((root / 'radicale.log').read_text(), file=sys.stderr)

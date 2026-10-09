@@ -3,12 +3,14 @@ import { AssistantActionPlan as Core } from './generated-core.js';
 import { createTransport, CalDAVError } from './transport.js';
 import { createCalDAV } from './caldav.js';
 import { projectTasks, selectTasks, readTaskDetails, type Task } from './tasks.js';
+import { occursOn, projectEvents, propertyDay, type CalendarEvent } from './events.js';
 import { createWordPress, createCaptureOutbox, openCaptureStore, WordPressError, type Capture, type CaptureFile, type CaptureStore, type WordPressConfig } from './wordpress.js';
 const form = document.querySelector<HTMLFormElement>('#connect')!;
 const notice = document.querySelector<HTMLElement>('#notice')!;
 const list = document.querySelector<HTMLElement>('#task-list')!;
 const query = document.querySelector<HTMLInputElement>('#query')!;
 let tasks: readonly Task[] = [];
+let events: readonly CalendarEvent[] = [];
 let selectedTask: Task | null = null;
 let currentWorkId: string | null = null;
 let work: ReturnType<typeof createWork> | null = null;
@@ -86,6 +88,19 @@ function render() {
   }
   if (!list.childNodes.length) list.textContent = '没有匹配的未完成任务。';
 }
+function renderToday() {
+  const root=document.querySelector<HTMLElement>('#today-items')!;root.replaceChildren();
+  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+  const part=(name:string)=>parts.find(item=>item.type===name)?.value;const day=`${part('year')}-${part('month')}-${part('day')}`;
+  const todayTasks=tasks.filter(task=>propertyDay(task.due)===day);
+  const todayEvents=events.filter(event=>occursOn(event,day));
+  if(!todayTasks.length&&!todayEvents.length){root.textContent='今天没有 Task 或 Event。';return;}
+  const table=document.createElement('table');const body=document.createElement('tbody');
+  for(const item of [...todayTasks.map(task=>({type:'Task',time:task.due??'',title:task.title,state:task.status})),...todayEvents.map(event=>({type:'Event',time:event.start,title:event.title,state:event.location}))]) {
+    const row=document.createElement('tr');for(const value of [item.type,item.time,item.title||'（无标题）',item.state]){const cell=document.createElement('td');cell.textContent=value;row.append(cell);}body.append(row);
+  }
+  table.append(body);root.append(table);
+}
 form.addEventListener('submit', async event => {
   event.preventDefault();
   if (working || connecting) return;
@@ -105,9 +120,12 @@ form.addEventListener('submit', async event => {
     const client = createCalDAV(connection, baseUrl,
       text => new DOMParser().parseFromString(text, 'application/xml'));
     const calendars = await client.discover();
-    const loaded: Task[] = [];
+    const loaded: Task[] = [];const loadedEvents:CalendarEvent[]=[];
     for (const calendar of calendars.filter(item => !item.components.length || item.components.includes('VTODO'))) {
       for (const resource of await client.tasks(calendar)) loaded.push(...projectTasks(calendar.url, resource));
+    }
+    for (const calendar of calendars.filter(item => !item.components.length || item.components.includes('VEVENT'))) {
+      for (const resource of await client.events(calendar)) loadedEvents.push(...projectEvents(calendar.url, resource));
     }
     if (new Set(loaded.map(task => task.taskId)).size !== loaded.length) throw new CalDAVError('Validation');
     if (generation !== loadGeneration) return;
@@ -125,10 +143,10 @@ form.addEventListener('submit', async event => {
     await work.recover();
     recoveryRequired = false;
     updateActions();
-    transport = connection; tasks = Object.freeze(loaded); render(); notice.textContent = `已读取 ${tasks.length} 个任务。`;
+    transport = connection; tasks = Object.freeze(loaded);events=Object.freeze(loadedEvents);render();renderToday(); notice.textContent = `已读取 ${tasks.length} 个任务、${events.length} 个事件。`;
   } catch (error) {
     if (generation !== loadGeneration) return;
-    tasks = []; list.replaceChildren(); work = null; transport = null; selectedTask = null; updateActions();
+    tasks = [];events=[]; list.replaceChildren();renderToday(); work = null; transport = null; selectedTask = null; updateActions();
     notice.textContent = error instanceof CalDAVError && error.code === 'Permission'
       ? '认证失败，请检查用户名和密码。' : error instanceof CalDAVError && error.code === 'Validation'
       ? '服务器数据无法完整验证，未显示部分结果。' : error instanceof CalDAVError && error.code === 'Conflict'

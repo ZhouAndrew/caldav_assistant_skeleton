@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 const browser = await chromium.launch({headless:true});
+const dayParts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
+const dayPart=name=>dayParts.find(item=>item.type===name).value;
+const dailyTitle=`CalDAV Assistant Work Log ${dayPart('year')}-${dayPart('month')}-${dayPart('day')}`;
 try {
   const page = await browser.newPage();
   const errors = [];
@@ -11,6 +14,7 @@ try {
   await page.locator('#connect [name=password]').fill('test');
   await page.getByRole('button', {name:'连接并读取'}).click();
   await page.getByRole('button', {name:'Browser task'}).waitFor();
+  await page.locator('#today-items').getByText('Browser lesson').waitFor();
   await page.locator('#query').fill('no match');
   await page.getByText('没有匹配的未完成任务。').waitFor();
   await page.locator('#query').fill('Browser');
@@ -27,14 +31,15 @@ try {
     const request=route.request(), url=new URL(request.url());
     if(url.pathname==='/daily-post') return route.fulfill({status:200,contentType:'text/html',body:'<!doctype html><title>Daily</title><article>Full post</article>'});
     if(url.pathname.includes('/wp-json/wp/v2/posts') && url.searchParams.has('search')) {
-      const body=wordpressContent ? [{id:9,link:'http://wordpress.test/daily-post',title:{rendered:'CalDAV Assistant Work Log 2026-10-08'},content:{raw:wordpressContent}}] : [];
+      const body=wordpressContent ? [{id:9,link:'http://wordpress.test/daily-post',title:{rendered:dailyTitle},content:{raw:wordpressContent}}] : [];
       return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(body)});
     }
     if(url.pathname.endsWith('/wp-json/wp/v2/posts') && request.method()==='POST') return route.fulfill({status:200,contentType:'application/json',body:'{"id":9}'});
     if(url.pathname.endsWith('/wp-json/wp/v2/posts/9') && request.method()==='POST') {wordpressContent=JSON.parse(request.postData()).content;return route.fulfill({status:200,contentType:'application/json',body:'{"id":9}'});}
-    if(url.pathname.endsWith('/wp-json/wp/v2/posts/9') && url.searchParams.has('context')) return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:9,link:'http://wordpress.test/daily-post',title:{rendered:'CalDAV Assistant Work Log 2026-10-08'},content:{raw:wordpressContent}})});
+    if(url.pathname.endsWith('/wp-json/wp/v2/posts/9') && url.searchParams.has('context')) return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({id:9,link:'http://wordpress.test/daily-post',title:{rendered:dailyTitle},content:{raw:wordpressContent}})});
     return route.fulfill({status:404,body:'not found'});
   });
+  await page.getByText('WordPress REST 设置').click();
   await page.locator('#wordpress-connect [name=url]').fill('http://wordpress.test');
   await page.locator('#wordpress-connect [name=username]').fill('editor');
   await page.locator('#wordpress-connect [name=password]').fill('application-password');

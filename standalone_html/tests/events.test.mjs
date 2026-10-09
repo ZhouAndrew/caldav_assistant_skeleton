@@ -1,0 +1,4 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {occursOn,projectEvents} from '../.build/events.js';
+const resource={url:'https://test/c/e.ics',etag:'"1"',text:'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:event-1\r\nSUMMARY:Lesson\r\nDTSTART;TZID=Asia/Shanghai:20261009T090000\r\nDTEND;TZID=Asia/Shanghai:20261009T100000\r\nLOCATION:Room 1\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n'};
+test('event projection preserves identity, timezone and location',()=>{const event=projectEvents('https://test/c/',resource)[0];assert.equal(event.title,'Lesson');assert.match(event.start,/TZID=Asia\/Shanghai/);assert.equal(event.location,'Room 1');assert.equal(occursOn(event,'2026-10-09'),true);});
+test('event without uid or start fails closed',()=>{assert.throws(()=>projectEvents('https://test/c/',{...resource,text:resource.text.replace('UID:event-1\r\n','')}),{code:'Validation'});});
