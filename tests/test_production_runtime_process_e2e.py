@@ -149,6 +149,24 @@ def test_production_cli_background_command_does_not_autostart_on_status_and_can_
         assert "delivery_event_cursor" in running
         assert (runtime_dir / f"{endpoint}.sock").exists()
 
+        log_dir = runtime_dir / "logs"
+        first_logs = sorted(log_dir.glob("service-*.log"))
+        assert len(first_logs) == 1
+        first_log = first_logs[0]
+        assert not (runtime_dir / "service.log").exists()
+
+        assert run_cli(["background", "stop"], app=app) == 0
+        assert app.runtime.status()["status"] == "stopped"
+        assert not (runtime_dir / f"{endpoint}.sock").exists()
+
+        assert run_cli(["background", "start"], app=app) == 0
+        restarted = app.runtime.status()
+        assert restarted["status"] == "running"
+        second_logs = sorted(log_dir.glob("service-*.log"))
+        assert len(second_logs) == 2
+        assert first_log in second_logs
+        assert any(path != first_log for path in second_logs)
+
         assert run_cli(["background", "stop"], app=app) == 0
         assert app.runtime.status()["status"] == "stopped"
         assert not (runtime_dir / f"{endpoint}.sock").exists()
