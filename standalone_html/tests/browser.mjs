@@ -15,6 +15,12 @@ try {
   await page.getByRole('button', {name:'连接并读取'}).click();
   await page.getByRole('button', {name:'Browser task'}).waitFor();
   await page.locator('#today-items').getByText('Browser lesson').waitFor();
+  await page.getByRole('button',{name:'Browser lesson',exact:true}).click();
+  await page.locator('#event-form [name=title]').fill('Updated lesson');
+  await page.locator('#event-form [name=location]').fill('Room 2');
+  await page.getByRole('button',{name:'保存并回读验证'}).click();
+  await page.getByText('✓ Event 已写入并回读验证。').waitFor();
+  await page.locator('#today-items').getByRole('button',{name:'Updated lesson'}).waitFor();
   await page.locator('#query').fill('no match');
   await page.getByText('没有匹配的未完成任务。').waitFor();
   await page.locator('#query').fill('Browser');
@@ -102,5 +108,5 @@ try {
   await page.getByText('操作已写入并回读验证。').waitFor();
   assert.equal(await page.evaluate(()=>Object.keys(localStorage).some(key=>key.endsWith(':pending'))),false);
   assert.deepEqual(errors, []);
-  console.log('PASS browser + real Radicale: connect/discover/read/search/select taskId');
+  console.log('PASS browser + real Radicale: Work, Today/Event update, Outbox, iframe and recovery');
 } finally { await browser.close(); }

@@ -3,7 +3,7 @@ import { AssistantActionPlan as Core } from './generated-core.js';
 import { createTransport, CalDAVError } from './transport.js';
 import { createCalDAV } from './caldav.js';
 import { projectTasks, selectTasks, readTaskDetails, type Task } from './tasks.js';
-import { occursOn, projectEvents, propertyDay, type CalendarEvent } from './events.js';
+import { createEventWriter, occursOn, projectEvents, propertyDay, type CalendarEvent } from './events.js';
 import { createWordPress, createCaptureOutbox, openCaptureStore, WordPressError, type Capture, type CaptureFile, type CaptureStore, type WordPressConfig } from './wordpress.js';
 const form = document.querySelector<HTMLFormElement>('#connect')!;
 const notice = document.querySelector<HTMLElement>('#notice')!;
@@ -11,6 +11,7 @@ const list = document.querySelector<HTMLElement>('#task-list')!;
 const query = document.querySelector<HTMLInputElement>('#query')!;
 let tasks: readonly Task[] = [];
 let events: readonly CalendarEvent[] = [];
+let selectedEvent:CalendarEvent|null=null;let eventWriter:ReturnType<typeof createEventWriter>|null=null;
 let selectedTask: Task | null = null;
 let currentWorkId: string | null = null;
 let work: ReturnType<typeof createWork> | null = null;
@@ -96,8 +97,11 @@ function renderToday() {
   const todayEvents=events.filter(event=>occursOn(event,day));
   if(!todayTasks.length&&!todayEvents.length){root.textContent='今天没有 Task 或 Event。';return;}
   const table=document.createElement('table');const body=document.createElement('tbody');
-  for(const item of [...todayTasks.map(task=>({type:'Task',time:task.due??'',title:task.title,state:task.status})),...todayEvents.map(event=>({type:'Event',time:event.start,title:event.title,state:event.location}))]) {
+  for(const item of todayTasks.map(task=>({type:'Task',time:task.due??'',title:task.title,state:task.status,event:null as CalendarEvent|null}))) {
     const row=document.createElement('tr');for(const value of [item.type,item.time,item.title||'（无标题）',item.state]){const cell=document.createElement('td');cell.textContent=value;row.append(cell);}body.append(row);
+  }
+  for(const event of todayEvents) {
+    const row=document.createElement('tr');for(const value of ['Event',event.start,event.title||'（无标题）',event.location]){const cell=document.createElement('td');if(value===event.title){const button=document.createElement('button');button.type='button';button.textContent=value;button.addEventListener('click',()=>selectEvent(event));cell.append(button);}else cell.textContent=value;row.append(cell);}body.append(row);
   }
   table.append(body);root.append(table);
 }
@@ -143,10 +147,10 @@ form.addEventListener('submit', async event => {
     await work.recover();
     recoveryRequired = false;
     updateActions();
-    transport = connection; tasks = Object.freeze(loaded);events=Object.freeze(loadedEvents);render();renderToday(); notice.textContent = `已读取 ${tasks.length} 个任务、${events.length} 个事件。`;
+    transport = connection;eventWriter=createEventWriter(connection); tasks = Object.freeze(loaded);events=Object.freeze(loadedEvents);render();renderToday(); notice.textContent = `已读取 ${tasks.length} 个任务、${events.length} 个事件。`;
   } catch (error) {
     if (generation !== loadGeneration) return;
-    tasks = [];events=[]; list.replaceChildren();renderToday(); work = null; transport = null; selectedTask = null; updateActions();
+    tasks = [];events=[];selectedEvent=null;eventWriter=null;document.querySelector<HTMLElement>('#event-editor')!.hidden=true; list.replaceChildren();renderToday(); work = null; transport = null; selectedTask = null; updateActions();
     notice.textContent = error instanceof CalDAVError && error.code === 'Permission'
       ? '认证失败，请检查用户名和密码。' : error instanceof CalDAVError && error.code === 'Validation'
       ? '服务器数据无法完整验证，未显示部分结果。' : error instanceof CalDAVError && error.code === 'Conflict'
@@ -156,6 +160,17 @@ form.addEventListener('submit', async event => {
 query.addEventListener('input', render);
 
 updateActions();
+
+const eventEditor=document.querySelector<HTMLElement>('#event-editor')!;const eventForm=document.querySelector<HTMLFormElement>('#event-form')!;const eventResult=document.querySelector<HTMLElement>('#event-result')!;
+function selectEvent(event:CalendarEvent) {
+  selectedEvent=event;(eventForm.elements.namedItem('title') as HTMLInputElement).value=event.title;(eventForm.elements.namedItem('location') as HTMLInputElement).value=event.location;eventEditor.hidden=false;eventResult.textContent=event.recurrenceId!==null?'重复实例暂不允许修改。':'';
+}
+document.querySelector<HTMLButtonElement>('#event-cancel')!.addEventListener('click',()=>{selectedEvent=null;eventEditor.hidden=true;});
+eventForm.addEventListener('submit',async event=>{
+  event.preventDefault();if(!selectedEvent||!eventWriter)return;const target=selectedEvent;const data=new FormData(eventForm);eventResult.textContent='正在写入并回读验证……';
+  try {const receipt=await eventWriter.update(target,{title:String(data.get('title')),location:String(data.get('location'))});const fresh=projectEvents(target.calendarUrl,receipt.resource).find(item=>item.eventId===target.eventId);if(!fresh)throw new CalDAVError('Validation');events=Object.freeze(events.map(item=>item.eventId===fresh.eventId?fresh:item));selectedEvent=fresh;renderToday();eventResult.textContent='✓ Event 已写入并回读验证。';}
+  catch {eventResult.textContent='Event 修改未确认成功，请重新连接读取服务器状态。';}
+});
 
 // WordPress is an independent output lane. None of its state participates in CalDAV actions.
 const wordpressForm = document.querySelector<HTMLFormElement>('#wordpress-connect')!;
