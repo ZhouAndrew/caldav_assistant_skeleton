@@ -62,6 +62,18 @@ try {
   assert.match(wordpressContent,/Capture text/);
   await page.locator('#post-preview').waitFor({state:'visible'});
   assert.equal(await page.locator('#post-preview').contentFrame().locator('article').textContent(),'Full post');
+  // Record uses the same durable lane; Logs and Tools use standalone browser storage/client state.
+  await page.locator('#record-content').fill('Record page text');
+  await page.getByRole('button',{name:'追加日志'}).click();
+  await page.getByText('✓ 日志已追加并回读验证。').waitFor();
+  assert.match(wordpressContent,/Record page text/);
+  await page.getByRole('button',{name:'Calendar 快速测试'}).click();
+  await page.locator('#connection-result').getByText('"success": true').waitFor();
+  await page.locator('#log-search').fill('只读连接测试通过');
+  await page.locator('#log-items').getByText(/只读连接测试通过/).waitFor();
+  await page.reload();
+  await page.locator('#log-search').fill('只读连接测试通过');
+  await page.locator('#log-items').getByText(/只读连接测试通过/).waitFor();
   // Break WordPress and prove the Task lane remains usable.
   await page.unroute('http://wordpress.test/**');
   await page.getByRole('button',{name:'刷新 Post'}).click();
@@ -108,5 +120,5 @@ try {
   await page.getByText('操作已写入并回读验证。').waitFor();
   assert.equal(await page.evaluate(()=>Object.keys(localStorage).some(key=>key.endsWith(':pending'))),false);
   assert.deepEqual(errors, []);
-  console.log('PASS browser + real Radicale: Work, Today/Event update, Outbox, iframe and recovery');
+  console.log('PASS browser + real Radicale: Work, Today/Event, Record/Logs/Tools, Outbox, iframe and recovery');
 } finally { await browser.close(); }

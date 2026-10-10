@@ -97,8 +97,11 @@ export function createCaptureOutbox(store:CaptureStore) {
 
 export function openCaptureStore():Promise<CaptureStore> {
   return new Promise((resolve,reject)=>{
-    const request=indexedDB.open('caldav-assistant-standalone',1);
-    request.onupgradeneeded=()=>request.result.createObjectStore('wordpress-captures',{keyPath:'id'});
+    const request=indexedDB.open('caldav-assistant-standalone',2);
+    request.onupgradeneeded=()=>{
+      if(!request.result.objectStoreNames.contains('wordpress-captures')) request.result.createObjectStore('wordpress-captures',{keyPath:'id'});
+      if(!request.result.objectStoreNames.contains('audit')) request.result.createObjectStore('audit',{keyPath:'id'});
+    };
     request.onerror=()=>reject(new WordPressError('Unavailable'));
     request.onsuccess=()=>{
       const db=request.result;
