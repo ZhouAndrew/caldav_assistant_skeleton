@@ -107,3 +107,11 @@ Audit storage is an independent best-effort lane: failure falls back to session 
 Strict compilation and 30 tests pass. Disposable Radicale 3.8.1 again passed canonical lifecycle, conditional write, read-back and stale-ETag preservation. The browser acceptance now covers Record append/read-back, Tools discovery output and Logs persistence across reload in addition to Event update, Outbox, iframe, WordPress isolation, currentWorkId and uncertain-write recovery. Local Chromium is unavailable, so the expanded browser path awaits remote CI.
 
 Remaining acceptance gaps: separate-page navigation parity (the current standalone is a single-page integration), full writable Calendar diagnostic with a safely isolated target, Event time editing, recurrence mutation, and final human-path acceptance.
+
+## Increment 11 — timezone-safe Event time editing (2026-10-10)
+
+The first Increment 10 browser run exposed a date-sensitive test fixture, not an application read failure: its VEVENT was fixed to 2026-10-09 and therefore correctly disappeared from Today after the Asia/Shanghai date rolled over. The fixture now derives its date in the application timezone so the acceptance path remains valid across days.
+
+The Event editor now changes DTSTART/DTEND as well as title and location. Timed events retain the original TZID and accept local wall time; all-day events retain DATE value type and explain the exclusive DTEND convention. The pure planner rejects malformed values, changing between timed/all-day representation, adding or removing DTEND implicitly, and any end not later than start. Recurring masters and exceptions remain refused. The writer still uses a fresh strong ETag and only emits a receipt after the intended local values and complete semantic VCALENDAR match an authoritative GET.
+
+Strict compilation and 31 tests pass, including TZID preservation, all-day type preservation, invalid-range refusal and corrupted read-back refusal. Disposable Radicale 3.8.1 transport/workflow tests pass. Browser acceptance now edits a dynamically dated real VEVENT from 09:00–10:00 to 09:30–10:30 before continuing Record/Logs/Tools, WordPress isolation, Work lifecycle and uncertain-write recovery. Local Chromium download again returned an empty/truncated archive, so the expanded real browser path awaits CI.

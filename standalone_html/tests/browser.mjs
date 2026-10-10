@@ -18,6 +18,8 @@ try {
   await page.getByRole('button',{name:'Browser lesson',exact:true}).click();
   await page.locator('#event-form [name=title]').fill('Updated lesson');
   await page.locator('#event-form [name=location]').fill('Room 2');
+  await page.locator('#event-form [name=start]').fill(`${dayPart('year')}-${dayPart('month')}-${dayPart('day')}T09:30`);
+  await page.locator('#event-form [name=end]').fill(`${dayPart('year')}-${dayPart('month')}-${dayPart('day')}T10:30`);
   await page.getByRole('button',{name:'保存并回读验证'}).click();
   await page.getByText('✓ Event 已写入并回读验证。').waitFor();
   await page.locator('#today-items').getByRole('button',{name:'Updated lesson'}).waitFor();

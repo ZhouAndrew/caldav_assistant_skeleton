@@ -176,12 +176,17 @@ updateActions();
 
 const eventEditor=document.querySelector<HTMLElement>('#event-editor')!;const eventForm=document.querySelector<HTMLFormElement>('#event-form')!;const eventResult=document.querySelector<HTMLElement>('#event-result')!;
 function selectEvent(event:CalendarEvent) {
-  selectedEvent=event;(eventForm.elements.namedItem('title') as HTMLInputElement).value=event.title;(eventForm.elements.namedItem('location') as HTMLInputElement).value=event.location;eventEditor.hidden=false;eventResult.textContent=event.recurrenceId!==null?'重复实例暂不允许修改。':'';
+  selectedEvent=event;(eventForm.elements.namedItem('title') as HTMLInputElement).value=event.title;(eventForm.elements.namedItem('location') as HTMLInputElement).value=event.location;
+  const start=eventForm.elements.namedItem('start') as HTMLInputElement;const end=eventForm.elements.namedItem('end') as HTMLInputElement;
+  start.type=event.allDay?'date':'datetime-local';end.type=event.allDay?'date':'datetime-local';start.value=event.editStart;end.value=event.editEnd;
+  document.querySelector<HTMLElement>('#event-end-label')!.hidden=event.end===null;end.required=event.end!==null;
+  document.querySelector<HTMLElement>('#event-time-note')!.textContent=event.allDay?'全天 Event：结束日期按 CalDAV 规则为不包含当天。':'保持原 Event 的 TZID；这里只修改该时区内的本地时间。';
+  eventEditor.hidden=false;eventResult.textContent=event.recurrenceId!==null?'重复实例暂不允许修改。':'';
 }
 document.querySelector<HTMLButtonElement>('#event-cancel')!.addEventListener('click',()=>{selectedEvent=null;eventEditor.hidden=true;});
 eventForm.addEventListener('submit',async event=>{
   event.preventDefault();if(!selectedEvent||!eventWriter)return;const target=selectedEvent;const data=new FormData(eventForm);eventResult.textContent='正在写入并回读验证……';
-  try {const receipt=await eventWriter.update(target,{title:String(data.get('title')),location:String(data.get('location'))});const fresh=projectEvents(target.calendarUrl,receipt.resource).find(item=>item.eventId===target.eventId);if(!fresh)throw new CalDAVError('Validation');events=Object.freeze(events.map(item=>item.eventId===fresh.eventId?fresh:item));selectedEvent=fresh;renderToday();eventResult.textContent='✓ Event 已写入并回读验证。';void audit('workflow','event.update',true,'Event 已写入并回读验证。',{eventId:target.eventId,verified:receipt.verified});}
+  try {const receipt=await eventWriter.update(target,{title:String(data.get('title')),location:String(data.get('location')),start:String(data.get('start')),end:target.end===null?'':String(data.get('end'))});const fresh=projectEvents(target.calendarUrl,receipt.resource).find(item=>item.eventId===target.eventId);if(!fresh)throw new CalDAVError('Validation');events=Object.freeze(events.map(item=>item.eventId===fresh.eventId?fresh:item));selectedEvent=fresh;renderToday();eventResult.textContent='✓ Event 已写入并回读验证。';void audit('workflow','event.update',true,'Event 已写入并回读验证。',{eventId:target.eventId,verified:receipt.verified,start:fresh.editStart,end:fresh.editEnd});}
   catch {eventResult.textContent='Event 修改未确认成功，请重新连接读取服务器状态。';void audit('workflow','event.update',false,eventResult.textContent,{eventId:target.eventId});}
 });
 
