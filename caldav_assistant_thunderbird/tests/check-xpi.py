@@ -34,6 +34,11 @@ with zipfile.ZipFile(sys.argv[1]) as z:
     assert 'task-actions-toolbar' in toolbar and 'task-actions-markcompleted' in toolbar
     assert 'deriveStartAvailability' in background and 'AssistantExecutor.start(null,selection)' in background
     assert 'updateTask' not in toolbar and 'planWorkAction' not in toolbar
+    for page in ('workspace.html','logs.html','record.html','today.html','tools.html','wordpress.html'):
+        html=z.read(page).decode()
+        assert html.index('core/action-plan.js') < html.index('core/storage.js'), page
+    assert 'reconcileFinishedCurrentWork' in executor
+    assert 'current-work-reconciliation' in background
     for n in names:
         if n.endswith('.html'):
             html=z.read(n).decode()

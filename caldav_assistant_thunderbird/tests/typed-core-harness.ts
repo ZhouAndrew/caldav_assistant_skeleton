@@ -23,6 +23,13 @@ for(const action of ['stop','complete','cancel'] as const) {
  assert(plan.expected.percentComplete===(action==='complete'?100:35),'progress');
  rejects(()=>AssistantActionPlan.planWorkAction(action,null,active,'2026-10-05T00:02:00Z','unused'));
 }
+const terminalTask={...active,status:'CANCELLED'};
+const reconciliation=AssistantActionPlan.planFinishedWorkReconciliation(key,terminalTask);
+assert(reconciliation?.nextCurrentWorkId===null && reconciliation.observedStatus==='CANCELLED','external cancellation releases pointer');
+assert(AssistantActionPlan.planFinishedWorkReconciliation(null,terminalTask)===null,'null pointer is a no-op');
+assert(AssistantActionPlan.planFinishedWorkReconciliation(key,active)===null,'active task remains current');
+assert(AssistantActionPlan.planFinishedWorkReconciliation(key,{...terminalTask,status:'COMPLETED'})?.nextCurrentWorkId===null,'external completion releases pointer');
+rejects(()=>AssistantActionPlan.planFinishedWorkReconciliation(key,{...terminalTask,id:'other'}));
 rejects(()=>AssistantActionPlan.sessions('x\n[CalDAV Assistant session v1] invalid'));
 rejects(()=>AssistantActionPlan.planWorkAction('stop',key,task,'2026-10-05T00:02:00Z','unused'));
 rejects(()=>AssistantActionPlan.planWorkAction('start',null,{...task,status:'COMPLETED'},'2026-10-05T00:02:00Z','unused'));

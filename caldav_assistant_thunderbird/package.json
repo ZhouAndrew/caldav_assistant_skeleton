@@ -1,7 +1,7 @@
 {
   "name": "caldav-assistant-thunderbird",
   "private": true,
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Typed development tooling for the canonical CalDAV Assistant Thunderbird add-on",
   "scripts": {
     "typecheck": "tsc --noEmit",

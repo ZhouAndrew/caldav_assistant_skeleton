@@ -55,6 +55,7 @@ function readableRecord(record) {
   ];
 
   const details = record.details || {};
+  if (details.error) lines.push("    ✗ " + details.error);
   for (const step of details.steps || []) {
     lines.push(readableStep(step));
   }

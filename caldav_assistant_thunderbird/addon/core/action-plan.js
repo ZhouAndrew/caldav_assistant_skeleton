@@ -96,6 +96,19 @@ var AssistantActionPlan;
             expected: Object.freeze(expected), nextCurrentWorkId: action === 'start' ? key : null });
     }
     AssistantActionPlan.planWorkAction = planWorkAction;
+    /** Pure rule: only the exact current task, observed as terminal, may release its pointer. */
+    function planFinishedWorkReconciliation(currentWorkId, task) {
+        if (currentWorkId === null || !['COMPLETED', 'CANCELLED'].includes(task.status))
+            return null;
+        if (currentWorkId !== identity(task))
+            throw new Error('Conflict: current work changed');
+        return Object.freeze({
+            target: Object.freeze({ calendarId: task.calendarId, id: task.id, recurrenceId: task.recurrenceId || '' }),
+            observedStatus: task.status,
+            nextCurrentWorkId: null,
+        });
+    }
+    AssistantActionPlan.planFinishedWorkReconciliation = planFinishedWorkReconciliation;
     function compare(plan, actual) {
         return identity(plan.target) === identity(actual) && actual.status === plan.expected.status &&
             actual.percentComplete === plan.expected.percentComplete && actual.description === plan.expected.description;

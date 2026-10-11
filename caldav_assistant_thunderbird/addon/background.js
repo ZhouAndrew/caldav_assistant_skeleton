@@ -69,6 +69,8 @@ async function startup() {
   try {
     await activateTaskEnhancements();
     const space = await ensureWorkspace();
+    // Do not let an unavailable CalDAV provider or WordPress outbox block startup.
+    requestFinishedReconciliation("startup");
 
     let wordpressOutbox = null;
     try {
@@ -114,12 +116,28 @@ startupOnce().catch(error => console.error("[CalDAVAssistant] startup failed", e
 
 // All pages use the same serialized effect boundary.
 browser.runtime.onMessage.addListener(message => {
+  if (message?.type === "assistant-reconcile-current-work") {
+    return AssistantExecutor.reconcileFinishedCurrentWork();
+  }
   if (message?.type !== "assistant-work-action") return undefined;
   if (!["start","stop","complete","cancel"].includes(message.action)) return Promise.reject(new Error("Validation: invalid action"));
   return message.action === "start"
     ? AssistantExecutor.start(null,message.selectionAtClick)
     : AssistantExecutor[message.action]();
 });
+
+// Native Thunderbird Tasks may finish outside the add-on's own work actions.
+let reconciliationPending = false;
+function requestFinishedReconciliation(reason) {
+  if (reconciliationPending) return;
+  reconciliationPending = true;
+  void AssistantExecutor.reconcileFinishedCurrentWork()
+    .catch(error => diagnostic("current-work-reconciliation.error", {
+      reason,message:String(error?.message || error)
+    }))
+    .finally(() => { reconciliationPending = false; });
+}
+browser.ThunderbirdCalDAV.onItemsChanged.addListener(() => requestFinishedReconciliation("items-changed"));
 
 // The native toolbar is a UI entry point for the existing canonical executor.
 const startRenderSequence=new Map();
