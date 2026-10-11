@@ -12,7 +12,6 @@ function currentFormConfig() {
     allowUntrustedTls: $("wp-allow-untrusted-tls").checked,
     wordpressPath: $("wp-path").value,
     wpCliCommand: $("wp-cli").value,
-    legacyHelperDir: $("wp-helper-dir").value,
   };
 }
 
@@ -179,7 +178,6 @@ async function load() {
   $("wp-path").value =
     config.wordpressPath || "/var/www/html/wordpress";
   $("wp-cli").value = config.wpCliCommand || "wp";
-  $("wp-helper-dir").value = config.legacyHelperDir || "~/bin";
   await refreshStatus();
   await renderDailyTargets();
 }
@@ -212,9 +210,33 @@ async function retryOutbox() {
 async function renderDailyTargets() {
   const root = $("daily-targets"); root.replaceChildren();
   try {
-    for (const {day, candidates} of await AssistantWordPress.pendingCandidates()) {
-      if (candidates.length < 2) continue;
-      const label = document.createElement("label"); label.textContent = day + "：选择当天日志文章";
+    for (const {day, candidates, selectedPostId, selectionValid} of await AssistantWordPress.pendingCandidates()) {
+      const staleSelection = Boolean(selectedPostId && !selectionValid);
+      if (candidates.length < 2 && !staleSelection) continue;
+
+      if (staleSelection && candidates.length < 2) {
+        const warning = document.createElement("div");
+        warning.textContent =
+          day + "：已保存的目标 Post " + selectedPostId +
+          " 已失效。" +
+          (candidates.length === 1
+            ? " 清除后会改用当前唯一匹配文章。"
+            : " 清除后会在重试时创建新的当天文章。");
+        const reset = document.createElement("button");
+        reset.textContent = "清除失效目标并重试";
+        reset.addEventListener("click", async () => {
+          reset.disabled = true;
+          try {await AssistantWordPress.clearDailyPostSelection(day); await retryOutbox();}
+          catch (error) {$("outbox-receipts").textContent = String(error.message || error); reset.disabled = false;}
+        });
+        root.append(warning, reset);
+        continue;
+      }
+
+      const label = document.createElement("label");
+      label.textContent = staleSelection
+        ? day + "：原目标已失效，请重新选择当天日志文章"
+        : day + "：选择当天日志文章";
       const select = document.createElement("select");
       const placeholder = document.createElement("option"); placeholder.value = ""; placeholder.textContent = "请选择目标文章"; select.appendChild(placeholder);
       for (const candidate of candidates) {

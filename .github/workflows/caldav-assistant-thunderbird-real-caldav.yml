@@ -29,13 +29,20 @@ jobs:
             sudo apt-get update
             sudo apt-get install -y xvfb
           fi
+      - name: Build current XPI
+        run: |
+          npm ci
+          chmod +x packaging/build-xpi.sh
+          XPI_PATH="$(packaging/build-xpi.sh | tail -1)"
+          python3 tests/check-xpi.py "$XPI_PATH"
+          echo "XPI_PATH=$XPI_PATH" >> "$GITHUB_ENV"
       - name: Real Thunderbird + real Radicale acceptance
         env:
           ACCEPTANCE_ARTIFACT_DIR: ${{ github.workspace }}/caldav_assistant_thunderbird/acceptance-artifacts/${{ matrix.thunderbird }}-${{ matrix.timezone == 'Asia/Shanghai' && 'Asia-Shanghai' || matrix.timezone }}
         run: |
           curl -fL --retry 3 "https://archive.mozilla.org/pub/thunderbird/releases/${{ matrix.thunderbird }}/linux-x86_64/en-US/thunderbird-${{ matrix.thunderbird }}.tar.xz" -o /tmp/thunderbird.tar.xz
           tar -xJf /tmp/thunderbird.tar.xz -C /tmp
-          TZ="${{ matrix.timezone }}" tests/real-thunderbird-caldav.sh --thunderbird /tmp/thunderbird/thunderbird --xpi "$PWD/releases/0.4.2/caldav-assistant-thunderbird-0.4.2-20261005T090627Z-bb8c684b828b46b3a4cdba3bdd62a91e.xpi" --output "$ACCEPTANCE_ARTIFACT_DIR"
+          TZ="${{ matrix.timezone }}" tests/real-thunderbird-caldav.sh --thunderbird /tmp/thunderbird/thunderbird --xpi "$XPI_PATH" --output "$ACCEPTANCE_ARTIFACT_DIR"
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4

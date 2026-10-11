@@ -36,7 +36,6 @@
       wpCliCommand: String(
         config?.wpCliCommand || config?.wpCliExecutable || "wp"
       ).trim() || "wp",
-      legacyHelperDir: String(config?.legacyHelperDir || "~/bin").trim(),
       allowUntrustedTls: Boolean(config?.allowUntrustedTls),
       authorizedTlsOrigin: String(config?.authorizedTlsOrigin || ""),
       dailyWorkLogEnabled:
@@ -312,27 +311,6 @@
     return String(result?.stdout || "").trim();
   }
 
-
-  async function runLegacyHelper(config, helperName) {
-    const bridge = browser.ThunderbirdCalDAV?.runWordPressHelper;
-    if (typeof bridge !== "function" || !config.legacyHelperDir) {
-      return {available: false, exitCode: null, stdout: "", stderr: ""};
-    }
-    return bridge({
-      helperDir: config.legacyHelperDir,
-      helperName,
-    });
-  }
-
-  function helperPostId(text, {strictLine = false} = {}) {
-    const source = String(text || "");
-    if (strictLine) {
-      const line = source.split(/\r?\n/).map(x => x.trim()).find(x => /^\d+$/.test(x));
-      return line ? Number(line) : 0;
-    }
-    const matches = [...source.matchAll(/(?:^|\D)(\d+)(?=\D|$)/g)];
-    return matches.length ? Number(matches[matches.length - 1][1]) : 0;
-  }
 
   function wpCliPostView(record) {
     const id = Number(record?.ID ?? record?.id ?? 0);
@@ -805,10 +783,28 @@
     const post = await request(`/posts/${Number(postId)}?context=edit`);
     if (!matchesDailyLogTitle(rawTitle(post), date) || post.status === "trash") throw new Error("Selected post does not match log date");
     const settings = await AssistantStorage.getSettings();
-    const scope = (await getConfig()).baseUrl || (await getConfig()).wordpressPath;
-    const targets = {...settings.wordpressDailyTargets, [scope + "|" + day]: Number(postId)};
+    const config = await getConfig();
+    const scope = config.baseUrl || config.wordpressPath;
+    const key = scope + "|" + day;
+    const targets = {...settings.wordpressDailyTargets, [key]: Number(postId)};
     await AssistantStorage.saveSettings({wordpressDailyTargets: targets});
+    const readBack = await AssistantStorage.getSettings();
+    if (Number(readBack.wordpressDailyTargets?.[key]) !== Number(postId)) throw new Error("Daily target selection read-back mismatch");
     return {success: true, day, postId: Number(postId), steps: ["selection write", "read back", "compare"]};
+  }
+
+  async function clearDailyPostSelection(day) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error("Invalid daily target date");
+    const settings = await AssistantStorage.getSettings();
+    const config = await getConfig();
+    const scope = config.baseUrl || config.wordpressPath;
+    const key = scope + "|" + day;
+    const targets = {...(settings.wordpressDailyTargets || {})};
+    delete targets[key];
+    await AssistantStorage.saveSettings({wordpressDailyTargets: targets});
+    const readBack = await AssistantStorage.getSettings();
+    if (readBack.wordpressDailyTargets?.[key] !== undefined) throw new Error("Daily target reset read-back mismatch");
+    return {success: true, day, steps: ["selection clear", "read back", "compare"]};
   }
 
   async function ensureDailyLogPost(date = new Date()) {
@@ -902,6 +898,129 @@
     return blocks.join("\n");
   }
 
+  function isMissingMediaError(error) {
+    return /WordPress HTTP 404|not found|does not exist|Could not get post/i.test(
+      errorText(error)
+    );
+  }
+
+  async function checkpointPendingMedia(pendingId, media) {
+    if (!pendingId) return;
+    const pending = (await AssistantStorage.listWordPressOutbox())
+      .find(row => row.id === pendingId);
+    if (!pending) throw new Error("Missing durable Outbox record");
+    const payload = {...pending.payload, media: media.map(item => ({...item}))};
+    const updated = await AssistantStorage.updateWordPressOutbox(
+      pendingId,
+      {payload}
+    );
+    if (
+      !updated ||
+      JSON.stringify(updated.payload?.media || []) !==
+        JSON.stringify(payload.media)
+    ) {
+      throw new Error("WordPress media checkpoint read-back mismatch");
+    }
+  }
+
+  async function recoverCheckpointedMedia({
+    savedMedia,
+    files,
+    postId,
+    pendingId,
+    result,
+  }) {
+    const recovered = [];
+    for (let index = 0; index < (savedMedia || []).length; index++) {
+      const saved = {...savedMedia[index]};
+      let read = null;
+      try {
+        read = await request(`/media/${saved.id}?context=edit`);
+      } catch (error) {
+        if (!isMissingMediaError(error)) throw error;
+      }
+
+      let item = saved;
+      if (!read) {
+        const file = files?.[index];
+        if (!file) {
+          throw new Error(
+            "Checkpointed WordPress media is missing and the durable source file is unavailable"
+          );
+        }
+        const uploaded = await uploadMedia(
+          file,
+          file.name || saved.filename || "attachment",
+          postId
+        );
+        const mediaRead = await request(
+          `/media/${uploaded.id}?context=edit`
+        );
+        if (
+          mediaRead.id !== uploaded.id ||
+          mediaRead.post !== postId ||
+          mediaRead.source_url !== (uploaded.source_url || "")
+        ) {
+          throw new Error("Re-uploaded WordPress media read-back mismatch");
+        }
+        item = {
+          id: uploaded.id,
+          filename: file.name || saved.filename || "attachment",
+          sourceUrl: uploaded.source_url || "",
+          mimeType:
+            file.type ||
+            uploaded.mime_type ||
+            saved.mimeType ||
+            "application/octet-stream",
+          parent: postId,
+        };
+        result.steps.push({
+          name: "re-upload missing checkpointed WordPress media",
+          success: true,
+          oldMediaId: saved.id,
+          mediaId: item.id,
+          parentPostId: postId,
+        });
+      } else {
+        if (read.post !== postId) {
+          await request(`/media/${saved.id}`, {
+            method: "POST",
+            json: {post: postId},
+          });
+          read = await request(`/media/${saved.id}?context=edit`);
+        }
+        if (read.id !== saved.id || read.post !== postId) {
+          throw new Error("Reparented WordPress media read-back mismatch");
+        }
+        item = {
+          ...saved,
+          sourceUrl: read.source_url || saved.sourceUrl || "",
+          mimeType: saved.mimeType || read.mime_type || "application/octet-stream",
+          parent: postId,
+        };
+        if (saved.parent !== postId) {
+          result.steps.push({
+            name: "reparent checkpointed WordPress media",
+            success: true,
+            mediaId: item.id,
+            fromPostId: saved.parent,
+            parentPostId: postId,
+          });
+        }
+      }
+
+      recovered.push(item);
+      await checkpointPendingMedia(
+        pendingId,
+        [
+          ...recovered,
+          ...(savedMedia || []).slice(index + 1).map(value => ({...value})),
+        ]
+      );
+    }
+    return recovered;
+  }
+
   async function executeLog({
     content,
     files = [],
@@ -955,9 +1074,18 @@
       const before = await request(`/posts/${postId}?context=edit`);
       const previous = rawContent(before);
       if (!matchesDailyLogTitle(rawTitle(before), logDate)) throw new Error("Daily post changed during read");
+
+      result.media = await recoverCheckpointedMedia({
+        savedMedia,
+        files,
+        postId,
+        pendingId,
+        result,
+      });
+
       if (previous.includes(`<!-- ${result.marker} -->`)) {
-        const expectedBlock = buildLogAppend(text, savedMedia, result.marker, logDate, prefixTime);
-        if ((files || []).length !== savedMedia.length || !previous.includes(expectedBlock)) throw new Error("Conflict: marker exists with different content");
+        const expectedBlock = buildLogAppend(text, result.media, result.marker, logDate, prefixTime);
+        if ((files || []).length !== result.media.length || !previous.includes(expectedBlock)) throw new Error("Conflict: marker exists with different content");
         if (previous.split(`<!-- ${result.marker} -->`).length !== 2) throw new Error("Conflict: duplicate marker");
         result.success = true;
         result.deduplicated = true;
@@ -973,9 +1101,7 @@
         return AssistantStorage.persistResult(result, "wordpress");
       }
 
-      if (savedMedia.some(item => item.parent !== postId)) throw new Error("Uploaded attachments belong to another selected daily post; Outbox retained");
-      result.media = [...savedMedia];
-      for (const file of (files || []).slice(savedMedia.length)) {
+      for (const file of (files || []).slice(result.media.length)) {
         const uploaded = await uploadMedia(
           file,
           file.name || "attachment",
@@ -992,11 +1118,7 @@
         const mediaRead = await request(`/media/${item.id}?context=edit`);
         if (mediaRead.id !== item.id || mediaRead.post !== postId || mediaRead.source_url !== item.sourceUrl) throw new Error("WordPress media read-back mismatch");
         result.media.push(item);
-        if (pendingId) {
-          const pending = (await AssistantStorage.listWordPressOutbox()).find(row => row.id === pendingId);
-          if (!pending) throw new Error("Missing durable Outbox record");
-          await AssistantStorage.updateWordPressOutbox(pendingId, {payload: {...pending.payload, media: result.media}});
-        }
+        await checkpointPendingMedia(pendingId, result.media);
         result.steps.push({
           name: "upload WordPress media",
           success: true,
@@ -1060,8 +1182,20 @@
   async function pendingCandidates() {
     const records = await AssistantStorage.listWordPressOutbox();
     const days = [...new Set(records.map(row => row.payload.dateKey || AssistantStorage.localDateKey(row.payload.startIso || row.payload.date)))];
+    const settings = await AssistantStorage.getSettings();
+    const config = await getConfig();
+    const scope = config.baseUrl || config.wordpressPath;
     const result = [];
-    for (const day of days) result.push({day, candidates: (await dailyCandidates(new Date(day + "T12:00:00"))).map(post => ({id: post.id, title: rawTitle(post), status: post.status}))});
+    for (const day of days) {
+      const candidates = (await dailyCandidates(new Date(day + "T12:00:00"))).map(post => ({id: post.id, title: rawTitle(post), status: post.status}));
+      const selectedPostId = Number(settings.wordpressDailyTargets?.[scope + "|" + day] || 0) || null;
+      result.push({
+        day,
+        candidates,
+        selectedPostId,
+        selectionValid: !selectedPostId || candidates.some(post => post.id === selectedPostId),
+      });
+    }
     return result;
   }
 
@@ -1095,6 +1229,7 @@
     dualWriteTest,
     createLog,
     selectDailyPost,
+    clearDailyPostSelection,
     pendingCandidates,
   });
 })();
