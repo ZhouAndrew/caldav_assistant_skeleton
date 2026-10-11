@@ -318,4 +318,12 @@ document.querySelector<HTMLButtonElement>('#connection-test')!.addEventListener(
   await audit('connection','caldav.quick-test',true,`只读连接测试通过：${calendarSummary.length} 个日历。`,{calendars:calendarSummary,tasks:tasks.length,events:events.length});await loadAudit();
 });
 
-addEventListener('hashchange',()=>{for(const link of Array.from(document.querySelectorAll<HTMLAnchorElement>('.tool-nav a')))link.classList.toggle('active',link.hash===(location.hash||'#work'));});
+const pages=new Set(['work','today','record','logs','wordpress','tools']);
+function routePage() {
+  const requested=location.hash.slice(1);const page=pages.has(requested)?requested:'work';
+  for(const node of Array.from(document.querySelectorAll<HTMLElement>('[data-page]'))) {
+    node.hidden=node.dataset.page!==page||(node===eventEditor&&selectedEvent===null);
+  }
+  for(const link of Array.from(document.querySelectorAll<HTMLAnchorElement>('.tool-nav a'))) link.classList.toggle('active',link.hash===`#${page}`);
+}
+addEventListener('hashchange',routePage);routePage();
