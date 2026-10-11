@@ -48,4 +48,7 @@ browser.ThunderbirdCalDAV.onItemsChanged.addListener(()=>{if(!actionRunning)refr
 browser.storage.onChanged.addListener(()=>{if(!actionRunning)refreshAll();});
 // Read native selection directly each tick; no Task object is cached or persisted.
 setInterval(()=>{if(!actionRunning)refreshAll();},500);
+// Re-entering Work also checks for a terminal Task missed while Thunderbird was closed.
+void browser.runtime.sendMessage({type:"assistant-reconcile-current-work"})
+  .catch(error => showNotice(String(error?.message || error),true));
 refreshAll();
