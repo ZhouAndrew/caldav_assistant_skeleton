@@ -11,7 +11,7 @@ const seed={calendarId:'tasks',id:'a',recurrenceId:'',title:'Task A',status:'NEE
 function reset(){for(const k of Object.keys(store))delete store[k];order.length=0;selected=[seed];tasks=new Map([['tasks|a|',structuredClone(seed)],['tasks|b|', {...seed,id:'b'}],['tasks|rec|20261005T090000Z',{...seed,id:'rec',recurrenceId:'20261005T090000Z'}]]);mismatch=pointerMismatch=failWrite=failRead=false;duringRead=null;}
 (async()=>{
  for(const count of [0,1,2]){reset();selected=count===0?[]:count===1?[seed]:[seed,{...seed,id:'b'}];const receipt=await AssistantExecutor.start(null,selected);assert.equal(receipt.success,count===1);assert.equal(order.includes('task-write'),count===1);}
- reset();let receipt=await AssistantExecutor.start(null,[seed]);assert(receipt.success && receipt.verified);assert.equal(receipt.expected.description,receipt.actual.description);assert.equal(receipt.actual.percentComplete,35);assert(order.indexOf('task-read',order.indexOf('task-write'))<order.indexOf('storage-write'));
+ reset();let receipt=await AssistantExecutor.start(null,[seed]);assert(receipt.success && receipt.verified);assert.equal(receipt.expected.description,receipt.actual.description);assert.equal(receipt.actual.percentComplete,35);assert(order.indexOf('authoritative-task-read',order.indexOf('task-write'))<order.lastIndexOf('storage-write'));
  selected=[{...seed,id:'b'}];receipt=await AssistantExecutor.start(null,selected);assert(!receipt.success);assert.equal(tasks.get('tasks|b|').status,'NEEDS-ACTION');
  receipt=await AssistantExecutor.stop();assert(receipt.success);assert.equal(receipt.actual.status,'NEEDS-ACTION');assert.equal(receipt.actual.percentComplete,35);assert(receipt.actual.description.startsWith(seed.description));assert.equal(await AssistantStorage.getCurrentWorkId(),null);
  for(const action of ['complete','cancel']){reset();assert((await AssistantExecutor.start(null,[seed])).success);receipt=await AssistantExecutor[action]();assert(receipt.success && receipt.verified);assert.equal(receipt.actual.status,action==='complete'?'COMPLETED':'CANCELLED');assert.equal(await AssistantStorage.getCurrentWorkId(),null);}
@@ -65,6 +65,34 @@ function reset(){for(const k of Object.keys(store))delete store[k];order.length=
  recovered=await AssistantExecutor.reconcileFinishedCurrentWork();
  assert.equal(recovered.reconciled,false);
  assert.notEqual(await AssistantStorage.getCurrentWorkId(),null);
+ reset();assert((await AssistantExecutor.start(null,[seed])).success);
+ const update = browser.ThunderbirdCalDAV.updateTask;
+ browser.ThunderbirdCalDAV.updateTask = async (...args)=>{await update(...args);failRead=true;};
+ receipt=await AssistantExecutor.stop();
+ assert(!receipt.success && receipt.outcome==='uncertain');
+ assert(await AssistantStorage.getPendingTaskMutation());
+ assert.notEqual(await AssistantStorage.getCurrentWorkId(),null);
+ browser.ThunderbirdCalDAV.updateTask=update;failRead=false;order.length=0;
+ vm.runInThisContext(fs.readFileSync('addon/core/executor.js','utf8'));
+ recovered=await AssistantExecutor.reconcileFinishedCurrentWork();
+ assert(recovered.success && recovered.verified);
+ assert.equal(await AssistantStorage.getCurrentWorkId(),null);
+ assert.equal(await AssistantStorage.getPendingTaskMutation(),null);
+ assert(!order.includes('task-write'));
+ reset();failWrite=true;receipt=await AssistantExecutor.start(null,[seed]);failWrite=false;order.length=0;
+ receipt=await AssistantExecutor.start(null,[seed]);
+ assert(!receipt.success && /Uncertain/.test(receipt.error));
+ assert(!order.includes('task-write'));assert(await AssistantStorage.getPendingTaskMutation());
+ // Every Action can commit while its verification response is lost.
+ for (const action of ['start','complete','cancel']) {
+   reset();if(action!=='start')assert((await AssistantExecutor.start(null,[seed])).success);
+   browser.ThunderbirdCalDAV.updateTask=async(...args)=>{await update(...args);failRead=true;};
+   receipt=await AssistantExecutor[action](null,[seed]);assert.equal(receipt.outcome,'uncertain');
+   browser.ThunderbirdCalDAV.updateTask=update;failRead=false;order.length=0;
+   recovered=await AssistantExecutor.reconcileFinishedCurrentWork();assert(recovered.success);
+   assert.equal(await AssistantStorage.getCurrentWorkId(),action==='start'?AssistantActionPlan.identity(seed):null);
+   assert(!order.includes('task-write'));
+ }
  reset(); // Concurrent requests share one queue: only one Start can publish.
  const concurrent=await Promise.all([AssistantExecutor.start(null,[seed]),AssistantExecutor.start(null,[seed])]);assert.equal(concurrent.filter(r=>r.success).length,1);
  reset();global.AssistantWordPress={getConfig:()=>{throw new Error('401')}};for(const action of ['stop','complete','cancel']){reset();assert((await AssistantExecutor.start(null,[seed])).success);assert((await AssistantExecutor[action]()).success);}

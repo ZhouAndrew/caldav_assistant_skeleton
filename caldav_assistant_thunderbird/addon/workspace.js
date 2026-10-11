@@ -2,10 +2,13 @@
 const $ = id => document.getElementById(id);
 let actionRunning = false;
 let refreshSequence = 0;
+let refreshRunning = false;
 function showNotice(message, error = false) {
   $("notice").textContent=message; $("notice").className=error?"notice error":"notice";$("notice").hidden=false;
 }
 async function refreshAll() {
+  if (refreshRunning) return;
+  refreshRunning = true;
   const sequence=++refreshSequence;
   try {
     const pointer=await AssistantStorage.getCurrentWorkId();
@@ -26,6 +29,7 @@ async function refreshAll() {
       $("current-elapsed").textContent=[Math.floor(seconds/3600),Math.floor(seconds/60)%60,seconds%60].map(n=>String(n).padStart(2,"0")).join(":");
     }
   } catch(error) {showNotice(String(error?.message || error),true);}
+  finally { refreshRunning = false; }
 }
 async function runWorkflow(action) {
   if(actionRunning) return;
@@ -34,7 +38,7 @@ async function runWorkflow(action) {
   $("actions").querySelectorAll("button").forEach(b=>b.disabled=true);
   try {
     const receipt=await browser.runtime.sendMessage({type:"assistant-work-action",action});
-    showNotice(receipt.success?"操作已完成并回读验证。":receipt.error || "操作失败。",!receipt.success);
+    showNotice(receipt.success?"操作已完成并回读验证。":receipt.outcome === "uncertain" ? "写入结果待核实；再次操作前会先权威回读，不会重复提交。" : receipt.error || "操作失败。",!receipt.success);
   } catch(error) {showNotice(String(error?.message || error),true);}
   finally {actionRunning=false;$("actions").querySelectorAll("button").forEach(b=>b.disabled=false);await refreshAll();}
 }

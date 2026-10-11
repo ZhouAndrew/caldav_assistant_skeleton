@@ -103,6 +103,8 @@ var AssistantActionPlan;
         if (currentWorkId !== identity(task))
             throw new Error('Conflict: current work changed');
         const terminal = task.status === 'COMPLETED' || task.status === 'CANCELLED';
+        // Stop restores the pre-work nonterminal status. A verified closed session
+        // without another open session also proves that its pointer is stale.
         const history = terminal ? [] : sessions(task.description || '');
         const closed = history.filter(s => s.identity === currentWorkId && s.end !== null).at(-1);
         if (!terminal && (!closed || history.some(s => s.end === null)))
