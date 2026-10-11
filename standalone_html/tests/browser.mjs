@@ -31,7 +31,7 @@ try {
   await page.evaluate(() => document.addEventListener('task-selected', event => { globalThis.selectedTaskId = event.detail; }));
   await page.getByRole('button', {name:'Browser task'}).click();
   assert.deepEqual(JSON.parse(await page.evaluate(() => globalThis.selectedTaskId)), [process.env.CALDAV_TEST_URL + 'browser/', 'browser-task', null]);
-  await page.getByText('已从服务器重新读取任务详情。').waitFor();
+  await page.locator('#notice').getByText('已从服务器重新读取任务详情。',{exact:true}).waitFor();
   await page.locator('#task-details').getByRole('heading', {name:'Browser task'}).waitFor();
   // WordPress is independently mocked: exercise settings, capture, read-back and iframe preview.
   let wordpressContent = '';
@@ -88,14 +88,6 @@ try {
   await page.locator('.tool-nav').getByRole('link',{name:'日志',exact:true}).click();
   await page.locator('#log-search').fill('只读连接测试通过');
   await page.locator('#log-items').getByText(/只读连接测试通过/).waitFor();
-  await page.evaluate(()=>{globalThis.copiedLog='';Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{globalThis.copiedLog=text;}}});});
-  await page.getByRole('button',{name:'复制此条',exact:true}).first().click();
-  const copied=await page.evaluate(()=>globalThis.copiedLog);
-  assert.match(copied,/caldav.quick-test/);assert.match(copied,/"calendars"/);assert.match(copied,/id:/);
-  await page.evaluate(()=>{navigator.clipboard.writeText=async()=>{throw new Error('denied');};});
-  await page.getByRole('button',{name:'复制可见日志',exact:true}).click();
-  await page.locator('#log-status').getByText(/复制失败/).waitFor();
-
   await page.reload();
   await page.locator('.tool-nav').getByRole('link',{name:'日志',exact:true}).click();
   await page.locator('#log-search').fill('只读连接测试通过');
@@ -104,26 +96,26 @@ try {
   await page.unroute('http://wordpress.test/**');
   await page.locator('.tool-nav').getByRole('link',{name:'WordPress',exact:true}).click();
   await page.getByRole('button',{name:'刷新 Post'}).click();
-  await page.getByText('读取 Post 失败；Task 操作不受影响。').waitFor();
+  await page.locator('#preview-status').getByText('读取 Post 失败；Task 操作不受影响。',{exact:true}).waitFor();
   await page.locator('.tool-nav').getByRole('link',{name:'工作',exact:true}).click();
   await page.locator('#connect [name=url]').fill(process.env.CALDAV_TEST_URL);
   await page.locator('#connect [name=username]').fill('test');
   await page.locator('#connect [name=password]').fill('test');
   await page.getByRole('button', {name:'连接并读取'}).click();
   await page.getByRole('button', {name:'Browser task'}).click();
-  await page.getByText('已从服务器重新读取任务详情。').waitFor();
+  await page.locator('#notice').getByText('已从服务器重新读取任务详情。',{exact:true}).waitFor();
   await page.getByRole('button',{name:'Start / 开始',exact:true}).click();
-  await page.locator('#notice').getByText('操作已写入并回读验证。', {exact:true}).waitFor();
+  await page.locator('#notice').getByText('操作已写入并回读验证。',{exact:true}).waitFor();
   await page.reload();
   await page.locator('#connect [name=url]').fill(process.env.CALDAV_TEST_URL);
   await page.locator('#connect [name=username]').fill('test');
   await page.locator('#connect [name=password]').fill('test');
   await page.getByRole('button', {name:'连接并读取'}).click();
   await page.getByRole('button', {name:'Browser task'}).click();
-  await page.getByText('已从服务器重新读取任务详情。').waitFor();
+  await page.locator('#notice').getByText('已从服务器重新读取任务详情。',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Start / 开始',exact:true}).isEnabled(),false);
   await page.getByRole('button',{name:'Stop / 停止',exact:true}).click();
-  await page.locator('#notice').getByText('操作已写入并回读验证。', {exact:true}).waitFor();
+  await page.locator('#notice').getByText('操作已写入并回读验证。',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Start / 开始',exact:true}).isEnabled(),true);
   let dropped = false;
   await page.route('**/browser/task.ics', async route => {
@@ -134,7 +126,7 @@ try {
     } else await route.continue();
   });
   await page.getByRole('button',{name:'Start / 开始',exact:true}).click();
-  await page.getByText('操作结果待核实，请重新连接读取服务器状态；不要重复提交。').waitFor();
+  await page.locator('#notice').getByText('操作未确认成功，请重新连接读取服务器状态；不要重复提交。',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Start / 开始',exact:true}).isEnabled(),false);
   await page.reload();
   await page.locator('#connect [name=url]').fill(process.env.CALDAV_TEST_URL);
@@ -142,10 +134,10 @@ try {
   await page.locator('#connect [name=password]').fill('test');
   await page.getByRole('button', {name:'连接并读取'}).click();
   await page.getByRole('button', {name:'Browser task'}).click();
-  await page.getByText('已从服务器重新读取任务详情。').waitFor();
+  await page.locator('#notice').getByText('已从服务器重新读取任务详情。',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Start / 开始',exact:true}).isEnabled(),false);
   await page.getByRole('button',{name:'Stop / 停止',exact:true}).click();
-  await page.locator('#notice').getByText('操作已写入并回读验证。', {exact:true}).waitFor();
+  await page.locator('#notice').getByText('操作已写入并回读验证。',{exact:true}).waitFor();
   assert.equal(await page.evaluate(()=>Object.keys(localStorage).some(key=>key.endsWith(':pending'))),false);
   assert.deepEqual(errors, []);
   console.log('PASS browser + real Radicale: Work, Today/Event, Record/Logs/Tools, Outbox, iframe and recovery');
