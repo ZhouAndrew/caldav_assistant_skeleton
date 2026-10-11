@@ -88,6 +88,14 @@ try {
   await page.locator('.tool-nav').getByRole('link',{name:'日志',exact:true}).click();
   await page.locator('#log-search').fill('只读连接测试通过');
   await page.locator('#log-items').getByText(/只读连接测试通过/).waitFor();
+  await page.evaluate(()=>{globalThis.copiedLog='';Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{globalThis.copiedLog=text;}}});});
+  await page.getByRole('button',{name:'复制此条',exact:true}).first().click();
+  const copied=await page.evaluate(()=>globalThis.copiedLog);
+  assert.match(copied,/caldav.quick-test/);assert.match(copied,/"calendars"/);assert.match(copied,/id:/);
+  await page.evaluate(()=>{navigator.clipboard.writeText=async()=>{throw new Error('denied');};});
+  await page.getByRole('button',{name:'复制可见日志',exact:true}).click();
+  await page.locator('#log-status').getByText(/复制失败/).waitFor();
+
   await page.reload();
   await page.locator('.tool-nav').getByRole('link',{name:'日志',exact:true}).click();
   await page.locator('#log-search').fill('只读连接测试通过');
@@ -126,7 +134,7 @@ try {
     } else await route.continue();
   });
   await page.getByRole('button',{name:'Start / 开始',exact:true}).click();
-  await page.getByText('操作未确认成功，请重新连接读取服务器状态；不要重复提交。').waitFor();
+  await page.getByText('操作结果待核实，请重新连接读取服务器状态；不要重复提交。').waitFor();
   assert.equal(await page.getByRole('button',{name:'Start / 开始',exact:true}).isEnabled(),false);
   await page.reload();
   await page.locator('#connect [name=url]').fill(process.env.CALDAV_TEST_URL);

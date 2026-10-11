@@ -89,5 +89,5 @@ export function createWork(transport: ReturnType<typeof createTransport>, state:
       throw new CalDAVError('Conflict');
     } finally { busy = false; }
   }
-  return Object.freeze({run,recover});
+  return Object.freeze({run,recover,hasPending:()=>Boolean(journal?.read())});
 }

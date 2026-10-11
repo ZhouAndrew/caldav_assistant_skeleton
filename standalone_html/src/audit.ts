@@ -24,8 +24,23 @@ export function filterAudit(records:readonly AuditRecord[],options:{scope?:strin
     (!options.date||record.localDate===options.date)&&(!search||JSON.stringify(record).toLowerCase().includes(search))));
 }
 
+function detailsObject(value:unknown):Readonly<Record<string,unknown>> {
+  return value!==null&&typeof value==='object'&&!Array.isArray(value)?value as Readonly<Record<string,unknown>>:{};
+}
+export function auditResult(record:AuditRecord):string {
+  const details=detailsObject(record.details);
+  if(details.outcome==='uncertain')return '⏳ 结果待核实';
+  if(details.reconciled===true&&!record.success)return 'ℹ 已同步；请求操作未执行';
+  return record.success?'✓ 成功':'✗ 失败';
+}
 export function readableAudit(records:readonly AuditRecord[]) {
-  return records.map(record=>`${record.timestamp}  ${record.scope}  ${record.success?'✓':'✗'}  ${record.summary}`).join('\n');
+  return records.map(record=>{
+    const lines=[`${record.timestamp}  ${record.scope}  ${auditResult(record)}  ${record.summary||record.action}`,
+      `    id: ${record.id}`,`    action: ${record.action}`];
+    // Preserve the full structured receipt, including false/null and nested steps.
+    if(record.details!==undefined)lines.push(JSON.stringify(record.details,null,2));
+    return lines.join('\n');
+  }).join('\n\n');
 }
 
 export function memoryAuditStore():AuditStore {

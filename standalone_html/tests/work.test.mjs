@@ -84,3 +84,13 @@ test('storage failure prevents PUT; pointer persistence failure remains recovera
  assert.ok(pending);failPublish=false;
  assert.equal(await createWork(transport,state,journal).recover(),'applied');assert.ok(pointer);assert.equal(writes,1);
 });
+test('pending evidence distinguishes pre-write rejection from uncertain mutation',async()=>{
+ let pending=null,writes=0;
+ const journal={read:()=>pending,save:value=>{pending=value;},clear:()=>{pending=null;}};
+ const work=createWork({read:async()=>initial,writeVerified:async()=>{writes++;throw {code:'Unavailable'};}},{read:()=>null,publish:()=>{}},journal);
+ await assert.rejects(work.run('stop',selected,'2026-10-07T00:00:00Z','token'));
+ assert.equal(work.hasPending(),false);assert.equal(writes,0);
+ await assert.rejects(work.run('start',selected,'2026-10-07T00:00:00Z','token'));
+ assert.equal(work.hasPending(),true);assert.equal(writes,1);
+ assert.equal(await work.recover(),'unchanged');assert.equal(work.hasPending(),false);
+});
