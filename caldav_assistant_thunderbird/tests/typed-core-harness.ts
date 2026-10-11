@@ -30,6 +30,9 @@ assert(AssistantActionPlan.planFinishedWorkReconciliation(null,terminalTask)===n
 assert(AssistantActionPlan.planFinishedWorkReconciliation(key,active)===null,'active task remains current');
 assert(AssistantActionPlan.planFinishedWorkReconciliation(key,{...terminalTask,status:'COMPLETED'})?.nextCurrentWorkId===null,'external completion releases pointer');
 rejects(()=>AssistantActionPlan.planFinishedWorkReconciliation(key,{...terminalTask,id:'other'}));
+const stoppedTask={...active,...AssistantActionPlan.planWorkAction('stop',key,active,'2026-10-05T00:03:00Z','unused').expected};
+assert(AssistantActionPlan.planFinishedWorkReconciliation(key,stoppedTask)?.nextCurrentWorkId===null,'closed stop session releases stale pointer');
+assert(AssistantActionPlan.planFinishedWorkReconciliation(key,active)===null,'open session cannot be cleared');
 rejects(()=>AssistantActionPlan.sessions('x\n[CalDAV Assistant session v1] invalid'));
 rejects(()=>AssistantActionPlan.planWorkAction('stop',key,task,'2026-10-05T00:02:00Z','unused'));
 rejects(()=>AssistantActionPlan.planWorkAction('start',null,{...task,status:'COMPLETED'},'2026-10-05T00:02:00Z','unused'));

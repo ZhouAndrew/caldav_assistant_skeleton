@@ -77,8 +77,14 @@ namespace AssistantActionPlan {
   }
   /** Pure rule: only the exact current task, observed as terminal, may release its pointer. */
   export function planFinishedWorkReconciliation(currentWorkId: string | null, task: Task): { readonly target: Identity; readonly observedStatus: string; readonly nextCurrentWorkId: null } | null {
-    if (currentWorkId === null || !['COMPLETED', 'CANCELLED'].includes(task.status)) return null;
+    if (currentWorkId === null) return null;
     if (currentWorkId !== identity(task)) throw new Error('Conflict: current work changed');
+    const terminal = task.status === 'COMPLETED' || task.status === 'CANCELLED';
+    // Stop restores the pre-work nonterminal status. A verified closed session
+    // without another open session also proves that its pointer is stale.
+    const history = terminal ? [] : sessions(task.description || '');
+    const closed = history.filter(s => s.identity === currentWorkId && s.end !== null).at(-1);
+    if (!terminal && (!closed || history.some(s => s.end === null))) return null;
     return Object.freeze({
       target: Object.freeze({calendarId:task.calendarId,id:task.id,recurrenceId:task.recurrenceId || ''}),
       observedStatus:task.status,

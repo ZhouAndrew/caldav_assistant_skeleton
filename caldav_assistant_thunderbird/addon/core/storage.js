@@ -4,6 +4,8 @@
   const KEY_SETTINGS = "caldavAssistant.settings";
   const KEY_SETTINGS_UNDO = "caldavAssistant.settingsUndo";
   const KEY_CURRENT_WORK_ID = "caldavAssistant.currentWorkId";
+  // Recovery evidence only; never another current-work pointer or task state source.
+  const KEY_PENDING_MUTATION = "caldavAssistant.pendingTaskMutation";
   const KEY_AUDIT_LEGACY = "caldavAssistant.audit";
   const KEY_AUDIT_DATES = "caldavAssistant.auditDates";
   const KEY_AUDIT_PREFIX = "caldavAssistant.audit.";
@@ -123,6 +125,33 @@
     const actual = await getCurrentWorkId();
     if (actual !== value) throw new Error("CurrentWorkId read-back mismatch");
     return actual;
+  }
+
+  async function getPendingTaskMutation() {
+    return getValue(KEY_PENDING_MUTATION, null);
+  }
+
+  async function savePendingTaskMutation(entry) {
+    if (!entry?.id || !entry.target || !entry.expected ||
+        !["start","stop","complete","cancel"].includes(entry.action) ||
+        !("beforeCurrentWorkId" in entry) || !("nextCurrentWorkId" in entry)) {
+      throw new Error("Validation: invalid pending Task mutation");
+    }
+    if (await getPendingTaskMutation() !== null) {
+      throw new Error("Uncertain: previous Task mutation must be reconciled first");
+    }
+    return setValue(KEY_PENDING_MUTATION, entry);
+  }
+
+  async function clearPendingTaskMutation(id) {
+    const pending = await getPendingTaskMutation();
+    if (pending === null) return null;
+    if (pending.id !== id) throw new Error("Conflict: pending Task mutation changed");
+    await setValue(KEY_PENDING_MUTATION, null);
+    if (await getPendingTaskMutation() !== null) {
+      throw new Error("Validation: pending Task mutation read-back mismatch");
+    }
+    return null;
   }
 
   async function getAuditDatesRaw() {
@@ -350,6 +379,9 @@
     undoSettings,
     getCurrentWorkId,
     setCurrentWorkId,
+    getPendingTaskMutation,
+    savePendingTaskMutation,
+    clearPendingTaskMutation,
     appendAudit,
     listAudit,
     deriveWorkTiming,

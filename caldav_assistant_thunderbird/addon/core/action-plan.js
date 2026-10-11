@@ -98,10 +98,15 @@ var AssistantActionPlan;
     AssistantActionPlan.planWorkAction = planWorkAction;
     /** Pure rule: only the exact current task, observed as terminal, may release its pointer. */
     function planFinishedWorkReconciliation(currentWorkId, task) {
-        if (currentWorkId === null || !['COMPLETED', 'CANCELLED'].includes(task.status))
+        if (currentWorkId === null)
             return null;
         if (currentWorkId !== identity(task))
             throw new Error('Conflict: current work changed');
+        const terminal = task.status === 'COMPLETED' || task.status === 'CANCELLED';
+        const history = terminal ? [] : sessions(task.description || '');
+        const closed = history.filter(s => s.identity === currentWorkId && s.end !== null).at(-1);
+        if (!terminal && (!closed || history.some(s => s.end === null)))
+            return null;
         return Object.freeze({
             target: Object.freeze({ calendarId: task.calendarId, id: task.id, recurrenceId: task.recurrenceId || '' }),
             observedStatus: task.status,
