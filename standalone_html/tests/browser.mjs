@@ -113,7 +113,7 @@ try {
   await page.getByRole('button', {name:'Browser task'}).click();
   await page.getByText('已从服务器重新读取任务详情。').waitFor();
   await page.getByRole('button',{name:'Start / 开始',exact:true}).click();
-  await page.getByText('操作已写入并回读验证。').waitFor();
+  await page.locator('#notice').getByText('操作已写入并回读验证。', {exact:true}).waitFor();
   await page.reload();
   await page.locator('#connect [name=url]').fill(process.env.CALDAV_TEST_URL);
   await page.locator('#connect [name=username]').fill('test');
@@ -123,7 +123,7 @@ try {
   await page.getByText('已从服务器重新读取任务详情。').waitFor();
   assert.equal(await page.getByRole('button',{name:'Start / 开始',exact:true}).isEnabled(),false);
   await page.getByRole('button',{name:'Stop / 停止',exact:true}).click();
-  await page.getByText('操作已写入并回读验证。').waitFor();
+  await page.locator('#notice').getByText('操作已写入并回读验证。', {exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Start / 开始',exact:true}).isEnabled(),true);
   let dropped = false;
   await page.route('**/browser/task.ics', async route => {
@@ -145,7 +145,7 @@ try {
   await page.getByText('已从服务器重新读取任务详情。').waitFor();
   assert.equal(await page.getByRole('button',{name:'Start / 开始',exact:true}).isEnabled(),false);
   await page.getByRole('button',{name:'Stop / 停止',exact:true}).click();
-  await page.getByText('操作已写入并回读验证。').waitFor();
+  await page.locator('#notice').getByText('操作已写入并回读验证。', {exact:true}).waitFor();
   assert.equal(await page.evaluate(()=>Object.keys(localStorage).some(key=>key.endsWith(':pending'))),false);
   assert.deepEqual(errors, []);
   console.log('PASS browser + real Radicale: Work, Today/Event, Record/Logs/Tools, Outbox, iframe and recovery');
