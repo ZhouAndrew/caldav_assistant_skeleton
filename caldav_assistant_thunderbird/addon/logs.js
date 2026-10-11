@@ -46,15 +46,28 @@ function readableStep(step) {
   return "    " + state + " " + name + latency + error;
 }
 
+function resultText(record) {
+  const details = record.details || {};
+  if (details.outcome === "uncertain") return "⏳ 结果待核实";
+  if (details.reconciled && !record.success) return "ℹ 已同步；请求操作未执行";
+  return record.success ? "✓ 成功" : "✗ 失败";
+}
+
 function readableRecord(record) {
   const lines = [
     timeText(record.timestamp) + "  " +
       record.scope + "  " +
-      (record.success ? "✓" : "✗") + "  " +
+      resultText(record) + "  " +
       (record.summary || record.action),
   ];
 
   const details = record.details || {};
+  lines.push("    时间：" + String(record.timestamp || ""));
+  for (const key of ["id", "action", "outcome", "verified", "reconciled", "target", "expected", "actual"]) {
+    if (Object.prototype.hasOwnProperty.call(details, key)) {
+      lines.push("    " + key + ": " + JSON.stringify(details[key]));
+    }
+  }
   if (details.error) lines.push("    ✗ " + details.error);
   for (const step of details.steps || []) {
     lines.push(readableStep(step));
@@ -102,8 +115,16 @@ function visibleText(items = filteredRecords()) {
 }
 
 async function copyText(text, successMessage) {
-  await navigator.clipboard.writeText(text || "");
-  setLogStatus(successMessage);
+  if (!text) {
+    setLogStatus("没有可复制的日志。");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    setLogStatus(successMessage);
+  } catch (error) {
+    setLogStatus("复制失败：" + String(error?.message || error) + "。请重试。");
+  }
 }
 
 function render() {
@@ -160,8 +181,13 @@ function render() {
       scopeBadge.className = "badge";
       scopeBadge.textContent = record.scope;
       const result = document.createElement("span");
-      result.textContent = record.success ? "✓ 成功" : "✗ 失败";
-      head.append(time, scopeBadge, result);
+      result.textContent = resultText(record);
+      const copyRecord = document.createElement("button");
+      copyRecord.textContent = "复制此条";
+      copyRecord.addEventListener("click", () => {
+        void copyText(visibleText([record]), "✓ 已复制此条日志。");
+      });
+      head.append(time, scopeBadge, result, copyRecord);
 
       const summary = document.createElement("p");
       summary.textContent = record.summary || record.action;
@@ -226,8 +252,9 @@ $("copy-visible").addEventListener("click", () => {
   void copyText(visibleText(), "✓ 已复制当前可见日志。");
 });
 $("copy-json").addEventListener("click", () => {
+  const items = filteredRecords();
   void copyText(
-    JSON.stringify(filteredRecords(), null, 2),
+    items.length ? JSON.stringify(items, null, 2) : "",
     "✓ 已复制当前可见日志 JSON。"
   );
 });
@@ -273,8 +300,9 @@ $("diag-clear").addEventListener("click", async () => {
   await loadDiagnostics();
 });
 $("diag-copy").addEventListener("click", async () => {
-  await navigator.clipboard.writeText(
-    $("diag-path").textContent + "\n" + $("diagnostics").textContent
+  await copyText(
+    $("diag-path").textContent + "\n" + $("diagnostics").textContent,
+    "✓ 已复制当天技术诊断。"
   );
 });
 
