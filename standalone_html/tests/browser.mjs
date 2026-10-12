@@ -129,7 +129,7 @@ try {
         method: 'PUT', headers: request.headers(), body: request.postData(),
       });
       assert.equal(committed.status,204);
-      await route.fulfill({status:503,headers:{'Access-Control-Allow-Origin':new URL(process.env.SELECTOR_TEST_URL).origin},body:'upstream response lost'});
+      await route.abort('connectionreset');
     } else await route.continue();
   });
   await page.getByRole('button',{name:'Start / 开始',exact:true}).click();
