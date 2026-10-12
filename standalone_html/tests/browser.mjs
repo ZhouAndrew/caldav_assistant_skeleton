@@ -117,24 +117,24 @@ try {
   await page.getByRole('button',{name:'Stop / 停止',exact:true}).click();
   await page.locator('#notice').getByText('操作已写入并回读验证。',{exact:true}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Start / 开始',exact:true}).isEnabled(),true);
-  let dropped = false;
-  await page.route('**/browser/task.ics', async route => {
-    if (route.request().method() === 'PUT' && !dropped) {
-      dropped = true;
-      const request = route.request();
-      // Send the write outside Playwright routing, then hide the successful
-      // response from the page. This models a response lost after commit
-      // without depending on route.fetch(), which can stall in Chromium.
-      const committed = await fetch(request.url(), {
-        method: 'PUT', headers: request.headers(), body: request.postData(),
-      });
-      assert.equal(committed.status,204);
-      await route.abort('connectionreset');
-    } else await route.continue();
+  await page.evaluate(() => {
+    const nativeFetch = globalThis.fetch;
+    globalThis.lostResponseInjected = false;
+    globalThis.fetch = async (input,init) => {
+      const url = typeof input === 'string' ? input : input.url;
+      const method = init?.method ?? (typeof input === 'string' ? 'GET' : input.method);
+      const response = await nativeFetch(input,init);
+      if (method === 'PUT' && url.endsWith('/browser/task.ics') && !globalThis.lostResponseInjected) {
+        if (response.status !== 204) throw new Error(`unexpected committed status ${response.status}`);
+        globalThis.lostResponseInjected = true;
+        throw new TypeError('response lost after commit');
+      }
+      return response;
+    };
   });
   await page.getByRole('button',{name:'Start / 开始',exact:true}).click();
   await page.locator('#notice').getByText('操作未确认成功，请重新连接读取服务器状态；不要重复提交。',{exact:true}).waitFor();
-  assert.equal(dropped,true);
+  assert.equal(await page.evaluate(()=>globalThis.lostResponseInjected),true);
   assert.equal(await page.getByRole('button',{name:'Start / 开始',exact:true}).isEnabled(),false);
   await page.reload();
   await page.locator('#connect [name=url]').fill(process.env.CALDAV_TEST_URL);
