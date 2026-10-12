@@ -132,6 +132,9 @@ try {
       return response;
     };
   });
+  await page.getByRole('button', {name:'连接并读取'}).click();
+  await page.getByRole('button', {name:'Browser task'}).click();
+  await page.locator('#notice').getByText('已从服务器重新读取任务详情。',{exact:true}).waitFor();
   await page.getByRole('button',{name:'Start / 开始',exact:true}).click();
   await page.locator('#notice').getByText('操作未确认成功，请重新连接读取服务器状态；不要重复提交。',{exact:true}).waitFor();
   assert.equal(await page.evaluate(()=>globalThis.lostResponseInjected),true);
