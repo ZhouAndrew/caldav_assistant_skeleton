@@ -122,11 +122,12 @@ try {
     if (route.request().method() === 'PUT' && !dropped) {
       dropped = true;
       await route.fetch();
-      await route.abort();
+      await route.fulfill({status:503,headers:{'Access-Control-Allow-Origin':new URL(process.env.SELECTOR_TEST_URL).origin},body:'upstream response lost'});
     } else await route.continue();
   });
   await page.getByRole('button',{name:'Start / 开始',exact:true}).click();
   await page.locator('#notice').getByText('操作未确认成功，请重新连接读取服务器状态；不要重复提交。',{exact:true}).waitFor();
+  assert.equal(dropped,true);
   assert.equal(await page.getByRole('button',{name:'Start / 开始',exact:true}).isEnabled(),false);
   await page.reload();
   await page.locator('#connect [name=url]').fill(process.env.CALDAV_TEST_URL);
