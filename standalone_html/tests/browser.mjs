@@ -121,7 +121,14 @@ try {
   await page.route('**/browser/task.ics', async route => {
     if (route.request().method() === 'PUT' && !dropped) {
       dropped = true;
-      await route.fetch();
+      const request = route.request();
+      // Send the write outside Playwright routing, then hide the successful
+      // response from the page. This models a response lost after commit
+      // without depending on route.fetch(), which can stall in Chromium.
+      const committed = await fetch(request.url(), {
+        method: 'PUT', headers: request.headers(), body: request.postData(),
+      });
+      assert.equal(committed.status,204);
       await route.fulfill({status:503,headers:{'Access-Control-Allow-Origin':new URL(process.env.SELECTOR_TEST_URL).origin},body:'upstream response lost'});
     } else await route.continue();
   });
