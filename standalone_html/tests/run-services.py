@@ -61,7 +61,7 @@ Access-Control-Expose-Headers = ETag
                         headers['Content-Type'] = 'text/calendar' if method == 'PUT' else 'application/xml'
                     req = urllib.request.Request(dav_origin + path, data=body.encode() if body else None, headers=headers, method=method)
                     urllib.request.urlopen(req).close()
-                request('MKCALENDAR', '/test/browser/', '<c:mkcalendar xmlns:c="urn:ietf:params:xml:ns:caldav"/>')
+                request('MKCALENDAR', '/test/browser/', '<c:mkcalendar xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:d="DAV:"><d:set><d:prop><d:displayname>CalDAV Assistant Test</d:displayname><c:supported-calendar-component-set><c:comp name="VEVENT"/><c:comp name="VTODO"/></c:supported-calendar-component-set></d:prop></d:set></c:mkcalendar>')
                 text = '\r\n'.join(['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Browser Test//EN','BEGIN:VTODO','UID:browser-task','DTSTAMP:20261007T000000Z','SUMMARY:Browser task','STATUS:NEEDS-ACTION','END:VTODO','END:VCALENDAR',''])
                 request('PUT', '/test/browser/task.ics', text)
                 fixture_day = datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%Y%m%d')

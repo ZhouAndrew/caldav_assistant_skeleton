@@ -68,5 +68,15 @@ export function createTransport(options: Options) {
     if (!compare(text, resource.text)) throw new CalDAVError('Validation');
     return Object.freeze({ verified: true, resource });
   }
-  return Object.freeze({ request, read, writeVerified });
+  async function deleteVerified(href: string, previousEtag: string): Promise<{readonly verified:true;readonly url:string}> {
+    if (!previousEtag || previousEtag.startsWith('W/')) throw new CalDAVError('Validation');
+    await request('DELETE', href, undefined, { 'If-Match': previousEtag });
+    try { await read(href); }
+    catch (error) {
+      if (error instanceof CalDAVError && error.code === 'NotFound') return Object.freeze({verified:true,url:resolve(href)});
+      throw error;
+    }
+    throw new CalDAVError('Validation');
+  }
+  return Object.freeze({ request, read, writeVerified, deleteVerified });
 }

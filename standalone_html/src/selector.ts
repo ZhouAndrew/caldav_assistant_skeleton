@@ -6,6 +6,7 @@ import { projectTasks, selectTasks, readTaskDetails, type Task } from './tasks.j
 import { createEventWriter, occursOn, projectEvents, propertyDay, type CalendarEvent } from './events.js';
 import { createWordPress, createCaptureOutbox, openCaptureStore, WordPressError, type Capture, type CaptureFile, type CaptureStore, type WordPressConfig } from './wordpress.js';
 import { filterAudit, localDateKey, memoryAuditStore, openAuditStore, readableAudit, type AuditRecord, type AuditScope } from './audit.js';
+import { runWritableDiagnostic } from './diagnostics.js';
 const auditStorePromise=openAuditStore().catch(()=>memoryAuditStore());
 async function audit(scope:AuditScope,action:string,success:boolean,summary:string,details?:unknown) {
   const timestamp=new Date().toISOString();
@@ -316,6 +317,15 @@ document.querySelector<HTMLButtonElement>('#connection-test')!.addEventListener(
   if(!transport){result.textContent='请先连接 CalDAV。';return;}
   result.textContent=JSON.stringify({success:true,mode:'只读发现',calendars:calendarSummary,tasks:tasks.length,events:events.length},null,2);
   await audit('connection','caldav.quick-test',true,`只读连接测试通过：${calendarSummary.length} 个日历。`,{calendars:calendarSummary,tasks:tasks.length,events:events.length});await loadAudit();
+});
+document.querySelector<HTMLButtonElement>('#writable-test')!.addEventListener('click',async()=>{
+  const result=document.querySelector<HTMLElement>('#connection-result')!;
+  if(!transport){result.textContent='请先连接 CalDAV。';return;}
+  if(!document.querySelector<HTMLInputElement>('#diagnostic-confirm')!.checked){result.textContent='请先确认隔离测试日历。';return;}
+  result.textContent='正在隔离测试日历中执行写入、回读与清理……';
+  try {const receipt=await runWritableDiagnostic(transport,calendarSummary,crypto.randomUUID(),new Date().toISOString());result.textContent=JSON.stringify({success:true,mode:'隔离写入诊断',...receipt},null,2);await audit('connection','caldav.writable-test',true,'隔离 Calendar 写入诊断通过。',receipt);}
+  catch {result.textContent='写入诊断失败或未找到唯一的 “CalDAV Assistant Test” 日历；未选择普通日历。';await audit('connection','caldav.writable-test',false,result.textContent);}
+  await loadAudit();
 });
 
 const pages=new Set(['work','today','record','logs','wordpress','tools']);

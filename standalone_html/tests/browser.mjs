@@ -85,6 +85,9 @@ try {
   await page.locator('.tool-nav').getByRole('link',{name:'工具',exact:true}).click();
   await page.getByRole('button',{name:'Calendar 快速测试'}).click();
   await page.locator('#connection-result').getByText('"success": true').waitFor();
+  await page.locator('#diagnostic-confirm').check();
+  await page.getByRole('button',{name:'运行隔离写入诊断'}).click();
+  await page.locator('#connection-result').getByText('"mode": "隔离写入诊断"').waitFor();
   await page.locator('.tool-nav').getByRole('link',{name:'日志',exact:true}).click();
   await page.locator('#log-search').fill('只读连接测试通过');
   await page.locator('#log-items').getByText(/只读连接测试通过/).waitFor();

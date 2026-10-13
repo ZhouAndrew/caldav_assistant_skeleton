@@ -49,3 +49,7 @@ test('missing or weak ETag cannot be used for safe updates', async () => {
     await assert.rejects(transport.read('task'), { code: 'Validation' });
   }
 });
+test('conditional delete confirms authoritative absence',async()=>{
+  const calls=[];const transport=createTransport({baseUrl,fetch:async(_url,init)=>{calls.push(init);return init.method==='DELETE'?new Response(null,{status:204}):response('',404);}});
+  const receipt=await transport.deleteVerified('task.ics','"v1"');assert.equal(receipt.verified,true);assert.deepEqual(calls.map(call=>call.method),['DELETE','GET']);assert.equal(calls[0].headers.get('If-Match'),'"v1"');
+});
