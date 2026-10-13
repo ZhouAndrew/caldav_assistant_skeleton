@@ -4,7 +4,7 @@ import { createTransport, type Receipt } from './transport.js';
 export interface CalendarEvent {
   readonly eventId:string;readonly calendarUrl:string;readonly resourceUrl:string;readonly uid:string;
   readonly recurrenceId:string|null;readonly title:string;readonly start:string;readonly end:string|null;readonly location:string;
-  readonly allDay:boolean;readonly editStart:string;readonly editEnd:string;
+  readonly allDay:boolean;readonly editStart:string;readonly editEnd:string;readonly recurringMaster:boolean;
 }
 function formatTime(value:ICAL.Time):string {
   const date=`${String(value.year).padStart(4,'0')}-${String(value.month).padStart(2,'0')}-${String(value.day).padStart(2,'0')}`;
@@ -23,7 +23,8 @@ export function projectEvents(calendarUrl:string,resource:Resource):readonly Cal
       return Object.freeze({eventId:JSON.stringify([calendarUrl,uid,recurrenceId]),calendarUrl,resourceUrl:resource.url,uid,recurrenceId,
         title:String(component.getFirstPropertyValue('summary')??''),start,end:component.getFirstProperty('dtend')?.toICALString()??null,
         location:String(component.getFirstPropertyValue('location')??''),allDay:(startProperty?.getFirstValue() as ICAL.Time).isDate,
-        editStart:editValue(startProperty),editEnd:editValue(endProperty)});
+        editStart:editValue(startProperty),editEnd:editValue(endProperty),recurringMaster:recurrenceId===null&&
+          (component.hasProperty('rrule')||component.hasProperty('rdate')||component.hasProperty('exdate'))});
     });
     if(new Set(events.map(event=>event.eventId)).size!==events.length)throw new CalDAVError('Validation');
     return Object.freeze(events);
@@ -55,7 +56,9 @@ export function planEventUpdate(selected:CalendarEvent,resource:Resource,changes
     const projected=projectEvents(selected.calendarUrl,resource);const index=projected.findIndex(event=>event.eventId===selected.eventId);
     if(index<0)throw new CalDAVError('NotFound');
     const calendar=new ICAL.Component(ICAL.parse(resource.text));const component=calendar.getAllSubcomponents('vevent')[index]!;
-    if(selected.recurrenceId!==null||component.hasProperty('rrule')||component.hasProperty('rdate'))throw new CalDAVError('Validation');
+    // Existing exceptions are exact VEVENT components and can be changed safely.
+    // Masters remain blocked because editing one could affect every occurrence.
+    if(component.hasProperty('rrule')||component.hasProperty('rdate')||component.hasProperty('exdate'))throw new CalDAVError('Validation');
     const startProperty=component.getFirstProperty('dtstart');const endProperty=component.getFirstProperty('dtend');
     const startTime=updateTime(startProperty,changes.start,selected.allDay);
     if(Boolean(endProperty)!==Boolean(changes.end))throw new CalDAVError('Validation');

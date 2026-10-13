@@ -67,6 +67,8 @@ Access-Control-Expose-Headers = ETag
                 fixture_day = datetime.now(ZoneInfo('Asia/Shanghai')).strftime('%Y%m%d')
                 event = '\r\n'.join(['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Browser Test//EN','BEGIN:VEVENT','UID:browser-event','DTSTAMP:20261009T000000Z','SUMMARY:Browser lesson',f'DTSTART;TZID=Asia/Shanghai:{fixture_day}T090000',f'DTEND;TZID=Asia/Shanghai:{fixture_day}T100000','LOCATION:Room 1','END:VEVENT','END:VCALENDAR',''])
                 request('PUT', '/test/browser/event.ics', event)
+                exception = '\r\n'.join(['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Browser Test//EN','BEGIN:VEVENT','UID:browser-series',f'DTSTART;TZID=Asia/Shanghai:{fixture_day}T070000',f'DTEND;TZID=Asia/Shanghai:{fixture_day}T080000','RRULE:FREQ=DAILY','SUMMARY:Series master','END:VEVENT','BEGIN:VEVENT','UID:browser-series',f'RECURRENCE-ID;TZID=Asia/Shanghai:{fixture_day}T070000',f'DTSTART;TZID=Asia/Shanghai:{fixture_day}T110000',f'DTEND;TZID=Asia/Shanghai:{fixture_day}T120000','SUMMARY:Exception lesson','LOCATION:Room 3','END:VEVENT','END:VCALENDAR',''])
+                request('PUT', '/test/browser/recurring.ics', exception)
                 subprocess.run(['node', 'tests/browser.mjs'], env=env, check=True)
         except Exception:
             print((root / 'radicale.log').read_text(), file=sys.stderr)

@@ -181,8 +181,9 @@ function selectEvent(event:CalendarEvent) {
   const start=eventForm.elements.namedItem('start') as HTMLInputElement;const end=eventForm.elements.namedItem('end') as HTMLInputElement;
   start.type=event.allDay?'date':'datetime-local';end.type=event.allDay?'date':'datetime-local';start.value=event.editStart;end.value=event.editEnd;
   document.querySelector<HTMLElement>('#event-end-label')!.hidden=event.end===null;end.required=event.end!==null;
-  document.querySelector<HTMLElement>('#event-time-note')!.textContent=event.allDay?'全天 Event：结束日期按 CalDAV 规则为不包含当天。':'保持原 Event 的 TZID；这里只修改该时区内的本地时间。';
-  eventEditor.hidden=false;eventResult.textContent=event.recurrenceId!==null?'重复实例暂不允许修改。':'';
+  document.querySelector<HTMLElement>('#event-time-note')!.textContent=event.recurrenceId!==null?'仅修改这个已有的重复例外实例；RECURRENCE-ID 和主系列保持不变。':event.allDay?'全天 Event：结束日期按 CalDAV 规则为不包含当天。':'保持原 Event 的 TZID；这里只修改该时区内的本地时间。';
+  eventForm.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled=event.recurringMaster;
+  eventEditor.hidden=false;eventResult.textContent=event.recurringMaster?'重复主系列暂不允许修改；请选择已有例外实例。':'';
 }
 document.querySelector<HTMLButtonElement>('#event-cancel')!.addEventListener('click',()=>{selectedEvent=null;eventEditor.hidden=true;});
 eventForm.addEventListener('submit',async event=>{

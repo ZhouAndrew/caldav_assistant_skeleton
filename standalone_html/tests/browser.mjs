@@ -24,6 +24,16 @@ try {
   await page.getByRole('button',{name:'保存并回读验证'}).click();
   await page.getByText('✓ Event 已写入并回读验证。').waitFor();
   await page.locator('#today-items').getByRole('button',{name:'Updated lesson'}).waitFor();
+  await page.getByRole('button',{name:'Series master',exact:true}).click();
+  assert.equal(await page.getByRole('button',{name:'保存并回读验证'}).isDisabled(),true);
+  await page.getByRole('button',{name:'Exception lesson',exact:true}).click();
+  assert.equal(await page.getByRole('button',{name:'保存并回读验证'}).isEnabled(),true);
+  await page.locator('#event-form [name=title]').fill('Changed exception');
+  await page.locator('#event-form [name=start]').fill(`${dayPart('year')}-${dayPart('month')}-${dayPart('day')}T11:30`);
+  await page.locator('#event-form [name=end]').fill(`${dayPart('year')}-${dayPart('month')}-${dayPart('day')}T12:30`);
+  await page.getByRole('button',{name:'保存并回读验证'}).click();
+  await page.getByText('✓ Event 已写入并回读验证。').waitFor();
+  await page.locator('#today-items').getByRole('button',{name:'Changed exception'}).waitFor();
   await page.locator('.tool-nav').getByRole('link',{name:'工作',exact:true}).click();
   await page.locator('#query').fill('no match');
   await page.getByText('没有匹配的未完成任务。').waitFor();

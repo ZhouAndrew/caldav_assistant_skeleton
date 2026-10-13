@@ -131,3 +131,9 @@ The complete Increment 12 Chromium path, including response-loss recovery, passe
 The writable diagnostic creates a UUID-named temporary VEVENT with `If-None-Match: *`, performs authoritative read-back and semantic comparison, updates it with the fresh strong ETag, reads and compares again, then deletes it with `If-Match` and verifies a following GET returns Not Found. Cleanup re-reads the unique test resource to obtain its latest ETag, so a validation failure cannot leave a known temporary object merely because an earlier ETag became stale. No existing resource is selected or modified.
 
 Strict compilation and 34 tests pass, including refusal of ordinary/ambiguous calendars and the exact create → read → update → read → delete → absence sequence. The disposable real-service and browser path is the next remote CI gate because Radicale is not installed in the local execution image.
+
+## Increment 14 — exact recurrence-exception editing (2026-10-13)
+
+The isolated writable diagnostic passed the complete Radicale/Chromium path in GitHub Actions run 38338888128. Event editing now permits an already-materialized VEVENT exception identified by its exact calendar, UID and RECURRENCE-ID. Only that exception component is changed; RECURRENCE-ID, the RRULE master and unrelated sibling components remain part of the full semantic read-back comparison. Title, location, local start/end and original TZID rules are the same as for non-recurring Events.
+
+RRULE/RDATE/EXDATE masters remain deliberately blocked because changing a series requires an explicit all-occurrences versus this-and-following user choice. The browser fixture includes a master plus an existing exception and verifies editing the exception through visible Today controls against disposable Radicale.
