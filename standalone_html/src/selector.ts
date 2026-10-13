@@ -5,11 +5,7 @@ import { createCalDAV } from './caldav.js';
 import { projectTasks, selectTasks, readTaskDetails, type Task } from './tasks.js';
 import { createEventWriter, occursOn, projectEvents, propertyDay, type CalendarEvent } from './events.js';
 import { createWordPress, createCaptureOutbox, openCaptureStore, WordPressError, type Capture, type CaptureFile, type CaptureStore, type WordPressConfig } from './wordpress.js';
-import { filterAudit, localDateKey, memoryAuditStore, openAuditStore, readableAudit, auditResult, type AuditRecord, type AuditScope } from './audit.js';
-function safeCalDAVError(error:unknown) {
-  // Never copy arbitrary network exceptions, response bodies or credentials into logs.
-  return error instanceof CalDAVError?{code:error.code,status:error.status}:{code:'Unknown',status:null};
-}
+import { filterAudit, localDateKey, memoryAuditStore, openAuditStore, readableAudit, type AuditRecord, type AuditScope } from './audit.js';
 const auditStorePromise=openAuditStore().catch(()=>memoryAuditStore());
 async function audit(scope:AuditScope,action:string,success:boolean,summary:string,details?:unknown) {
   const timestamp=new Date().toISOString();
@@ -50,11 +46,11 @@ for (const button of actions) button.addEventListener('click', async () => {
     tasks = tasks.map(task => task.taskId === fresh.task.taskId ? fresh.task : task);
     render(); await showDetails(selected.taskId);
     notice.textContent = '操作已写入并回读验证。';
-    void audit('workflow',`task.${button.dataset.action}`,true,'Task 操作已写入并回读验证。',{taskId:selected.taskId,verified:receipt.verified,outcome:'verified',etag:receipt.resource.etag});
-  } catch (error) {
-    recoveryRequired = work.hasPending();
-    notice.textContent = recoveryRequired?'操作结果待核实，请重新连接读取服务器状态；不要重复提交。':'操作未执行成功，请核对任务状态后重试。';
-    void audit('workflow',`task.${button.dataset.action}`,false,notice.textContent,{taskId:selected.taskId,outcome:recoveryRequired?'uncertain':'failed',error:safeCalDAVError(error)});
+    void audit('workflow',`task.${button.dataset.action}`,true,'Task 操作已写入并回读验证。',{taskId:selected.taskId,verified:receipt.verified});
+  } catch {
+    recoveryRequired = true;
+    notice.textContent = '操作未确认成功，请重新连接读取服务器状态；不要重复提交。';
+    void audit('workflow',`task.${button.dataset.action}`,false,'Task 操作结果未确认；需要重新连接恢复。',{taskId:selected.taskId});
   } finally { working = false; updateActions(); }
 });
 let loadGeneration = 0;
@@ -134,7 +130,7 @@ form.addEventListener('submit', async event => {
     if (username.includes(':')) throw new CalDAVError('Validation');
     const bytes = new TextEncoder().encode(`${username}:${password}`);
     const authorization = 'Basic ' + btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join(''));
-    const connection = createTransport({ baseUrl, authorization, fetch: fetch.bind(globalThis) });
+    const connection = createTransport({ baseUrl, authorization, fetch: globalThis.fetch.bind(globalThis) });
     const client = createCalDAV(connection, baseUrl,
       text => new DOMParser().parseFromString(text, 'application/xml'));
     const calendars = await client.discover();
@@ -171,7 +167,7 @@ form.addEventListener('submit', async event => {
       ? '认证失败，请检查用户名和密码。' : error instanceof CalDAVError && error.code === 'Validation'
       ? '服务器数据无法完整验证，未显示部分结果。' : error instanceof CalDAVError && error.code === 'Conflict'
       ? '上次操作结果与服务器不一致，已保留恢复记录并停用操作，请核对服务器数据。' : '连接失败，请检查地址、证书信任和服务器跨域设置。';
-    calendarSummary=[];void audit('connection','caldav.discover',false,notice.textContent,{error:safeCalDAVError(error)});
+    calendarSummary=[];void audit('connection','caldav.discover',false,notice.textContent);
   } finally { connecting = false; }
 });
 query.addEventListener('input', render);
@@ -191,7 +187,7 @@ document.querySelector<HTMLButtonElement>('#event-cancel')!.addEventListener('cl
 eventForm.addEventListener('submit',async event=>{
   event.preventDefault();if(!selectedEvent||!eventWriter)return;const target=selectedEvent;const data=new FormData(eventForm);eventResult.textContent='正在写入并回读验证……';
   try {const receipt=await eventWriter.update(target,{title:String(data.get('title')),location:String(data.get('location')),start:String(data.get('start')),end:target.end===null?'':String(data.get('end'))});const fresh=projectEvents(target.calendarUrl,receipt.resource).find(item=>item.eventId===target.eventId);if(!fresh)throw new CalDAVError('Validation');events=Object.freeze(events.map(item=>item.eventId===fresh.eventId?fresh:item));selectedEvent=fresh;renderToday();eventResult.textContent='✓ Event 已写入并回读验证。';void audit('workflow','event.update',true,'Event 已写入并回读验证。',{eventId:target.eventId,verified:receipt.verified,start:fresh.editStart,end:fresh.editEnd});}
-  catch(error) {eventResult.textContent='Event 修改未确认成功，请重新连接读取服务器状态。';void audit('workflow','event.update',false,eventResult.textContent,{eventId:target.eventId,error:safeCalDAVError(error)});}
+  catch {eventResult.textContent='Event 修改未确认成功，请重新连接读取服务器状态。';void audit('workflow','event.update',false,eventResult.textContent,{eventId:target.eventId});}
 });
 
 // WordPress is an independent output lane. None of its state participates in CalDAV actions.
@@ -306,15 +302,11 @@ document.querySelector<HTMLButtonElement>('#record-submit')!.addEventListener('c
 const logRoot=document.querySelector<HTMLElement>('#log-items')!;const logStatus=document.querySelector<HTMLElement>('#log-status')!;
 let auditRecords:readonly AuditRecord[]=[];
 function visibleAudit(){return filterAudit(auditRecords,{scope:document.querySelector<HTMLSelectElement>('#log-scope')!.value,date:document.querySelector<HTMLInputElement>('#log-date')!.value,search:document.querySelector<HTMLInputElement>('#log-search')!.value});}
-function renderAudit(){const items=[...visibleAudit()].reverse();logRoot.replaceChildren();if(!items.length){logRoot.textContent=auditRecords.length?'当前筛选没有匹配的日志。':'尚无操作日志。';return;}for(const record of items){const row=document.createElement('article');row.className='log-record';const head=document.createElement('div');head.className='log-head';for(const value of [new Date(record.timestamp).toLocaleTimeString(),record.scope,auditResult(record)]){const span=document.createElement('span');span.textContent=value;head.append(span);}const copy=document.createElement('button');copy.type='button';copy.textContent='复制此条';copy.addEventListener('click',()=>void copyAudit(false,[record]));head.append(copy);const summary=document.createElement('p');summary.textContent=record.summary;const pre=document.createElement('pre');pre.textContent=JSON.stringify(record.details??{},null,2);row.append(head,summary,pre);logRoot.append(row);}}
+function renderAudit(){const items=[...visibleAudit()].reverse();logRoot.replaceChildren();if(!items.length){logRoot.textContent=auditRecords.length?'当前筛选没有匹配的日志。':'尚无操作日志。';return;}for(const record of items){const row=document.createElement('article');row.className='log-record';const head=document.createElement('div');head.className='log-head';for(const value of [new Date(record.timestamp).toLocaleTimeString(),record.scope,record.success?'✓ 成功':'✗ 失败']){const span=document.createElement('span');span.textContent=value;head.append(span);}const summary=document.createElement('p');summary.textContent=record.summary;const pre=document.createElement('pre');pre.textContent=JSON.stringify(record.details??{},null,2);row.append(head,summary,pre);logRoot.append(row);}}
 async function loadAudit(){auditRecords=await (await auditStorePromise).list();renderAudit();}
 for(const selector of ['#log-scope','#log-date','#log-search']) document.querySelector(selector)!.addEventListener(selector==='#log-search'?'input':'change',renderAudit);
 document.querySelector<HTMLButtonElement>('#log-reload')!.addEventListener('click',()=>void loadAudit());
-async function copyAudit(json:boolean,items:readonly AuditRecord[]=visibleAudit()) {
-  if(!items.length){logStatus.textContent='没有可复制的日志。';return;}
-  try{await navigator.clipboard.writeText(json?JSON.stringify(items,null,2):readableAudit(items));logStatus.textContent=`✓ 已复制 ${items.length} 条日志。`;}
-  catch{logStatus.textContent='复制失败：浏览器拒绝剪贴板访问，请检查权限并重试。';}
-}
+async function copyAudit(json:boolean){try{await navigator.clipboard.writeText(json?JSON.stringify(visibleAudit(),null,2):readableAudit(visibleAudit()));logStatus.textContent='✓ 已复制当前可见日志。';}catch{logStatus.textContent='浏览器拒绝剪贴板访问。';}}
 document.querySelector<HTMLButtonElement>('#log-copy')!.addEventListener('click',()=>void copyAudit(false));document.querySelector<HTMLButtonElement>('#log-json')!.addEventListener('click',()=>void copyAudit(true));
 document.querySelector<HTMLButtonElement>('#log-clear')!.addEventListener('click',async()=>{const date=document.querySelector<HTMLInputElement>('#log-date')!.value;if(!date){logStatus.textContent='请先选择要清空的日期。';return;}if(!confirm(`确认清空 ${date} 的操作日志？`))return;await (await auditStorePromise).clear(date);logStatus.textContent=`✓ 已清空 ${date} 的操作日志。`;await loadAudit();});
 void loadAudit();
