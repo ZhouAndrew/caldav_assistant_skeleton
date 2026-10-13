@@ -133,6 +133,7 @@ try {
     };
   });
   await page.getByRole('button', {name:'连接并读取'}).click();
+  await page.locator('#notice').getByText(/^已读取 \d+ 个任务、\d+ 个事件。$/).waitFor();
   await page.getByRole('button', {name:'Browser task'}).click();
   await page.locator('#notice').getByText('已从服务器重新读取任务详情。',{exact:true}).waitFor();
   await page.getByRole('button',{name:'Start / 开始',exact:true}).click();
