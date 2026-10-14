@@ -42,7 +42,7 @@ function canonical(component:ICAL.Component):string {
 function sameCalendar(expected:string,actual:string) {
   return canonical(new ICAL.Component(ICAL.parse(expected)))===canonical(new ICAL.Component(ICAL.parse(actual)));
 }
-export interface EventChanges {readonly title:string;readonly location:string;readonly start:string;readonly end:string}
+export interface EventChanges {readonly title:string;readonly location:string;readonly start:string;readonly end:string;readonly scope?:'single'|'series'}
 function updateTime(property:ICAL.Property|null|undefined,input:string,isDate:boolean) {
   if(!property||!input)throw new CalDAVError('Validation');
   if(isDate&&!/^\d{4}-\d{2}-\d{2}$/.test(input))throw new CalDAVError('Validation');
@@ -56,9 +56,10 @@ export function planEventUpdate(selected:CalendarEvent,resource:Resource,changes
     const projected=projectEvents(selected.calendarUrl,resource);const index=projected.findIndex(event=>event.eventId===selected.eventId);
     if(index<0)throw new CalDAVError('NotFound');
     const calendar=new ICAL.Component(ICAL.parse(resource.text));const component=calendar.getAllSubcomponents('vevent')[index]!;
-    // Existing exceptions are exact VEVENT components and can be changed safely.
-    // Masters remain blocked because editing one could affect every occurrence.
-    if(component.hasProperty('rrule')||component.hasProperty('rdate')||component.hasProperty('exdate'))throw new CalDAVError('Validation');
+    const master=component.hasProperty('rrule')||component.hasProperty('rdate')||component.hasProperty('exdate');
+    // Scope is explicit: exact exceptions/non-recurring events are single;
+    // recurrence masters require the caller to choose the whole series.
+    if(master?changes.scope!=='series':changes.scope==='series')throw new CalDAVError('Validation');
     const startProperty=component.getFirstProperty('dtstart');const endProperty=component.getFirstProperty('dtend');
     const startTime=updateTime(startProperty,changes.start,selected.allDay);
     if(Boolean(endProperty)!==Boolean(changes.end))throw new CalDAVError('Validation');

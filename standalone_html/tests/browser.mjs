@@ -26,6 +26,11 @@ try {
   await page.locator('#today-items').getByRole('button',{name:'Updated lesson'}).waitFor();
   await page.getByRole('button',{name:'Series master',exact:true}).click();
   assert.equal(await page.getByRole('button',{name:'保存并回读验证'}).isDisabled(),true);
+  await page.locator('#event-form [name=scope]').selectOption('series');
+  await page.locator('#event-form [name=title]').fill('Changed series');
+  await page.getByRole('button',{name:'保存并回读验证'}).click();
+  await page.getByText('✓ Event 已写入并回读验证。').waitFor();
+  await page.locator('#today-items').getByRole('button',{name:'Changed series'}).waitFor();
   await page.getByRole('button',{name:'Exception lesson',exact:true}).click();
   assert.equal(await page.getByRole('button',{name:'保存并回读验证'}).isEnabled(),true);
   await page.locator('#event-form [name=title]').fill('Changed exception');
