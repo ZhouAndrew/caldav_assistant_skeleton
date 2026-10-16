@@ -1,0 +1,64 @@
+name: Prune fully merged work branches
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: prune-merged-work-branches
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    if: github.repository == 'ZhouAndrew/caldav_assistant_skeleton'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Delete only safe fully-merged temporary branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --quiet --prune origin '+refs/heads/*:refs/remotes/origin/*'
+          open_pr_heads="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls?state=open&per_page=100" --jq '.[].head.ref')"
+          deleted=0
+          while IFS= read -r branch; do
+            # Keep main, maintained/release/recovery/acceptance lines,
+            # and branches for open PRs. Only consider short-lived work branches.
+            case "$branch" in
+              feat/*|fix/*|chore/*|codex/*|ci/*|docs/*|feature/*|refactor/*) ;;
+              *) continue ;;
+            esac
+            case "$branch" in
+              *release*|*acceptance*|*accepted*|*recovery*|*archive*|*snapshot*) continue ;;
+            esac
+            if printf '%s\n' "$open_pr_heads" | grep -Fxq -- "$branch"; then
+              echo "Preserve active PR branch: $branch"
+              continue
+            fi
+            # Never delete anything with unique commits not reachable from main.
+            if ! git merge-base --is-ancestor "refs/remotes/origin/$branch" "refs/remotes/origin/main"; then
+              continue
+            fi
+            echo "Fully merged, safe to prune: $branch"
+            if gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/$branch"; then
+              deleted=$((deleted + 1))
+            else
+              echo "::warning::Could not delete $branch; retained for manual review"
+            fi
+            # Bound each run; next main push may prune more.
+            if [ "$deleted" -ge 50 ]; then
+              echo "Reached the per-run safety limit"
+              break
+            fi
+          done < <(git for-each-ref --format='%(refname:strip=3)' refs/remotes/origin)
+          echo "Deleted $deleted fully merged temporary branch(es)."
