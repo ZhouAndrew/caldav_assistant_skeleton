@@ -3,6 +3,50 @@
 // Thin effect boundary. All workflow decisions and comparisons are compiled from src/core.ts.
 (() => {
   let queue = Promise.resolve();
+
+  async function clearFinishedPointer(pointer, task, steps) {
+    const plan = AssistantActionPlan.planFinishedWorkReconciliation(pointer, task);
+    if (!plan) return null;
+    // Workflow and reconciliation writes share this serialized effect boundary.
+    if (await AssistantStorage.getCurrentWorkId() !== pointer) {
+      throw new Error("Conflict: current work changed during reconciliation");
+    }
+    await AssistantStorage.setCurrentWorkId(plan.nextCurrentWorkId);
+    const actual = await AssistantStorage.getCurrentWorkId();
+    if (actual !== null) throw new Error("Validation: reconciled pointer read-back mismatch");
+    steps.push({operation:"write/read-back currentWorkId",success:true,expected:null,actual});
+    return plan;
+  }
+
+  async function reconcileFinishedWorkNow() {
+    const pointer = await AssistantStorage.getCurrentWorkId();
+    if (pointer === null) return {reconciled:false};
+    const ref = AssistantActionPlan.parseIdentity(pointer);
+    // Only the authoritative provider read can establish a terminal Task state.
+    const task = await browser.ThunderbirdCalDAV.getTask(ref.calendarId,ref.id,ref.recurrenceId || "",true);
+    const plan = AssistantActionPlan.planFinishedWorkReconciliation(pointer,task);
+    if (!plan) return {reconciled:false};
+    const receipt = {
+      id:crypto.randomUUID(),action:"reconcile-finished-work",target:plan.target,
+      expected:{currentWorkId:null},actual:null,verified:false,success:false,
+      startedAt:new Date().toISOString(),steps:[
+        {operation:"authoritative read finished task",success:true,status:plan.observedStatus,target:plan.target}
+      ]
+    };
+    try {
+      await clearFinishedPointer(pointer,task,receipt.steps);
+      receipt.actual = {currentWorkId:await AssistantStorage.getCurrentWorkId(),taskStatus:plan.observedStatus};
+      receipt.verified = receipt.actual.currentWorkId === null;
+      receipt.success = receipt.verified;
+      receipt.reconciled = receipt.verified;
+      if (!receipt.verified) throw new Error("Validation: reconciled pointer read-back mismatch");
+    } catch (error) {
+      receipt.error = String(error?.message || error);
+    }
+    receipt.completedAt = new Date().toISOString();
+    return AssistantStorage.persistResult(receipt,"system");
+  }
+
   async function execute(action, reference, selectionAtClick = null) {
     const receipt = {id:crypto.randomUUID(), action, target:reference, expected:null, actual:null,
       verified:false, success:false, startedAt:new Date().toISOString(), steps:[]};
@@ -17,6 +61,16 @@
       const task = await browser.ThunderbirdCalDAV.getTask(ref.calendarId,ref.id,ref.recurrenceId || "",true);
       const currentWorkId = await AssistantStorage.getCurrentWorkId();
       const at = new Date().toISOString();
+      // Native Thunderbird may have finished this Task outside our four Actions.
+      // Keep the requested action failed; only release its stale pointer.
+      const finished = action === "start" ? null : AssistantActionPlan.planFinishedWorkReconciliation(currentWorkId,task);
+      if (finished) {
+        receipt.actual = task;
+        receipt.steps.push({operation:"authoritative read finished task",success:true,status:finished.observedStatus,target:finished.target});
+        await clearFinishedPointer(currentWorkId,task,receipt.steps);
+        receipt.reconciled = true;
+        throw new Error("Conflict: task already " + finished.observedStatus + "; currentWorkId cleared");
+      }
       const plan = AssistantActionPlan.planWorkAction(action,currentWorkId,task,at,receipt.id);
       receipt.expected = plan.expected;
       if (action === "start" && !AssistantActionPlan.sameSelection(selected,await browser.TaskFix.getSelectedTasks())) {
@@ -59,5 +113,11 @@
     stop:()=>run("stop",null,null),
     complete:()=>run("complete",null,null),
     cancel:()=>run("cancel",null,null),
+    reconcileFinishedCurrentWork:()=>runReconciliation(),
   });
+  function runReconciliation() {
+    const result = queue.then(()=>reconcileFinishedWorkNow());
+    queue = result.catch(()=>{});
+    return result;
+  }
 })();

@@ -75,6 +75,16 @@ namespace AssistantActionPlan {
     return Object.freeze({action, target:Object.freeze({calendarId:task.calendarId,id:task.id,recurrenceId:task.recurrenceId || ''}),
       expected:Object.freeze(expected), nextCurrentWorkId:action === 'start' ? key : null});
   }
+  /** Pure rule: only the exact current task, observed as terminal, may release its pointer. */
+  export function planFinishedWorkReconciliation(currentWorkId: string | null, task: Task): { readonly target: Identity; readonly observedStatus: string; readonly nextCurrentWorkId: null } | null {
+    if (currentWorkId === null || !['COMPLETED', 'CANCELLED'].includes(task.status)) return null;
+    if (currentWorkId !== identity(task)) throw new Error('Conflict: current work changed');
+    return Object.freeze({
+      target: Object.freeze({calendarId:task.calendarId,id:task.id,recurrenceId:task.recurrenceId || ''}),
+      observedStatus:task.status,
+      nextCurrentWorkId:null,
+    });
+  }
   export function compare(plan: Plan, actual: Task): boolean {
     return identity(plan.target) === identity(actual) && actual.status === plan.expected.status &&
       actual.percentComplete === plan.expected.percentComplete && actual.description === plan.expected.description;

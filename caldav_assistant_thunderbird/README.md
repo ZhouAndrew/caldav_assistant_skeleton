@@ -1,4 +1,4 @@
-# CalDAV Assistant Thunderbird 0.4.2
+# CalDAV Assistant Thunderbird 0.4.4 (integrated development)
 
 正式整合版。Thunderbird 153.0.2–153.1.x；保持原安装 ID，可覆盖升级 0.4.1。
 
@@ -22,3 +22,15 @@ bash packaging/build-xpi.sh
 ```
 
 每次新构建使用新的唯一 Build ID；不得覆盖已有包。复现旧 ID 仅允许用于完全相同字节的验证。已经真实验收的准确发布包保持原样，发布文档和 CI 的修复不改变该包。
+
+## 0.4.3：原生 Thunderbird 外部状态同步修复
+
+当 Thunderbird 原生 Tasks 中唯一当前 VTODO 变为 `COMPLETED` 或 `CANCELLED`，插件通过任务变更事件、启动以及再次进入 Work 页面触发权威回读；只有身份与 `currentWorkId` 相同，且指针在回读后未变化，才将指针写为 `null` 并回读验证，留下系统审计回执。不会改写 Task、本来已有的 DESCRIPTION 或其历史 session；也不会把外部取消伪装为插件 Complete。
+
+如果刚好点击插件 Complete/Stop，则工作操作返回冲突失败，但已结束的任务可以经验证解除失效指针。离线、任务不存在、非终态或身份冲突时不会清除指针。修复不修改已发布的 0.4.2 XPI。
+
+自动化测试及 CI 构建并不等于已在用户 Thunderbird 环境完成真实安装验收。
+
+## 0.4.4：已验收的 Quick Capture 与独立 Post 预览合并
+
+`feat/work-quick-capture` 的 Quick Capture（文字、图片、文件剪贴板粘贴及文件拖放）及独立只读 Post iframe 预览已经整合到主线，同时保留主线 0.4.3 的 Thunderbird 原生任务终态 `currentWorkId` 对账修复。旧版实验分支的独立实机验收证据保留在 `acceptance/0.4.4/independent-preview/`。此合并改变了 XPI 源码，旧包的实机验收不能自动等同于合并后安装包的实机验收；正式发布前须再进行构建和回归。
