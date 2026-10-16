@@ -1,0 +1,125 @@
+{
+  "sha256": "eb72514a3af281baacd08c6901fd3a14848ef52eab9d58e405b05a9e370203ec",
+  "build": {
+    "buildId": "20261006T030448Z-96b84f88ba0c45749c5aa4d70fa75b77",
+    "version": "0.4.3",
+    "sourceCommit": "25f2bd798fe38895710406adf8450b80b5630d9d",
+    "sourceDigest": "a7e27bb1210cc241332772a256e52d97ec12e050312e22a4500b7ca3d7616810",
+    "sourceDirty": false
+  },
+  "checks": {
+    "XPIInstall": true,
+    "TrustedTextPaste": true,
+    "TrustedScreenshotPaste": true,
+    "TrustedSingleFileDrop": true,
+    "TrustedMultiFileDrop": true,
+    "TrustedClipboardFilePaste": true,
+    "PreviewNativeDropNoUploadNoAppend": true,
+    "RealOutageRetainedPointerUnchanged": true
+  },
+  "wordpress": "7.1.2",
+  "wpcli": "WP-CLI 2.12.0",
+  "thunderbird": "153.1.0",
+  "captures": [
+    {
+      "postId": 167,
+      "post_url": "http://127.0.0.1:18880/october-6-tuesday-2026/",
+      "media": [],
+      "preview": {
+        "url": "http://127.0.0.1:18880/october-6-tuesday-2026/?refresh=1791255913039",
+        "height": 2465,
+        "y": 1987,
+        "viewport": 478
+      },
+      "marker": "caldav-assistant-log-aca13cbe-5094-4a21-a68f-8974d74e8607"
+    },
+    {
+      "postId": 167,
+      "post_url": "http://127.0.0.1:18880/october-6-tuesday-2026/",
+      "media": [
+        {
+          "id": 169,
+          "filename": "image.png",
+          "sourceUrl": "http://127.0.0.1:18880/wp-content/uploads/2026/10/image-4.png",
+          "mimeType": "image/png",
+          "parent": 167
+        }
+      ],
+      "preview": {
+        "url": "http://127.0.0.1:18880/october-6-tuesday-2026/?refresh=1791255916484",
+        "height": 2988,
+        "y": 2510,
+        "viewport": 478
+      },
+      "marker": "caldav-assistant-log-37d542a5-fe2a-46a4-9774-e645579fb716"
+    },
+    {
+      "postId": 167,
+      "post_url": "http://127.0.0.1:18880/october-6-tuesday-2026/",
+      "media": [
+        {
+          "id": 171,
+          "filename": "capture-one.txt",
+          "sourceUrl": "http://127.0.0.1:18880/wp-content/uploads/2026/10/capture-one-6.txt",
+          "mimeType": "text/plain",
+          "parent": 167
+        }
+      ],
+      "preview": {
+        "url": "http://127.0.0.1:18880/october-6-tuesday-2026/?refresh=1791255925588",
+        "height": 3031,
+        "y": 2553,
+        "viewport": 478
+      },
+      "marker": "caldav-assistant-log-5f86173b-3d11-4255-96f2-71ac4e3c957b"
+    },
+    {
+      "postId": 167,
+      "post_url": "http://127.0.0.1:18880/october-6-tuesday-2026/",
+      "media": [
+        {
+          "id": 173,
+          "filename": "capture-one.txt",
+          "sourceUrl": "http://127.0.0.1:18880/wp-content/uploads/2026/10/capture-one-7.txt",
+          "mimeType": "text/plain",
+          "parent": 167
+        },
+        {
+          "id": 174,
+          "filename": "capture-two.txt",
+          "sourceUrl": "http://127.0.0.1:18880/wp-content/uploads/2026/10/capture-two-6.txt",
+          "mimeType": "text/plain",
+          "parent": 167
+        }
+      ],
+      "preview": {
+        "url": "http://127.0.0.1:18880/october-6-tuesday-2026/?refresh=1791255940546",
+        "height": 3116,
+        "y": 2638,
+        "viewport": 478
+      },
+      "marker": "caldav-assistant-log-1d661184-ee67-4e7c-99b9-98e0ff80f670"
+    },
+    {
+      "postId": 167,
+      "post_url": "http://127.0.0.1:18880/october-6-tuesday-2026/",
+      "media": [
+        {
+          "id": 176,
+          "filename": "capture-two.txt",
+          "sourceUrl": "http://127.0.0.1:18880/wp-content/uploads/2026/10/capture-two-7.txt",
+          "mimeType": "text/plain",
+          "parent": 167
+        }
+      ],
+      "preview": {
+        "url": "http://127.0.0.1:18880/october-6-tuesday-2026/?refresh=1791255963433",
+        "height": 3159,
+        "y": 2681,
+        "viewport": 478
+      },
+      "marker": "caldav-assistant-log-43f436ac-aebd-4e3e-b1f1-308f9b52eb16"
+    }
+  ],
+  "success": true
+}

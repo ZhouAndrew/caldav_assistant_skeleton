@@ -811,7 +811,7 @@
     return {success: true, day, postId: Number(postId), steps: ["selection write", "read back", "compare"]};
   }
 
-  async function ensureDailyLogPost(date = new Date()) {
+  async function ensureDailyLogPost(date = new Date(), create = true) {
     const title = dailyLogTitle(date);
     const candidates = await dailyCandidates(date);
     const config = await getConfig();
@@ -829,6 +829,7 @@
       throw error;
     } else post = candidates[0];
     if (post) return {post, title: rawTitle(post), created: false};
+    if (!create) return {post: null, title, created: false};
     post = await request("/posts", {method: "POST", json: {title, content: "", status: "publish"}});
     const read = await request(`/posts/${post.id}?context=edit`);
     if (read?.id !== post.id || rawTitle(read) !== title || rawContent(read) !== "" || read.status !== "publish") throw new Error("WordPress daily log create read-back mismatch.");
@@ -1094,6 +1095,7 @@
     fullWriteTest,
     dualWriteTest,
     createLog,
+    readDailyLogPost: async (date = new Date()) => (await ensureDailyLogPost(date, false)).post,
     selectDailyPost,
     pendingCandidates,
   });

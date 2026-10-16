@@ -1,0 +1,128 @@
+{
+  "sha256": "f2f0044e7029550336e4de0e474d58984e7fba0b1247b038fb6865bf2aa16b55",
+  "build": {
+    "buildId": "20261006T035855Z-cf56d4f5623e4ec39f5cee6947040cd3",
+    "version": "0.4.4",
+    "sourceCommit": "11984110ddd851693cf8b0d4f74fb9f3749b3a41",
+    "sourceDigest": "ae567ed4dcc3290da428477fc0ed7652d3553f714a4b69e87f5f2a52599bac23",
+    "sourceDirty": false
+  },
+  "checks": {
+    "XPIInstall": true,
+    "EmptyPreviewDoesNotCreatePost": true,
+    "IndependentExistingPostOnOpen": true,
+    "PreviewWithoutQuickCapture": true,
+    "TrustedTextPaste": true,
+    "TrustedScreenshotPaste": true,
+    "TrustedSingleFileDrop": true,
+    "TrustedMultiFileDrop": true,
+    "TrustedClipboardFilePaste": true,
+    "PreviewNativeDropNoUploadNoAppend": true,
+    "RealOutageRetainedPointerUnchanged": true
+  },
+  "wordpress": "7.1.2",
+  "wpcli": "WP-CLI 2.12.0",
+  "thunderbird": "153.1.0",
+  "captures": [
+    {
+      "postId": 195,
+      "post_url": "http://127.0.0.1:18880/october-6-tuesday-2026/",
+      "media": [],
+      "preview": {
+        "url": "http://127.0.0.1:18880/october-6-tuesday-2026/?refresh=1791259157420",
+        "height": 2495,
+        "y": 2017,
+        "viewport": 478
+      },
+      "marker": "caldav-assistant-log-e17bc776-869d-4106-b626-4d14ffef9a99"
+    },
+    {
+      "postId": 195,
+      "post_url": "http://127.0.0.1:18880/october-6-tuesday-2026/",
+      "media": [
+        {
+          "id": 197,
+          "filename": "image.png",
+          "sourceUrl": "http://127.0.0.1:18880/wp-content/uploads/2026/10/image-7.png",
+          "mimeType": "image/png",
+          "parent": 195
+        }
+      ],
+      "preview": {
+        "url": "http://127.0.0.1:18880/october-6-tuesday-2026/?refresh=1791259160667",
+        "height": 3018,
+        "y": 2540,
+        "viewport": 478
+      },
+      "marker": "caldav-assistant-log-2f187ac0-add3-4202-9799-1ee3878744d2"
+    },
+    {
+      "postId": 195,
+      "post_url": "http://127.0.0.1:18880/october-6-tuesday-2026/",
+      "media": [
+        {
+          "id": 199,
+          "filename": "capture-one.txt",
+          "sourceUrl": "http://127.0.0.1:18880/wp-content/uploads/2026/10/capture-one-11.txt",
+          "mimeType": "text/plain",
+          "parent": 195
+        }
+      ],
+      "preview": {
+        "url": "http://127.0.0.1:18880/october-6-tuesday-2026/?refresh=1791259169428",
+        "height": 3060,
+        "y": 2582,
+        "viewport": 478
+      },
+      "marker": "caldav-assistant-log-8d635790-c960-4361-99dd-646cf1ae0cdb"
+    },
+    {
+      "postId": 195,
+      "post_url": "http://127.0.0.1:18880/october-6-tuesday-2026/",
+      "media": [
+        {
+          "id": 201,
+          "filename": "capture-one.txt",
+          "sourceUrl": "http://127.0.0.1:18880/wp-content/uploads/2026/10/capture-one-12.txt",
+          "mimeType": "text/plain",
+          "parent": 195
+        },
+        {
+          "id": 202,
+          "filename": "capture-two.txt",
+          "sourceUrl": "http://127.0.0.1:18880/wp-content/uploads/2026/10/capture-two-10.txt",
+          "mimeType": "text/plain",
+          "parent": 195
+        }
+      ],
+      "preview": {
+        "url": "http://127.0.0.1:18880/october-6-tuesday-2026/?refresh=1791259184115",
+        "height": 3145,
+        "y": 2667,
+        "viewport": 478
+      },
+      "marker": "caldav-assistant-log-183d23fc-adcd-49b2-9809-53863b43d3ea"
+    },
+    {
+      "postId": 195,
+      "post_url": "http://127.0.0.1:18880/october-6-tuesday-2026/",
+      "media": [
+        {
+          "id": 204,
+          "filename": "capture-two.txt",
+          "sourceUrl": "http://127.0.0.1:18880/wp-content/uploads/2026/10/capture-two-11.txt",
+          "mimeType": "text/plain",
+          "parent": 195
+        }
+      ],
+      "preview": {
+        "url": "http://127.0.0.1:18880/october-6-tuesday-2026/?refresh=1791259206568",
+        "height": 3188,
+        "y": 2710,
+        "viewport": 478
+      },
+      "marker": "caldav-assistant-log-a4821e61-2b02-4e60-80aa-5a226f23fbe8"
+    }
+  ],
+  "success": true
+}

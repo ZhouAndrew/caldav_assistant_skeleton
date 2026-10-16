@@ -146,6 +146,8 @@ h1, h2, h3, p { margin-top: 0; }
 .form-grid { display: grid; gap: 10px; }
 .form-grid label { display: grid; gap: 4px; }
 textarea { width: 100%; min-height: 160px; }
+#quick-capture { min-height: 90px; }
+#post-preview { width: 100%; height: 480px; border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); }
 .tool-actions {
   display: flex;
   gap: 8px;
