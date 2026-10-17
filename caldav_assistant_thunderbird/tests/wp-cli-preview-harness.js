@@ -6,7 +6,7 @@ const vm = require("node:vm");
 const commands = [];
 const config = {wordpress: {transport: "wp-cli", wordpressPath: "/var/www/html/wordpress", wpCliCommand: "wp"}};
 const sandbox = {
-  URL, Date,
+  URL, Date, Blob,
   AssistantStorage: {
     getSettings: async () => config,
     localDateKey: () => "2026-10-17",
