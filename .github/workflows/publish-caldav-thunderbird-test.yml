@@ -42,7 +42,7 @@ jobs:
           with zipfile.ZipFile(xpi) as z:
               m=json.loads(z.read("manifest.json"))
               b=json.loads(z.read("build-info.json"))
-              assert m["version"]=="0.4.4",m
+              assert m["version"]=="0.4.5",m
               assert b["sourceCommit"]==sys.argv[2],b
               assert m["browser_specific_settings"]["gecko"]["id"]=="ZhouAndrew.thunderbird-taskfix-lab@addons.thunderbird.net"
               assert {"quick-capture.js","post-preview.js","core/executor.js"}<=set(z.namelist())
@@ -56,14 +56,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tag="thunderbird-v0.4.4-test.1"
+          tag="thunderbird-v0.4.5-test.1"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "::error::Refusing to overwrite an existing test release"
             exit 1
           fi
           xpi="$(cat "$RUNNER_TEMP/thunderbird-test-xpi-path")"
           cat > "$RUNNER_TEMP/thunderbird-test-notes.md" <<'NOTES'
-          ## CalDAV Assistant Thunderbird 0.4.4 — test release
+          ## CalDAV Assistant Thunderbird 0.4.5 — test release
 
           - Quick Capture: native clipboard text, screenshot/image, file paste and single/multi-file drag-and-drop.
           - Independent read-only WordPress Post iframe preview and Open Post link.
@@ -79,5 +79,5 @@ jobs:
           sha256sum "$xpi" | tee "$RUNNER_TEMP/thunderbird-test-sha256.txt"
           gh release create "$tag" "$xpi" "$RUNNER_TEMP/thunderbird-test-sha256.txt" \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
-            --title "CalDAV Assistant Thunderbird 0.4.4 Test 1" \
+            --title "CalDAV Assistant Thunderbird 0.4.5 Test 1" \
             --notes-file "$RUNNER_TEMP/thunderbird-test-notes.md"
