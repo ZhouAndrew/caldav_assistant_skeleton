@@ -39,4 +39,8 @@ PHP
 "$RUNTIME/wpcli" core install --path="$RUNTIME/wp" --url=https://localhost:18443 --title='Isolated Acceptance' --admin_user=acceptance --admin_password=fixture-only-password --admin_email=acceptance@example.test --skip-email
 "$RUNTIME/wpcli" user application-password create acceptance 'Disposable CI acceptance' --path="$RUNTIME/wp" --porcelain > "$RUNTIME/wp-app-password.txt"
 chmod 600 "$RUNTIME/wp-app-password.txt"
-"$RUNTIME/wpcli" rewrite structure '/%postname%/' --path="$RUNTIME/wp" --hard
+"$RUNTIME/wpcli" rewrite structure '/%postname%/' --path="$RUNTIME/wp" --hard || {
+  # WP-CLI may exit 2 when it cannot write Apache .htaccess, even though it
+  # committed the permalink setting. This fixture uses the PHP router instead.
+  test "$("$RUNTIME/wpcli" option get permalink_structure --path="$RUNTIME/wp")" = '/%postname%/'
+}
