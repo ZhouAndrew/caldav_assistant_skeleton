@@ -1,6 +1,5 @@
 "use strict";
 var {ExtensionCommon} = ChromeUtils.importESModule("resource://gre/modules/ExtensionCommon.sys.mjs");
-var {Services} = ChromeUtils.importESModule("resource://gre/modules/Services.sys.mjs");
 
 this.PostPreview = class extends ExtensionCommon.ExtensionAPI {
   registered = false;
