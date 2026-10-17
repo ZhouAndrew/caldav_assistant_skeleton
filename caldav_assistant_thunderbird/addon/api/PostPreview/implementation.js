@@ -44,12 +44,15 @@ this.PostPreview = class extends ExtensionCommon.ExtensionAPI {
             throw new Error("Post preview is available only in the Work tab");
           }
           stage = "find-post-frame";
-          const expected = new URL(url);
-          if (!["http:", "https:"].includes(expected.protocol)) throw new Error("Invalid Post URL");
+          // Thunderbird Experiment parent scopes do not expose DOM URL().
+          // nsIURI is the native, origin-aware URI abstraction here.
+          const expected = Services.io.newURI(url);
+          if (!["http", "https"].includes(expected.scheme)) throw new Error("Invalid Post URL");
           const frame = Array.from(pageBrowser.browsingContext.children).find(child => {
             try {
-              const loaded = new URL(child.currentWindowGlobal?.documentURI?.spec || "");
-              return loaded.origin === expected.origin && ["http:", "https:"].includes(loaded.protocol);
+              const loaded = child.currentWindowGlobal?.documentURI;
+              return loaded && ["http", "https"].includes(loaded.scheme) &&
+                loaded.prePath === expected.prePath;
             } catch (_) {return false;}
           });
           if (!frame) throw new Error("No loaded WordPress iframe on the expected origin");
