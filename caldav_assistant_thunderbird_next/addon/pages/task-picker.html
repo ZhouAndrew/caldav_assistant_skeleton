@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CalDAV Assistant</title>
+  <link rel="stylesheet" href="app.css">
+  <script defer src="common.js"></script>
+  <script defer src="task-picker.js"></script>
+</head>
+<body data-page="tasks">
+  <header>
+    <h1 data-i18n="taskPickerTitle">Choose a Task</h1>
+    <nav id="app-nav" aria-label="CalDAV Assistant"></nav>
+  </header>
+  <main>
+    <div id="message" class="notice" hidden></div>
+
+    <section class="controls" aria-label="Task filters">
+      <label>
+        <span data-i18n="searchPlaceholder">Search Tasks</span>
+        <input id="search" type="search" data-i18n-placeholder="searchPlaceholder">
+      </label>
+
+      <label>
+        <span data-i18n="filterLabel">Filter</span>
+        <select id="filter">
+          <option value="open" data-i18n="filterOpen">Open</option>
+          <option value="notstarted" data-i18n="filterNotStarted">Not Started</option>
+          <option value="overdue" data-i18n="filterOverdue">Overdue</option>
+          <option value="completed" data-i18n="filterCompleted">Completed</option>
+          <option value="throughcurrent" data-i18n="filterThroughCurrent">Through Current</option>
+          <option value="throughtoday" data-i18n="filterThroughToday">Through Today</option>
+          <option value="throughsevendays" data-i18n="filterThroughSevenDays">Next Seven Days</option>
+          <option value="all" data-i18n="filterAll">All</option>
+        </select>
+      </label>
+
+      <label>
+        <span data-i18n="calendarLabel">Calendar</span>
+        <select id="calendar">
+          <option value="" data-i18n="allCalendars">All calendars</option>
+        </select>
+      </label>
+
+      <button id="refresh" type="button" data-i18n="actionRefresh">Refresh</button>
+    </section>
+
+    <div id="task-list" class="task-list" aria-live="polite"></div>
+    <div id="empty" class="empty" hidden data-i18n="noMatchingTasks">No matching Tasks.</div>
+  </main>
+</body>
+</html>
