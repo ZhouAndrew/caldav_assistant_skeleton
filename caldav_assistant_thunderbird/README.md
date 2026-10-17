@@ -1,4 +1,4 @@
-# CalDAV Assistant Thunderbird 0.4.4 (integrated development)
+# CalDAV Assistant Thunderbird 0.4.5 (Post preview fix test release)
 
 正式整合版。Thunderbird 153.0.2–153.1.x；保持原安装 ID，可覆盖升级 0.4.1。
 
@@ -34,3 +34,11 @@ bash packaging/build-xpi.sh
 ## 0.4.4：已验收的 Quick Capture 与独立 Post 预览合并
 
 `feat/work-quick-capture` 的 Quick Capture（文字、图片、文件剪贴板粘贴及文件拖放）及独立只读 Post iframe 预览已经整合到主线，同时保留主线 0.4.3 的 Thunderbird 原生任务终态 `currentWorkId` 对账修复。旧版实验分支的独立实机验收证据保留在 `acceptance/0.4.4/independent-preview/`。此合并改变了 XPI 源码，旧包的实机验收不能自动等同于合并后安装包的实机验收；正式发布前须再进行构建和回归。
+
+## 0.4.5：WordPress Post 正文末尾预览修复（测试发布）
+
+- 使用 WordPress REST `link` 或 WP-CLI `wp post list --p=<ID> --field=url` 获取真实永久链接；不再把 WP-CLI 的 `guid` 当作 Post URL。
+- 跨域 iframe 使用独立 Thunderbird PostPreview actor，将 **文章内容的末尾** 滚动到可视范围，不再滚动到整个网站的页脚。
+- 允许 WordPress 将预览地址规范化重定向到同源 permalink；未找到文章正文则明确报告错误，不再静默滚动到底部。
+- 包含 URL 和滚动目标的自动化回归测试，保持 Task 原生选择、四操作、`currentWorkId`、Quick Capture 不变。
+- 这是新的独立测试包；不覆盖、也不重新声称 0.4.2 正式实机验收。用户 Thunderbird 实机回归需要单独完成。

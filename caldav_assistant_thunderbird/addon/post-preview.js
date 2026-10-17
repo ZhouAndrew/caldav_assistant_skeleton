@@ -34,12 +34,8 @@
     if (preview.hidden) return;
     const loadedUrl = preview.src;
     try {
-      try {
-        preview.contentWindow.scrollTo(0, preview.contentDocument.documentElement.scrollHeight);
-      } catch {
-        const tab = await browser.tabs.getCurrent();
-        await browser.PostPreview.scrollToBottom(tab.id, loadedUrl);
-      }
+      const tab = await browser.tabs.getCurrent();
+      await browser.PostPreview.scrollToPostEnd(tab.id, loadedUrl);
       if (preview.src === loadedUrl) status.textContent = "";
     } catch (error) {
       if (preview.src === loadedUrl) status.textContent = "预览未能加载或滚动：" + String(error?.message || error) + "。可打开 Post 查看。";

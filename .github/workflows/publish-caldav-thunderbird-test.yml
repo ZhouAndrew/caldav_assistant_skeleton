@@ -67,6 +67,7 @@ jobs:
 
           - Quick Capture: native clipboard text, screenshot/image, file paste and single/multi-file drag-and-drop.
           - Independent read-only WordPress Post iframe preview and Open Post link.
+          - Correct WP-CLI Post permalink resolution and scroll to the Post body end (not the site's footer).
           - Retains native Thunderbird Tasks selection, Start/Stop/Complete/Cancel, authoritative read-backs and terminal currentWorkId reconciliation.
           - Target: Thunderbird 153.0.2–153.1.x ESR.
           - Built from the integrated `main` branch with `npm test` and XPI package checks.

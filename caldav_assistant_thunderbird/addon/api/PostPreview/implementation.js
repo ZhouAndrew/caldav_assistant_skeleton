@@ -3,13 +3,24 @@ var {ExtensionCommon} = ChromeUtils.importESModule("resource://gre/modules/Exten
 this.PostPreview = class extends ExtensionCommon.ExtensionAPI {
   registered = false;
   getAPI(context) {
-    return {PostPreview: {scrollToBottom: async (tabId, url) => {
+    return {PostPreview: {scrollToPostEnd: async (tabId, url) => {
       const browser = context.extension.tabManager.get(tabId).nativeTab.browser;
       if (browser?.currentURI?.spec !== context.extension.baseURI.resolve("workspace.html")) {
         throw new Error("Post preview is available only in the Work tab");
       }
-      const frame = browser.browsingContext.children.find(child => child.currentWindowGlobal?.documentURI?.spec === url);
-      if (!frame || !/^https?:\/\//.test(url)) throw new Error("Post preview has not loaded this URL");
+      const expected = new URL(url);
+      if (!["http:", "https:"].includes(expected.protocol)) throw new Error("Invalid Post URL");
+      // WordPress may canonical-redirect to its real permalink; require the iframe
+      // to remain on the intended origin rather than requiring byte-equal URLs.
+      const frame = browser.browsingContext.children.find(child => {
+        try {
+          const loaded = new URL(child.currentWindowGlobal?.documentURI?.spec || "");
+          return loaded.origin === expected.origin && ["http:", "https:"].includes(loaded.protocol);
+        } catch (_) {
+          return false;
+        }
+      });
+      if (!frame) throw new Error("Post preview has not loaded the expected WordPress origin");
       if (!this.registered) {
         const resources = Services.io.getProtocolHandler("resource").QueryInterface(Ci.nsISubstitutingProtocolHandler);
         resources.setSubstitution("caldav-assistant-post-preview", context.extension.rootURI);
@@ -19,7 +30,7 @@ this.PostPreview = class extends ExtensionCommon.ExtensionAPI {
         });
         this.registered = true;
       }
-      return frame.currentWindowGlobal.getActor("CalDAVPostPreview").sendQuery("scrollToBottom");
+      return frame.currentWindowGlobal.getActor("CalDAVPostPreview").sendQuery("scrollToPostEnd");
     }}};
   }
   onShutdown() {

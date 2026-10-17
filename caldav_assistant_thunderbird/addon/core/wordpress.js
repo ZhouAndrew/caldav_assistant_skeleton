@@ -1095,7 +1095,23 @@
     fullWriteTest,
     dualWriteTest,
     createLog,
-    readDailyLogPost: async (date = new Date()) => (await ensureDailyLogPost(date, false)).post,
+    readDailyLogPost: async (date = new Date()) => {
+      const {post} = await ensureDailyLogPost(date, false);
+      if (!post) return null;
+      const config = await getConfig();
+      if (effectiveTransport(config) !== "wp-cli") return post;
+      // WordPress GUID is not a permalink (it may even point to the site home).
+      // Resolve the actual URL only for this read-only preview, leaving the
+      // existing log/write/verify paths untouched.
+      const permalink = await wpCliRun(config, [
+        "post", "list", "--post_type=post", "--p=" + String(post.id), "--field=url"
+      ]);
+      const url = new URL(permalink);
+      if (!["http:", "https:"].includes(url.protocol)) {
+        throw new Error("WP-CLI returned an invalid Post permalink");
+      }
+      return {...post, link: url.href};
+    },
     selectDailyPost,
     pendingCandidates,
   });
