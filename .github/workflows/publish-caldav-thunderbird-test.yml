@@ -1,0 +1,82 @@
+name: Publish CalDAV Assistant Thunderbird test XPI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/publish-caldav-thunderbird-test.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish-test:
+    if: github.repository == 'ZhouAndrew/caldav_assistant_skeleton'
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: caldav_assistant_thunderbird
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: caldav_assistant_thunderbird/package-lock.json
+      - name: Install and test canonical Thunderbird extension
+        run: |
+          npm ci
+          npm test
+          find addon -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Build and verify unique XPI
+        shell: bash
+        run: |
+          set -euo pipefail
+          xpi="$(bash packaging/build-xpi.sh | tail -n 1)"
+          python3 tests/check-xpi.py "$xpi"
+          python3 - "$xpi" "$GITHUB_SHA" <<'PY'
+          from pathlib import Path
+          import json, sys, zipfile
+          xpi=Path(sys.argv[1])
+          with zipfile.ZipFile(xpi) as z:
+              m=json.loads(z.read("manifest.json"))
+              b=json.loads(z.read("build-info.json"))
+              assert m["version"]=="0.4.4",m
+              assert b["sourceCommit"]==sys.argv[2],b
+              assert m["browser_specific_settings"]["gecko"]["id"]=="ZhouAndrew.thunderbird-taskfix-lab@addons.thunderbird.net"
+              assert {"quick-capture.js","post-preview.js","core/executor.js"}<=set(z.namelist())
+              assert z.testzip() is None
+          print("Verified",xpi.name,b)
+          PY
+          printf '%s\n' "$xpi" > "$RUNNER_TEMP/thunderbird-test-xpi-path"
+      - name: Publish versioned GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="thunderbird-v0.4.4-test.1"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Refusing to overwrite an existing test release"
+            exit 1
+          fi
+          xpi="$(cat "$RUNNER_TEMP/thunderbird-test-xpi-path")"
+          cat > "$RUNNER_TEMP/thunderbird-test-notes.md" <<'NOTES'
+          ## CalDAV Assistant Thunderbird 0.4.4 — test release
+
+          - Quick Capture: native clipboard text, screenshot/image, file paste and single/multi-file drag-and-drop.
+          - Independent read-only WordPress Post iframe preview and Open Post link.
+          - Retains native Thunderbird Tasks selection, Start/Stop/Complete/Cancel, authoritative read-backs and terminal currentWorkId reconciliation.
+          - Target: Thunderbird 153.0.2–153.1.x ESR.
+          - Built from the integrated `main` branch with `npm test` and XPI package checks.
+          - This is a **pre-release for user testing**, not a stable release or a claim of user-environment acceptance.
+          - This XPI uses the same installed add-on ID as the canonical add-on; testing may update your existing installation. Back up the Thunderbird profile if needed.
+
+          For the last unchanged fully accepted stable artifact, use 0.4.2.
+          NOTES
+          sha256sum "$xpi" | tee "$RUNNER_TEMP/thunderbird-test-sha256.txt"
+          gh release create "$tag" "$xpi" "$RUNNER_TEMP/thunderbird-test-sha256.txt" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "CalDAV Assistant Thunderbird 0.4.4 Test 1" \
+            --notes-file "$RUNNER_TEMP/thunderbird-test-notes.md"
