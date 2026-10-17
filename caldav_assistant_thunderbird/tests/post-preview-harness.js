@@ -12,7 +12,14 @@ const context = {
   document: {getElementById(id) {assert(nodes.has(id), "preview must not read Quick Capture elements"); return nodes.get(id);}},
   window: {addEventListener: (name, fn) => {listeners[name] = fn;}}, URL, Date,
   AssistantWordPress: {readDailyLogPost: async () => {reads++; return post;}},
-  browser: {tabs: {getCurrent: async () => ({id: 1})}, PostPreview: {scrollToPostEnd: async (tabId, url) => {scrollCalls.push({tabId, url});}}},
+  setTimeout: fn => {fn(); return 0;},
+  browser: {tabs: {getCurrent: async () => ({id: 1})}, PostPreview: {
+    prepare: async () => ({success: true}),
+    scrollToPostEnd: async (tabId, url) => {
+      scrollCalls.push({tabId, url});
+      return {success: true, target: "post-content-end"};
+    },
+  }},
 };
 vm.runInNewContext(fs.readFileSync("addon/post-preview.js", "utf8"), context);
 const flush = () => new Promise(resolve => setImmediate(resolve));

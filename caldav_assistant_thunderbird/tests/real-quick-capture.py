@@ -74,7 +74,12 @@ def preview_state():
 def verify_preview(result,previous_url=None):
  assert result['success'] and result['logSaved'],result
  assert any(step['name']=='append + read-back daily WordPress log' for step in result['steps']),result
- wait(lambda:ui('return document.getElementById("preview-status").textContent==="" && !document.getElementById("post-preview").hidden && (!arguments[0] || document.getElementById("post-preview").src !== arguments[0]);',[previous_url]))
+ def preview_ready():
+  state=ui('return {hidden:document.getElementById("post-preview").hidden,status:document.getElementById("preview-status").textContent,src:document.getElementById("post-preview").src};')
+  if '预览未能' in state['status'] or '读取 Post 失败' in state['status']:
+   raise RuntimeError('Real Thunderbird Post preview failure: '+str(state))
+  return not state['hidden'] and state['status']=='' and (not previous_url or state['src']!=previous_url)
+ wait(preview_ready)
  url=ui('return document.getElementById("post-preview").src;')
  assert '?refresh=' in url and (not previous_url or previous_url!=url),url
  assert ui('return document.getElementById("open-post").href;')==result['post']['link']
@@ -160,7 +165,12 @@ try:
  initial=int(wp('post','create','--post_title='+time.strftime('%B %-d %A %Y'),'--post_content=EXISTING POST BEFORE CAPTURE','--post_status=publish','--porcelain'))
  # Reload without performing any capture: the independent component reads the existing Post.
  ui('location.reload();');wait(lambda:ui('return document.readyState==="complete";'))
- wait(lambda:ui('return !document.getElementById("post-preview").hidden && document.getElementById("preview-status").textContent==="";'))
+ def preview_ready():
+  state=ui('return {hidden:document.getElementById("post-preview").hidden,status:document.getElementById("preview-status").textContent};')
+  if '预览未能' in state['status'] or '读取 Post 失败' in state['status']:
+   raise RuntimeError('Real Thunderbird Post preview failure: '+str(state))
+  return not state['hidden'] and state['status']==''
+ wait(preview_ready)
  state=preview_state();assert 'EXISTING POST BEFORE CAPTURE' in state['text'] and state['height']-state['viewport']-state['y']<=2,state
  assert latest() is None
  assert not ui('return AssistantStorage.listWordPressOutbox();')
