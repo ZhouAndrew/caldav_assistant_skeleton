@@ -37,7 +37,7 @@ bash packaging/build-xpi.sh
 
 ## 0.4.5：WordPress Post 正文末尾预览修复（测试发布）
 
-- 使用 WordPress REST `link` 或 WP-CLI `wp post url <ID>` 获取真实永久链接；不再把 WP-CLI 的 `guid` 当作 Post URL。
+- 使用 WordPress REST `link` 或 WP-CLI `wp post list --p=<ID> --field=url` 获取真实永久链接；不再把 WP-CLI 的 `guid` 当作 Post URL。
 - 跨域 iframe 使用独立 Thunderbird PostPreview actor，将 **文章内容的末尾** 滚动到可视范围，不再滚动到整个网站的页脚。
 - 允许 WordPress 将预览地址规范化重定向到同源 permalink；未找到文章正文则明确报告错误，不再静默滚动到底部。
 - 包含 URL 和滚动目标的自动化回归测试，保持 Task 原生选择、四操作、`currentWorkId`、Quick Capture 不变。
