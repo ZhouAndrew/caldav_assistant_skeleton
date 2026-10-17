@@ -1,0 +1,34 @@
+name: standalone-html
+on:
+  pull_request:
+    paths:
+      - 'standalone_html/**'
+      - '.github/workflows/standalone-html.yml'
+  push:
+    branches: ['feat/standalone-html-caldav']
+    paths:
+      - 'standalone_html/**'
+      - '.github/workflows/standalone-html.yml'
+permissions:
+  contents: read
+jobs:
+  transport-selector:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: standalone_html
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: standalone_html/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: npm test
+      - run: pip install radicale==3.8.1
+      - run: npx playwright install --with-deps chromium
+      - run: python tests/run-services.py --browser
