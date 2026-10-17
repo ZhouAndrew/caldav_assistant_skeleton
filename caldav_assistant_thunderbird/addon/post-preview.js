@@ -21,6 +21,9 @@
       if (!["http:", "https:"].includes(url.protocol)) throw new Error("无效的 Post URL");
       link.href = url.href;
       link.hidden = false;
+      const ready = await browser.PostPreview.prepare();
+      if (!ready?.success) throw new Error("滚动组件初始化失败（" + (ready?.stage || "unknown") + "）： " + (ready?.error || "unknown"));
+      if (current !== sequence) return;
       url.searchParams.set("refresh", String(Date.now()));
       status.textContent = "正在加载完整 Post…";
       preview.hidden = false;
@@ -35,10 +38,20 @@
     const loadedUrl = preview.src;
     try {
       const tab = await browser.tabs.getCurrent();
-      await browser.PostPreview.scrollToPostEnd(tab.id, loadedUrl);
-      if (preview.src === loadedUrl) status.textContent = "";
+      if (!Number.isInteger(tab?.id)) throw new Error("无法定位 Thunderbird Work 标签页");
+      let failure = "";
+      for (let attempt = 0; attempt < 4 && !preview.hidden && preview.src === loadedUrl; attempt++) {
+        const result = await browser.PostPreview.scrollToPostEnd(tab.id, loadedUrl);
+        if (result?.success && result.target === "post-content-end") {
+          status.textContent = "";
+          return;
+        }
+        failure = (result?.stage || "unknown") + "： " + (result?.error || "未得到文章末尾回执");
+        if (attempt < 3) await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
+      }
+      if (preview.src === loadedUrl) throw new Error(failure || "文章滚动未完成");
     } catch (error) {
-      if (preview.src === loadedUrl) status.textContent = "预览未能加载或滚动：" + String(error?.message || error) + "。可打开 Post 查看。";
+      if (preview.src === loadedUrl) status.textContent = "预览未能滚动到文章末尾：" + String(error?.message || error) + "。可打开 Post 查看。";
     }
   });
   document.getElementById("refresh-post").addEventListener("click", refresh);

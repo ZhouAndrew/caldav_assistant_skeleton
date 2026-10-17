@@ -1,0 +1,44 @@
+name: caldav-assistant-post-preview-real
+
+on:
+  pull_request:
+    paths:
+      - "caldav_assistant_thunderbird/**"
+      - ".github/workflows/caldav-assistant-post-preview-real.yml"
+  push:
+    branches: [main]
+    paths:
+      - "caldav_assistant_thunderbird/**"
+      - ".github/workflows/caldav-assistant-post-preview-real.yml"
+
+jobs:
+  real-post-preview:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb mariadb-server php8.3-cli php8.3-mysql php8.3-gd php8.3-xml php8.3-curl
+          sudo systemctl stop mariadb
+          python3 -m venv /tmp/caldav-preview-venv
+          /tmp/caldav-preview-venv/bin/pip install marionette_driver "radicale==3.8.1"
+      - name: Install private WordPress fixture, build exact XPI, run real Thunderbird preview
+        working-directory: caldav_assistant_thunderbird
+        env:
+          ACCEPTANCE_ARTIFACT_DIR: ${{ github.workspace }}/caldav_assistant_thunderbird/acceptance-artifacts/real-post-preview
+        run: |
+          set -euo pipefail
+          sudo bash tests/prepare-wordpress-ci.sh /tmp/caldav-preview-runtime 153.1.0esr
+          npm ci
+          XPI="$(bash packaging/build-xpi.sh | tail -n1)"
+          python3 tests/check-xpi.py "$XPI"
+          sudo env -u XDG_RUNTIME_DIR /tmp/caldav-preview-venv/bin/python tests/real-quick-capture.py --runtime /tmp/caldav-preview-runtime --xpi "$XPI" --output "$ACCEPTANCE_ARTIFACT_DIR"
+      - name: Upload real acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: caldav-post-preview-real-acceptance
+          path: caldav_assistant_thunderbird/acceptance-artifacts/real-post-preview
+          if-no-files-found: warn

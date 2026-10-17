@@ -1,43 +1,77 @@
 "use strict";
 var {ExtensionCommon} = ChromeUtils.importESModule("resource://gre/modules/ExtensionCommon.sys.mjs");
+
 this.PostPreview = class extends ExtensionCommon.ExtensionAPI {
   registered = false;
-  getAPI(context) {
-    return {PostPreview: {scrollToPostEnd: async (tabId, url) => {
-      const browser = context.extension.tabManager.get(tabId).nativeTab.browser;
-      if (browser?.currentURI?.spec !== context.extension.baseURI.resolve("workspace.html")) {
-        throw new Error("Post preview is available only in the Work tab");
-      }
-      const expected = new URL(url);
-      if (!["http:", "https:"].includes(expected.protocol)) throw new Error("Invalid Post URL");
-      // WordPress may canonical-redirect to its real permalink; require the iframe
-      // to remain on the intended origin rather than requiring byte-equal URLs.
-      const frame = browser.browsingContext.children.find(child => {
-        try {
-          const loaded = new URL(child.currentWindowGlobal?.documentURI?.spec || "");
-          return loaded.origin === expected.origin && ["http:", "https:"].includes(loaded.protocol);
-        } catch (_) {
-          return false;
-        }
+  ensureActor(context) {
+    if (this.registered) return;
+    const resources = Services.io.getProtocolHandler("resource").QueryInterface(Ci.nsISubstitutingProtocolHandler);
+    resources.setSubstitution("caldav-assistant-post-preview", context.extension.rootURI);
+    try {
+      ChromeUtils.registerWindowActor("CalDAVPostPreview", {
+        allFrames: true,
+        child: {esModuleURI: "resource://caldav-assistant-post-preview/api/PostPreview/child.js"},
       });
-      if (!frame) throw new Error("Post preview has not loaded the expected WordPress origin");
-      if (!this.registered) {
-        const resources = Services.io.getProtocolHandler("resource").QueryInterface(Ci.nsISubstitutingProtocolHandler);
-        resources.setSubstitution("caldav-assistant-post-preview", context.extension.rootURI);
-        ChromeUtils.registerWindowActor("CalDAVPostPreview", {
-          allFrames: true,
-          child: {esModuleURI: "resource://caldav-assistant-post-preview/api/PostPreview/child.js"},
-        });
-        this.registered = true;
-      }
-      return frame.currentWindowGlobal.getActor("CalDAVPostPreview").sendQuery("scrollToPostEnd");
-    }}};
+      this.registered = true;
+    } catch (error) {
+      resources.setSubstitution("caldav-assistant-post-preview", null);
+      throw error;
+    }
+  }
+  getAPI(context) {
+    const failed = (stage, error) => ({
+      success: false,
+      stage,
+      error: String(error?.name || "Error") + ": " + String(error?.message || error),
+    });
+    return {PostPreview: {
+      prepare: async () => {
+        try {
+          this.ensureActor(context);
+          return {success: true};
+        } catch (error) {
+          return failed("register-actor", error);
+        }
+      },
+      scrollToPostEnd: async (tabId, url) => {
+        let stage = "register-actor";
+        try {
+          this.ensureActor(context);
+          stage = "lookup-tab";
+          const tab = context.extension.tabManager.get(tabId);
+          const pageBrowser = tab?.nativeTab?.browser;
+          if (pageBrowser?.currentURI?.spec !== context.extension.baseURI.resolve("workspace.html")) {
+            throw new Error("Post preview is available only in the Work tab");
+          }
+          stage = "find-post-frame";
+          // Thunderbird Experiment parent scopes do not expose DOM URL().
+          // nsIURI is the native, origin-aware URI abstraction here.
+          const expected = Services.io.newURI(url);
+          if (!["http", "https"].includes(expected.scheme)) throw new Error("Invalid Post URL");
+          const frame = Array.from(pageBrowser.browsingContext.children).find(child => {
+            try {
+              const loaded = child.currentWindowGlobal?.documentURI;
+              return loaded && ["http", "https"].includes(loaded.scheme) &&
+                loaded.prePath === expected.prePath;
+            } catch (_) {return false;}
+          });
+          if (!frame) throw new Error("No loaded WordPress iframe on the expected origin");
+          stage = "actor-scroll";
+          const result = await frame.currentWindowGlobal.getActor("CalDAVPostPreview").sendQuery("scrollToPostEnd");
+          if (result?.target !== "post-content-end") throw new Error("Article-end scroll was not acknowledged");
+          return {success: true, ...result};
+        } catch (error) {
+          return failed(stage, error);
+        }
+      },
+    }};
   }
   onShutdown() {
     if (this.registered) {
       ChromeUtils.unregisterWindowActor("CalDAVPostPreview");
       Services.io.getProtocolHandler("resource").QueryInterface(Ci.nsISubstitutingProtocolHandler)
         .setSubstitution("caldav-assistant-post-preview", null);
+      this.registered = false;
     }
   }
 };

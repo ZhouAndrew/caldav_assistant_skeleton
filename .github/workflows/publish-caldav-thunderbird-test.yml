@@ -42,7 +42,7 @@ jobs:
           with zipfile.ZipFile(xpi) as z:
               m=json.loads(z.read("manifest.json"))
               b=json.loads(z.read("build-info.json"))
-              assert m["version"]=="0.4.5",m
+              assert m["version"]=="0.4.6",m
               assert b["sourceCommit"]==sys.argv[2],b
               assert m["browser_specific_settings"]["gecko"]["id"]=="ZhouAndrew.thunderbird-taskfix-lab@addons.thunderbird.net"
               assert {"quick-capture.js","post-preview.js","core/executor.js"}<=set(z.namelist())
@@ -56,18 +56,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tag="thunderbird-v0.4.5-test.1"
+          tag="thunderbird-v0.4.6-test.1"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "::error::Refusing to overwrite an existing test release"
             exit 1
           fi
           xpi="$(cat "$RUNNER_TEMP/thunderbird-test-xpi-path")"
           cat > "$RUNNER_TEMP/thunderbird-test-notes.md" <<'NOTES'
-          ## CalDAV Assistant Thunderbird 0.4.5 — test release
+          ## CalDAV Assistant Thunderbird 0.4.6 — test release
 
           - Quick Capture: native clipboard text, screenshot/image, file paste and single/multi-file drag-and-drop.
           - Independent read-only WordPress Post iframe preview and Open Post link.
           - Correct WP-CLI Post permalink resolution and scroll to the Post body end (not the site's footer).
+          - Fix Thunderbird 153 privileged iframe scroll by using nsIURI and preparing the cross-origin actor before load.
+          - Real Thunderbird 153.1.0 ESR + isolated long WordPress Post acceptance verified in CI.
           - Retains native Thunderbird Tasks selection, Start/Stop/Complete/Cancel, authoritative read-backs and terminal currentWorkId reconciliation.
           - Target: Thunderbird 153.0.2–153.1.x ESR.
           - Built from the integrated `main` branch with `npm test` and XPI package checks.
@@ -79,5 +81,5 @@ jobs:
           sha256sum "$xpi" | tee "$RUNNER_TEMP/thunderbird-test-sha256.txt"
           gh release create "$tag" "$xpi" "$RUNNER_TEMP/thunderbird-test-sha256.txt" \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
-            --title "CalDAV Assistant Thunderbird 0.4.5 Test 1" \
+            --title "CalDAV Assistant Thunderbird 0.4.6 Test 1" \
             --notes-file "$RUNNER_TEMP/thunderbird-test-notes.md"

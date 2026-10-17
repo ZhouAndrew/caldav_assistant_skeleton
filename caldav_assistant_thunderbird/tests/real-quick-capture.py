@@ -70,16 +70,21 @@ def latest():
 def receipt(previous):
  return wait(lambda:(lambda r:r if r and r['marker']!=previous else None)(latest()))
 def preview_state():
- return chrome('''const done=arguments[arguments.length-1];const b=Services.wm.getMostRecentWindow("mail:3pane").document.getElementById("tabmail").selectedBrowser;const f=b.browsingContext.children[0];f.currentWindowGlobal.getActor("MarionetteCommands").executeScript("return {url:location.href,text:document.body.innerText,height:document.documentElement.scrollHeight,y:scrollY,viewport:innerHeight,resources:[...document.querySelectorAll('img,a')].map(n=>n.src || n.href)};",[],{timeout:20000}).then(done,e=>done({error:String(e)}));''',[],True)
+ return chrome('''const done=arguments[arguments.length-1];const b=Services.wm.getMostRecentWindow("mail:3pane").document.getElementById("tabmail").selectedBrowser;const f=b.browsingContext.children[0];f.currentWindowGlobal.getActor("MarionetteCommands").executeScript("return {url:location.href,text:document.body.innerText,height:document.documentElement.scrollHeight,y:scrollY,viewport:innerHeight,resources:[...document.querySelectorAll('img,a')].map(n=>n.src || n.href),postBottom:(document.querySelector('article .entry-content, article .wp-block-post-content, main .wp-block-post-content, .single .entry-content, .single .wp-block-post-content')?.lastElementChild?.getBoundingClientRect().bottom ?? null)};",[],{timeout:20000}).then(done,e=>done({error:String(e)}));''',[],True)
 def verify_preview(result,previous_url=None):
  assert result['success'] and result['logSaved'],result
  assert any(step['name']=='append + read-back daily WordPress log' for step in result['steps']),result
- wait(lambda:ui('return document.getElementById("preview-status").textContent==="" && !document.getElementById("post-preview").hidden && (!arguments[0] || document.getElementById("post-preview").src !== arguments[0]);',[previous_url]))
+ def preview_ready():
+  state=ui('return {hidden:document.getElementById("post-preview").hidden,status:document.getElementById("preview-status").textContent,src:document.getElementById("post-preview").src};')
+  if '预览未能' in state['status'] or '读取 Post 失败' in state['status']:
+   raise RuntimeError('Real Thunderbird Post preview failure: '+str(state))
+  return not state['hidden'] and state['status']=='' and (not previous_url or state['src']!=previous_url)
+ wait(preview_ready)
  url=ui('return document.getElementById("post-preview").src;')
  assert '?refresh=' in url and (not previous_url or previous_url!=url),url
  assert ui('return document.getElementById("open-post").href;')==result['post']['link']
  state=preview_state();assert state['url']==url,state
- assert state['height']-state['viewport']-state['y']<=2,state
+ assert state['y']>100 and state['postBottom'] is not None and abs(state['postBottom']-state['viewport'])<=10,state
  content=json.loads(wp('post','get',str(result['post']['id']),'--format=json'))['post_content']
  assert result['marker'] in content and content.rfind('<!-- caldav-assistant-log-')==content.index('<!-- '+result['marker']+' -->'),content[-300:]
  assert 'CAPTURE REAL TEXT' in state['text'],state
@@ -157,14 +162,20 @@ try:
  assert wp('post','list','--post_type=post','--format=ids')==''
  assert not ui('return AssistantStorage.listWordPressOutbox();')
  check['EmptyPreviewDoesNotCreatePost']=True
- initial=int(wp('post','create','--post_title='+time.strftime('%B %-d %A %Y'),'--post_content=EXISTING POST BEFORE CAPTURE','--post_status=publish','--porcelain'))
+ long_content='EXISTING POST BEFORE CAPTURE' + ''.join(f'<p>Acceptance line {i}: intentional long WordPress Post.</p>' for i in range(180))
+ initial=int(wp('post','create','--post_title='+time.strftime('%B %-d %A %Y'),'--post_content='+long_content,'--post_status=publish','--porcelain'))
  # Reload without performing any capture: the independent component reads the existing Post.
  ui('location.reload();');wait(lambda:ui('return document.readyState==="complete";'))
- wait(lambda:ui('return !document.getElementById("post-preview").hidden && document.getElementById("preview-status").textContent==="";'))
- state=preview_state();assert 'EXISTING POST BEFORE CAPTURE' in state['text'] and state['height']-state['viewport']-state['y']<=2,state
+ def preview_ready():
+  state=ui('return {hidden:document.getElementById("post-preview").hidden,status:document.getElementById("preview-status").textContent};')
+  if '预览未能' in state['status'] or '读取 Post 失败' in state['status']:
+   raise RuntimeError('Real Thunderbird Post preview failure: '+str(state))
+  return not state['hidden'] and state['status']==''
+ wait(preview_ready)
+ state=preview_state();assert 'EXISTING POST BEFORE CAPTURE' in state['text'] and state['y']>100 and state['postBottom'] is not None and abs(state['postBottom']-state['viewport'])<=10,state
  assert latest() is None
  assert not ui('return AssistantStorage.listWordPressOutbox();')
- assert wp('post','get',str(initial),'--field=post_content')=='EXISTING POST BEFORE CAPTURE'
+ assert wp('post','get',str(initial),'--field=post_content')==long_content
  check['IndependentExistingPostOnOpen']=True
  ui('document.getElementById("quick-capture").closest("section").remove();document.getElementById("refresh-post").click();')
  wait(lambda:ui('return document.getElementById("preview-status").textContent==="";'))

@@ -1,10 +1,9 @@
 name: Export published Thunderbird test XPI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/export-thunderbird-test-xpi.yml"
+  workflow_run:
+    workflows: ["Publish CalDAV Assistant Thunderbird test XPI"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -12,7 +11,7 @@ permissions:
 
 jobs:
   export:
-    if: github.repository == 'ZhouAndrew/caldav_assistant_skeleton'
+    if: github.repository == 'ZhouAndrew/caldav_assistant_skeleton' && (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-24.04
     steps:
       - name: Download exact published release asset
@@ -21,11 +20,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-file
-          gh release download thunderbird-v0.4.4-test.1 \
+          gh release download thunderbird-v0.4.6-test.1 \
             --repo "$GITHUB_REPOSITORY" --pattern '*.xpi' --dir release-file
           sha256sum release-file/*.xpi
       - uses: actions/upload-artifact@v4
         with:
-          name: published-thunderbird-v0.4.4-test.1
+          name: published-thunderbird-v0.4.6-test.1
           path: release-file/*.xpi
           if-no-files-found: error
