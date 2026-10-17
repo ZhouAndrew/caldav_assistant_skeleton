@@ -1,4 +1,4 @@
-# CalDAV Assistant Thunderbird 0.4.5 (Post preview fix test release)
+# CalDAV Assistant Thunderbird 0.4.6 (Post preview fix test release)
 
 正式整合版。Thunderbird 153.0.2–153.1.x；保持原安装 ID，可覆盖升级 0.4.1。
 
@@ -35,10 +35,18 @@ bash packaging/build-xpi.sh
 
 `feat/work-quick-capture` 的 Quick Capture（文字、图片、文件剪贴板粘贴及文件拖放）及独立只读 Post iframe 预览已经整合到主线，同时保留主线 0.4.3 的 Thunderbird 原生任务终态 `currentWorkId` 对账修复。旧版实验分支的独立实机验收证据保留在 `acceptance/0.4.4/independent-preview/`。此合并改变了 XPI 源码，旧包的实机验收不能自动等同于合并后安装包的实机验收；正式发布前须再进行构建和回归。
 
-## 0.4.5：WordPress Post 正文末尾预览修复（测试发布）
+## 0.4.6：WordPress Post 正文末尾预览修复（测试发布）
 
 - 使用 WordPress REST `link` 或 WP-CLI `wp post list --p=<ID> --field=url` 获取真实永久链接；不再把 WP-CLI 的 `guid` 当作 Post URL。
 - 跨域 iframe 使用独立 Thunderbird PostPreview actor，将 **文章内容的末尾** 滚动到可视范围，不再滚动到整个网站的页脚。
 - 允许 WordPress 将预览地址规范化重定向到同源 permalink；未找到文章正文则明确报告错误，不再静默滚动到底部。
 - 包含 URL 和滚动目标的自动化回归测试，保持 Task 原生选择、四操作、`currentWorkId`、Quick Capture 不变。
 - 这是新的独立测试包；不覆盖、也不重新声称 0.4.2 正式实机验收。用户 Thunderbird 实机回归需要单独完成。
+
+## 0.4.6：WordPress 文章正文底部滚动（真实 Thunderbird 验收）
+
+- 修正 0.4.5 在 Thunderbird Experiment 特权上下文里使用未定义 `URL` 构造器的问题，改用 Firefox/Thunderbird 原生 `Services.io.newURI` 与 `nsIURI.prePath` 校验 iframe 的真实 origin。
+- PostPreview actor 在 iframe 加载前初始化，跨域异常返回结构化错误与阶段，按需短暂重试，不再把所有错误折叠成 `An unexpected error occurred`。
+- 在真实 Thunderbird 153.1.0 ESR + 本地真实 WordPress 7.1.3 + 一篇 180 段的长文章中，XPI 安装后验证 iframe 自动滚动到文章正文末尾（文章末尾约 478 px，iframe 高度 480 px），且 Post 刷新、Quick Capture 和 WordPress 故障隔离均通过。
+- 测试脚本明确以 **Post 正文的最后元素位置** 验收，而不是整站网页的 `scrollHeight`。真实验收工作流：`.github/workflows/caldav-assistant-post-preview-real.yml`。
+- 本版是新的修复测试发布，保留既有 0.4.2 正式验收包不变。用户本机安装效果仍需单独验证。

@@ -21,11 +21,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-file
-          gh release download thunderbird-v0.4.4-test.1 \
+          gh release download thunderbird-v0.4.6-test.1 \
             --repo "$GITHUB_REPOSITORY" --pattern '*.xpi' --dir release-file
           sha256sum release-file/*.xpi
       - uses: actions/upload-artifact@v4
         with:
-          name: published-thunderbird-v0.4.4-test.1
+          name: published-thunderbird-v0.4.6-test.1
           path: release-file/*.xpi
           if-no-files-found: error
