@@ -1,5 +1,11 @@
 # CalDAV Assistant 1.0.0
 
+## 仓库项目导航
+- [CalDAV Assistant 主程序](caldav_assistant/) — Python CLI、后台服务和 Web 界面。使用说明见 [GUIDE](GUIDE.md)。
+- [Public Python API v1](caldav_assistant/api/v1/) 和 [内置扩展](caldav_assistant/builtin_extensions/) — 扩展开发见 [扩展指南](EXTENSIONS_GUIDE.md)。
+- [CalDAV Assistant Thunderbird 插件](caldav_assistant_thunderbird/README.md) — Thunderbird 内的任务工作流与独立的 WordPress 记录模块。
+- [早期 Thunderbird 集成实验](integrations/thunderbird/README.md) — 基于现有 CalDAV Assistant Core 的实验版本。
+
 CalDAV Assistant 是一个 **local-first、CLI-first** 的任务与日程助手。CalDAV 保存 Task/Event 事实；后台服务负责同步、提醒和系统通知；SQLite 只保存缓存与 Assistant 辅助状态；WordPress 用于长期日志。
 
 ## v1.0.0 状态
