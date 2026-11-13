@@ -3,7 +3,7 @@
 <title>离线日志</title>
 <style>
 :root{color-scheme:light dark;font:17px system-ui;--accent:#147858}body{max-width:720px;margin:auto;padding:24px 16px}h1{margin:0 0 16px}nav,.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}section,article{margin:16px 0;padding:16px;border:1px solid #80808066;border-radius:14px}button,input,textarea,summary{font:inherit;padding:9px;border-radius:8px}button{cursor:pointer}button.primary{background:var(--accent);color:white;border:0}input:not([type=file]),textarea{width:100%;box-sizing:border-box;margin:6px 0}img,video{max-width:100%;max-height:400px}pre,p{white-space:pre-wrap;overflow-wrap:anywhere}dialog{max-width:min(480px,85vw)}[hidden]{display:none!important}
-#editor{padding:0;overflow:clip}#editor>h2,#editor>label,#editor>.editor-actions{margin:12px 16px}#preview{display:grid;gap:9px;padding:16px;background:light-dark(#eeefed,#202321)}.message{position:relative;min-width:0;overflow:hidden;border-radius:10px;touch-action:pan-y}.message article{position:relative;margin:0;max-width:100%;padding:8px 42px 8px 12px;background:light-dark(#fff,#303730);border:0;border-radius:0;transition:transform .15s}.message.revealed article{transform:translateX(-76px)}.message p{margin:4px 0}.message .actions{position:absolute;top:3px;right:4px;padding:4px 8px;border:0;background:transparent;color:inherit}.message .remove{position:absolute;right:0;top:0;height:100%;width:76px;background:#a52b2b;color:white;border:0}.message a{overflow-wrap:anywhere}#composer{position:sticky;bottom:0;padding:8px 12px;background:Canvas;border-top:1px solid #80808066}#composer textarea{flex:1;min-width:0;margin:0;resize:vertical}#menu{margin-top:8px}#messageActions form{display:grid;gap:8px}#mapPicker{width:min(560px,86vw)}#map{position:relative;height:min(44vh,350px);overflow:hidden;background:#dfe8e8;touch-action:none;cursor:grab}#tiles,#mapPin{position:absolute;inset:0;pointer-events:none}#tiles img{position:absolute;width:256px;height:256px;max-width:none;max-height:none}#mapPin{inset:50% auto auto 50%;width:22px;height:22px;border-radius:50% 50% 50% 0;background:#c63434;border:2px solid white;transform:translate(-50%,-100%) rotate(-45deg);box-shadow:0 1px 5px #0008}.map-tools{margin:8px 0}#mapAttribution{position:absolute;right:0;bottom:0;background:white;color:#222;padding:2px 4px;font-size:.75em}#mapAttribution a{color:#234}
+#editor{padding:0;overflow:clip}#editor>h2,#editor>label,#editor>.editor-actions{margin:12px 16px}#preview{display:grid;gap:9px;padding:16px;background:light-dark(#eeefed,#202321)}.message{position:relative;min-width:0;overflow:hidden;border-radius:10px;touch-action:pan-y}.message article{position:relative;margin:0;max-width:100%;padding:8px 42px 8px 12px;background:light-dark(#fff,#303730);border:0;border-radius:0;transition:transform .15s}.message.revealed article{transform:translateX(-76px)}.message p{margin:4px 0}.message .actions{position:absolute;top:3px;right:4px;padding:4px 8px;border:0;background:transparent;color:inherit}.message .remove{position:absolute;right:0;top:0;height:100%;width:76px;background:#a52b2b;color:white;border:0}.message a{overflow-wrap:anywhere}#composer{position:sticky;bottom:0;padding:8px 12px;background:Canvas;border-top:1px solid #80808066}#composer textarea{flex:1;min-width:0;margin:0;resize:vertical}#menu{margin-top:8px}#voiceStatus{font-size:.85em;margin:5px 0}#voice[aria-pressed=true]{color:#b32626}#messageActions form{display:grid;gap:8px}#mapPicker{width:min(560px,86vw)}#map{position:relative;height:min(44vh,350px);overflow:hidden;background:#dfe8e8;touch-action:none;cursor:grab}#tiles,#mapPin{position:absolute;inset:0;pointer-events:none}#tiles img{position:absolute;width:256px;height:256px;max-width:none;max-height:none}#mapPin{inset:50% auto auto 50%;width:22px;height:22px;border-radius:50% 50% 50% 0;background:#c63434;border:2px solid white;transform:translate(-50%,-100%) rotate(-45deg);box-shadow:0 1px 5px #0008}.map-tools{margin:8px 0}#mapAttribution{position:absolute;right:0;bottom:0;background:white;color:#222;padding:2px 4px;font-size:.75em}#mapAttribution a{color:#234}
 </style>
 <h1>离线日志</h1>
 <nav><button id="local">本地副本</button><button id="download">选择下载</button><button id="newPost" class="primary">＋ 新建文章</button></nav>
@@ -19,7 +19,8 @@
 <label>标题<input id="titleInput"></label><div class="row editor-actions"><button id="save">保存到本机</button><button id="sync" class="primary">提交到 WordPress</button><button id="backup">导出备份</button></div>
 <div id="preview"></div>
 <div id="composer">
-<div class="row"><button id="more" aria-label="添加附件" aria-controls="menu" aria-expanded="false">＋</button><textarea id="textInput" rows="1" aria-label="正文" placeholder="输入文字"></textarea><button id="add" class="primary">添加</button></div>
+<div class="row"><button id="more" aria-label="添加附件" aria-controls="menu" aria-expanded="false">＋</button><textarea id="textInput" rows="1" aria-label="正文" placeholder="输入文字"></textarea><button id="voice" aria-label="语音输入" aria-pressed="false">🎙</button><button id="add" class="primary">添加</button></div>
+<p id="voiceStatus" role="status" hidden></p>
 <div id="menu" class="row" hidden><button id="pickMedia">图片 / 视频</button><button id="pickLink">链接</button><button id="pickLocation">位置</button></div>
 <input id="media" type="file" accept="image/*,video/*" hidden>
 </div>
@@ -34,6 +35,7 @@ const el = (tag, value) => Object.assign(document.createElement(tag), {textConte
 const notice = text => $('status').textContent = text;
 const uuid = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), x => x.toString(16).padStart(2,'0')).join('');
 const drafts = new Map();
+let voiceSession;
 let active, db, busy = false, page = 1, editing = null, previewUrls = [];
 function openDB() {
   return new Promise((resolve, reject) => {
@@ -53,6 +55,7 @@ async function persist(post) {
   });
 }
 function show(id) {
+  if (voiceSession) return;
   for (const name of ['library','remote','editor']) $(name).hidden = id !== name;
 }
 function button(text, action) {
@@ -61,7 +64,7 @@ function button(text, action) {
   return b;
 }
 async function run(action) {
-  if (busy) return;
+  if (busy || voiceSession) return;
   busy = true;
   $('sync').disabled = true;
   try { await action(); }
@@ -672,6 +675,220 @@ async function init() {
     if (Number.isSafeInteger(id) && id>0) $('results').append(button('下载文章 #'+id,()=>downloadPost(config(),id)));
   }
 }
+// AudioWorklet keeps capture off the UI thread and emits 200 ms mono PCM packets.
+const pcmProcessor = `
+class OfflineLogPCM extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.ratio = sampleRate / 16000;
+    this.remaining = this.ratio;
+    this.sum = 0;
+    this.offset = 0;
+    this.packet = new DataView(new ArrayBuffer(6400));
+    this.port.onmessage = () => {
+      this.stopped = true;
+      if (this.offset) this.port.postMessage(this.packet.buffer.slice(0,this.offset));
+      this.port.postMessage('flushed');
+    };
+  }
+
+  process(inputs) {
+    if (this.stopped) return false;
+    const samples = inputs[0]?.[0];
+    if (!samples) return true;
+    for (const sample of samples) {
+      let weight = 1;
+      while (weight > 1e-8) {
+        const used = Math.min(weight, this.remaining);
+        this.sum += sample * used;
+        weight -= used;
+        this.remaining -= used;
+        if (this.remaining > 1e-8) continue;
+        const pcm = Math.max(-1, Math.min(1, this.sum / this.ratio));
+        this.packet.setInt16(this.offset, pcm * (pcm < 0 ? 32768 : 32767), true);
+        this.offset += 2;
+        this.remaining = this.ratio;
+        this.sum = 0;
+        if (this.offset === this.packet.byteLength) {
+          this.port.postMessage(this.packet.buffer, [this.packet.buffer]);
+          this.packet = new DataView(new ArrayBuffer(6400));
+          this.offset = 0;
+        }
+      }
+    }
+    return true;
+  }
+}
+registerProcessor('offline-log-pcm', OfflineLogPCM);
+`;
+
+function voiceStatus(text) {
+  $('voiceStatus').textContent = text;
+  $('voiceStatus').hidden = !text;
+}
+function releaseMic(session) {
+  session.stream?.getTracks().forEach(track => track.stop());
+  if (session.audio && session.audio.state !== 'closed') session.audio.close().catch(() => {});
+}
+function finishVoice(session, message, restoreFocus = false) {
+  if (voiceSession !== session) return;
+  voiceSession = null;
+  clearTimeout(session.timer);
+  session.abort.abort();
+  releaseMic(session);
+  session.socket?.close();
+  $('voice').textContent = '🎙';
+  $('voice').setAttribute('aria-label', '语音输入');
+  $('voice').setAttribute('aria-pressed', 'false');
+  $('textInput').readOnly = false;
+  $('add').disabled = false;
+  voiceStatus(message);
+  if (restoreFocus) $('textInput').focus();
+}
+function stopVoice(session) {
+  if (session.phase === 'ending' || session.phase === 'flushing') return;
+  if (session.phase === 'starting') {
+    finishVoice(session, '语音输入已停止');
+    return;
+  }
+  session.phase = 'flushing';
+  clearTimeout(session.timer);
+  session.node.port.postMessage('flush');
+  voiceStatus('正在完成识别…');
+  session.timer = setTimeout(() => endVoiceStream(session), 750);
+}
+function endVoiceStream(session) {
+  if (voiceSession !== session || session.phase !== 'flushing') return;
+  session.phase = 'ending';
+  clearTimeout(session.timer);
+  releaseMic(session);
+  if (!session.sent) {
+    finishVoice(session, '没有录到语音，可以再说一次');
+    return;
+  }
+  try {
+    session.socket.send(JSON.stringify({type:'end'}));
+    voiceStatus('正在完成识别…');
+    session.timer = setTimeout(() => finishVoice(session, '识别超时，已保留输入框中的文字'), 8000);
+  } catch {
+    finishVoice(session, '语音连接已断开，已保留输入框中的文字');
+  }
+}
+async function startVoice() {
+  const input = $('textInput');
+  if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext || !window.AudioWorkletNode) {
+    voiceStatus('此页面无法使用麦克风，请通过 HTTPS 打开编辑器。');
+    return;
+  }
+  let cfg;
+  try { cfg = config(); }
+  catch {
+    $('connection').open = true;
+    voiceStatus('请先填写 WordPress HTTPS 地址、用户名和应用密码。');
+    return;
+  }
+  const session = {phase:'starting',abort:new AbortController(),sent:false,
+    prefix:input.value.slice(0,input.selectionStart),suffix:input.value.slice(input.selectionEnd),segments:new Map()};
+  voiceSession = session;
+  $('voice').textContent = '■';
+  $('voice').setAttribute('aria-label', '停止语音输入');
+  $('voice').setAttribute('aria-pressed', 'true');
+  $('textInput').readOnly = true;
+  $('add').disabled = true;
+  voiceStatus('正在连接腾讯云语音识别…');
+  session.timer = setTimeout(() => finishVoice(session, '连接超时，可以重新开始语音输入'), 25000);
+  try {
+    session.audio = new AudioContext();
+    const resume = session.audio.resume();
+    // Capture permission must be requested from the button's user gesture.
+    const microphone = navigator.mediaDevices.getUserMedia({audio:{channelCount:1}}).then(stream => {
+      session.stream = stream;
+      if (voiceSession !== session) releaseMic(session);
+    });
+    await Promise.all([resume,microphone]);
+    if (voiceSession !== session) return;
+    const module = URL.createObjectURL(new Blob([pcmProcessor],{type:'text/javascript'}));
+    try { await session.audio.audioWorklet.addModule(module); }
+    finally { URL.revokeObjectURL(module); }
+    if (voiceSession !== session) return;
+    const response = await fetch(cfg.site+'/wp-json/offline-log/v1/asr-session', {
+      method:'POST',headers:{Authorization:'Basic '+cfg.auth},credentials:'omit',
+      cache:'no-store',redirect:'error',signal:session.abort.signal
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      if (response.status === 404) throw Error('请先在 WordPress 启用语音签名插件。');
+      throw Error(data.message || 'WordPress 无法签发语音连接。');
+    }
+    const url = new URL(data.url);
+    if (url.origin !== 'wss://asr.cloud.tencent.com' || !/^\/asr\/v2\/\d+$/.test(url.pathname)) {
+      throw Error('语音服务地址无效。');
+    }
+    if (voiceSession !== session) return;
+    const socket = new WebSocket(url);
+    session.socket = socket;
+    socket.onerror = socket.onclose = () => finishVoice(session, '语音连接已断开，已保留输入框中的文字');
+    socket.onmessage = event => {
+      if (voiceSession !== session) return;
+      try {
+        const message = JSON.parse(event.data);
+        if (message.code !== 0) {
+          finishVoice(session, '腾讯云语音识别失败（'+message.code+'），已保留输入框中的文字');
+          return;
+        }
+        if (session.phase === 'starting') {
+          const node = new AudioWorkletNode(session.audio,'offline-log-pcm',{channelCount:1,channelCountMode:'explicit'});
+          node.port.onmessage = ({data:packet}) => {
+            if (voiceSession !== session || !['listening','flushing'].includes(session.phase)) return;
+            if (packet === 'flushed') { endVoiceStream(session); return; }
+            if (socket.readyState !== WebSocket.OPEN || socket.bufferedAmount > 64000) {
+              finishVoice(session, '语音连接不稳定，已保留输入框中的文字');
+              return;
+            }
+            try {
+              socket.send(packet);
+              session.sent = true;
+            } catch {
+              finishVoice(session, '语音连接已断开，已保留输入框中的文字');
+            }
+          };
+          session.node = node;
+          session.audio.createMediaStreamSource(session.stream).connect(node);
+          node.connect(session.audio.destination);
+          session.phase = 'listening';
+          clearTimeout(session.timer);
+          session.timer = setTimeout(() => stopVoice(session), 60000);
+          voiceStatus('正在听… 再点一次停止');
+        }
+        const result = message.result;
+        if (Number.isInteger(result?.index) && typeof result.voice_text_str === 'string') {
+          const previous = session.segments.get(result.index);
+          if (previous?.slice_type !== 2) session.segments.set(result.index,result);
+          const text = [...session.segments].sort(([a],[b]) => a-b).map(([,part]) => part.voice_text_str).join('');
+          if (text) {
+            input.value = session.prefix + text + session.suffix;
+            session.hasText = true;
+          }
+        }
+        if (message.final === 1) {
+          finishVoice(session, session.hasText ? '识别完成，可以修改后添加' : '没有识别到文字，可以再说一次', true);
+        }
+      } catch {
+        finishVoice(session, '语音识别未完成，已保留输入框中的文字');
+      }
+    };
+  } catch (error) {
+    finishVoice(session, error.name === 'NotAllowedError' ? '请允许浏览器使用麦克风。' : error.message);
+  }
+}
+$('voice').onclick = () => {
+  if (voiceSession) stopVoice(voiceSession);
+  else if (!busy) startVoice();
+};
+window.addEventListener('pagehide', () => {
+  if (voiceSession) finishVoice(voiceSession, '');
+});
+
 init();
 </script>
 </html>
