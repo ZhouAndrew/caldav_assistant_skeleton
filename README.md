@@ -1,6 +1,7 @@
 # CalDAV Assistant 1.0.0
 
 ## 仓库项目导航
+- [实验性日志工具](experiments/log-tools/README.md) — 日志查询、整理与导出原型的实验区。
 - [CalDAV Assistant 主程序](caldav_assistant/) — Python CLI、后台服务和 Web 界面。使用说明见 [GUIDE](GUIDE.md)。
 - [Public Python API v1](caldav_assistant/api/v1/) 和 [内置扩展](caldav_assistant/builtin_extensions/) — 扩展开发见 [扩展指南](EXTENSIONS_GUIDE.md)。
 - [CalDAV Assistant Thunderbird 插件](caldav_assistant_thunderbird/README.md) — Thunderbird 内的任务工作流与独立的 WordPress 记录模块。
