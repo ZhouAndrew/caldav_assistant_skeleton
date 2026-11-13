@@ -1,0 +1,894 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>离线日志</title>
+<style>
+:root{color-scheme:light dark;font:17px system-ui;--accent:#147858}body{max-width:720px;margin:auto;padding:24px 16px}h1{margin:0 0 16px}nav,.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}section,article{margin:16px 0;padding:16px;border:1px solid #80808066;border-radius:14px}button,input,textarea,summary{font:inherit;padding:9px;border-radius:8px}button{cursor:pointer}button.primary{background:var(--accent);color:white;border:0}input:not([type=file]),textarea{width:100%;box-sizing:border-box;margin:6px 0}img,video{max-width:100%;max-height:400px}pre,p{white-space:pre-wrap;overflow-wrap:anywhere}dialog{max-width:min(480px,85vw)}[hidden]{display:none!important}
+#editor{padding:0;overflow:clip}#editor>h2,#editor>label,#editor>.editor-actions{margin:12px 16px}#preview{display:grid;gap:9px;padding:16px;background:light-dark(#eeefed,#202321)}.message{position:relative;min-width:0;overflow:hidden;border-radius:10px;touch-action:pan-y}.message article{position:relative;margin:0;max-width:100%;padding:8px 42px 8px 12px;background:light-dark(#fff,#303730);border:0;border-radius:0;transition:transform .15s}.message.revealed article{transform:translateX(-76px)}.message p{margin:4px 0}.message .actions{position:absolute;top:3px;right:4px;padding:4px 8px;border:0;background:transparent;color:inherit}.message .remove{position:absolute;right:0;top:0;height:100%;width:76px;background:#a52b2b;color:white;border:0}.message a{overflow-wrap:anywhere}#composer{position:sticky;bottom:0;padding:8px 12px;background:Canvas;border-top:1px solid #80808066}#composer textarea{flex:1;min-width:0;margin:0;resize:vertical}#menu{margin-top:8px}#voiceStatus{font-size:.85em;margin:5px 0}#voice[aria-pressed=true]{color:#b32626}#messageActions form{display:grid;gap:8px}#mapPicker{width:min(560px,86vw)}#map{position:relative;height:min(44vh,350px);overflow:hidden;background:#dfe8e8;touch-action:none;cursor:grab}#tiles,#mapPin{position:absolute;inset:0;pointer-events:none}#tiles img{position:absolute;width:256px;height:256px;max-width:none;max-height:none}#mapPin{inset:50% auto auto 50%;width:22px;height:22px;border-radius:50% 50% 50% 0;background:#c63434;border:2px solid white;transform:translate(-50%,-100%) rotate(-45deg);box-shadow:0 1px 5px #0008}.map-tools{margin:8px 0}#mapAttribution{position:absolute;right:0;bottom:0;background:white;color:#222;padding:2px 4px;font-size:.75em}#mapAttribution a{color:#234}
+</style>
+<h1>离线日志</h1>
+<nav><button id="local">本地副本</button><button id="download">选择下载</button><button id="newPost" class="primary">＋ 新建文章</button></nav>
+<p id="status" role="status" aria-live="polite"></p>
+<details id="connection"><summary>WordPress 连接</summary>
+<label>站点地址<input id="site" type="url" placeholder="https://andrew.local"></label>
+<label>用户名<input id="username" autocomplete="username"></label>
+<label>应用密码<input id="password" type="password" autocomplete="off"></label>
+</details>
+<section id="library"><h2>本地副本</h2><div id="copies"></div><label>导入备份 <input type="file" id="importFile" accept=".json"></label></section>
+<section id="remote" hidden><h2>选择下载</h2><input id="search" placeholder="搜索标题"><button id="find">查询文章</button><div id="results"></div><button id="prev">上一页</button> <button id="next">下一页</button></section>
+<section id="editor" hidden><h2>编辑文章</h2>
+<label>标题<input id="titleInput"></label><div class="row editor-actions"><button id="save">保存到本机</button><button id="sync" class="primary">提交到 WordPress</button><button id="backup">导出备份</button></div>
+<div id="preview"></div>
+<div id="composer">
+<div class="row"><button id="more" aria-label="添加附件" aria-controls="menu" aria-expanded="false">＋</button><textarea id="textInput" rows="1" aria-label="正文" placeholder="输入文字"></textarea><button id="voice" aria-label="语音输入" aria-pressed="false">🎙</button><button id="add" class="primary">添加</button></div>
+<p id="voiceStatus" role="status" hidden></p>
+<div id="menu" class="row" hidden><button id="pickMedia">图片 / 视频</button><button id="pickLink">链接</button><button id="pickLocation">位置</button></div>
+<input id="media" type="file" accept="image/*,video/*" hidden>
+</div>
+</section>
+<dialog id="picker"><form id="pickForm"><h2 id="pickHeading">链接</h2><label>网址<input id="value" required></label><label>显示文字<input id="labelInput"></label><p id="pickStatus" role="status"></p><button type="button" id="cancel">取消</button> <button class="primary">确认</button></form></dialog>
+<dialog id="mapPicker"><h2>选择位置</h2><div id="map" tabindex="0" aria-label="拖动地图或使用方向键移动图钉"><div id="tiles"></div><div id="mapPin"></div><small id="mapAttribution"><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap</a> · <a href="https://www.openstreetmap.de/nutzen/dienste-osm-de/" target="_blank" rel="noopener">OSM Deutschland</a></small></div><div class="row map-tools"><button id="zoomOut" aria-label="缩小">−</button><button id="zoomIn" aria-label="放大">＋</button><button id="locate">当前位置</button></div><p id="mapStatus" role="status"></p><div class="row"><button id="cancelLocation">取消</button><button id="confirmLocation" class="primary" disabled>添加位置</button></div></dialog>
+<dialog id="messageActions"><form method="dialog"><button id="editMessage" value="edit">编辑</button><button value="remove">移除</button><button value="cancel">取消</button></form></dialog>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const el = (tag, value) => Object.assign(document.createElement(tag), {textContent: value ?? ''});
+const notice = text => $('status').textContent = text;
+const uuid = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), x => x.toString(16).padStart(2,'0')).join('');
+const drafts = new Map();
+let voiceSession;
+let active, db, busy = false, page = 1, editing = null, previewUrls = [];
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('offline-log-tools', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('posts', {keyPath:'id'});
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => resolve(req.result);
+  });
+}
+async function persist(post) {
+  if (!db) throw Error('浏览器存储不可用，请导出备份');
+  await new Promise((resolve,reject) => {
+    const tx = db.transaction('posts','readwrite');
+    tx.oncomplete = resolve;
+    tx.onabort = () => reject(tx.error ?? Error('存储事务中止'));
+    tx.objectStore('posts').put(post);
+  });
+}
+function show(id) {
+  if (voiceSession) return;
+  for (const name of ['library','remote','editor']) $(name).hidden = id !== name;
+}
+function button(text, action) {
+  const b = el('button',text);
+  b.onclick = () => run(action);
+  return b;
+}
+async function run(action) {
+  if (busy || voiceSession) return;
+  busy = true;
+  $('sync').disabled = true;
+  try { await action(); }
+  catch (error) { notice(error.message); }
+  finally { busy = false; $('sync').disabled = false; }
+}
+function safeUrl(value) {
+  const u = new URL(value);
+  if (!['https:','http:'].includes(u.protocol) || u.username || u.password) throw Error('请输入 HTTP 或 HTTPS 链接');
+  return u.href;
+}
+function basePost(title='') {
+  return {id:uuid(), title, blocks:[], location:null};
+}
+function list() {
+  $('copies').replaceChildren(...Array.from(drafts.values(), p =>
+    button(p.title || '未命名文章', () => openPost(p))));
+  show('library');
+}
+function openPost(post) {
+  active = post;
+  $('titleInput').value = post.title;
+  $('textInput').value = post.pending ?? '';
+  render();
+  show('editor');
+}
+async function saveLocal() {
+  active.title = $('titleInput').value;
+  active.pending = $('textInput').value;
+  await persist(active);
+  notice('已保存到本机');
+}
+function mediaElement(b) {
+  const media = el(b.kind === 'image' ? 'img' : 'video');
+  media.controls = true;
+  media.alt = b.name ?? '';
+  if (b.blob) {
+    media.src = URL.createObjectURL(b.blob);
+    previewUrls.push(media.src);
+  } else if (b.url) media.src = safeUrl(b.url);
+  media.onerror = () => { media.replaceWith(el('p', '当前浏览器无法预览此媒体')); };
+  return media;
+}
+function message(item, edit, remove) {
+  const row = el('div');
+  row.className = 'message';
+  const reveal = button('移除', remove);
+  reveal.className = 'remove';
+  reveal.hidden = true;
+  function menu() {
+    const dialog = $('messageActions');
+    $('editMessage').hidden = !edit;
+    dialog.returnValue = 'cancel';
+    dialog.onclose = () => {
+      if (dialog.returnValue === 'remove') run(remove);
+      if (dialog.returnValue === 'edit' && edit) run(edit);
+    };
+    if (!dialog.open && !busy) dialog.showModal();
+  }
+  const actions = el('button', '⋯');
+  actions.onclick = menu;
+  actions.className = 'actions';
+  actions.setAttribute('aria-label', '条目操作');
+  item.append(actions);
+  row.append(reveal, item);
+  row.oncontextmenu = event => { event.preventDefault(); menu(); };
+  let gesture;
+  row.onpointerdown = event => {
+    if (event.pointerType === 'mouse' || event.target.closest('button,input,textarea,video')) return;
+    gesture = {id:event.pointerId, x:event.clientX, y:event.clientY};
+  };
+  row.onpointercancel = () => { gesture = null; };
+  row.onpointerup = event => {
+    if (gesture?.id !== event.pointerId) return;
+    const dx = event.clientX - gesture.x;
+    const dy = event.clientY - gesture.y;
+    gesture = null;
+    if (Math.abs(dx) < 45 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    if (dx < 0) {
+      for (const other of $('preview').querySelectorAll('.revealed')) {
+        other.classList.remove('revealed');
+        other.querySelector('.remove').hidden = true;
+      }
+    }
+    row.classList.toggle('revealed', dx < 0);
+    reveal.hidden = dx >= 0;
+    const suppress = click => { click.preventDefault(); click.stopPropagation(); };
+    row.addEventListener('click', suppress, {capture:true, once:true});
+    setTimeout(() => row.removeEventListener('click', suppress, true), 0);
+  };
+  $('preview').append(row);
+}
+function editText(item, block) {
+  const field = el('textarea', block.text);
+  field.setAttribute('aria-label', '编辑文字');
+  const controls = el('div');
+  controls.className = 'row';
+  controls.append(button('取消', render), button('保存', async () => {
+    block.text = field.value;
+    delete block.original;
+    render();
+    await saveLocal();
+  }));
+  if (item.querySelector('textarea')) return;
+  item.querySelector('p').replaceWith(field, controls);
+  field.focus();
+}
+function render() {
+  previewUrls.forEach(url => URL.revokeObjectURL(url));
+  previewUrls = [];
+  $('preview').replaceChildren();
+  for (const [index,b] of active.blocks.entries()) {
+    const item = el('article');
+    let edit;
+    if (b.kind === 'raw') {
+      if (!b.raw.trim()) continue;
+      item.append(el('p','WordPress 区块 · 保留原文'));
+    } else if (b.kind === 'image' || b.kind === 'video') {
+      item.append(mediaElement(b));
+      if (b.name) item.append(el('p', b.name));
+      const file = el('input');
+      file.type = 'file';
+      file.hidden = true;
+      file.accept = b.kind + '/*';
+      file.setAttribute('aria-label','替换媒体');
+      file.onchange = () => run(async () => {
+        const replacement = file.files[0];
+        if (!replacement?.type.startsWith(b.kind + '/')) throw Error('请选择对应类型的媒体文件');
+        active.blocks[index] = {kind:b.kind,blob:replacement,name:replacement.name};
+        render();
+        await saveLocal();
+      });
+      item.append(file);
+      edit = () => file.click();
+    } else if (b.kind === 'link') {
+      const a = el('a', b.label || b.url);
+      a.href = safeUrl(b.url);
+      a.rel = 'noopener noreferrer';
+      a.target = '_blank';
+      item.append(a);
+      edit = () => pickLink(index);
+    } else {
+      item.append(el('p', b.text));
+      edit = () => editText(item, b);
+    }
+    message(item, edit, async () => {
+      active.blocks.splice(index,1);
+      render();
+      await saveLocal();
+    });
+  }
+  if (active.location) {
+    const item = el('article');
+    const link = locationUrl(active.location.value);
+    if (link) {
+      const a = el('a', '📍 ' + (active.location.label || '在地图中查看'));
+      a.href = link;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      item.append(a);
+    } else item.append(el('p','📍 '+(active.location.label || active.location.value)));
+    message(item, () => openMap(), async () => {
+      active.location = null;
+      render();
+      await saveLocal();
+    });
+  }
+}
+function addText() {
+  const input = $('textInput');
+  for (const text of input.value.trim().split(/\n\s*\n/).filter(Boolean)) active.blocks.push({kind:'text',text});
+  input.value = '';
+}
+function pickLink(index=null) {
+  editing = index;
+  const old = active.blocks[index];
+  $('value').value = old?.url ?? '';
+  $('labelInput').value = old?.label ?? '';
+  $('pickStatus').textContent = '';
+  $('picker').showModal();
+}
+$('pickForm').onsubmit = event => {
+  event.preventDefault();
+  let url;
+  try { url = safeUrl($('value').value.trim()); }
+  catch { $('pickStatus').textContent = '请输入有效的 HTTP 或 HTTPS 网址'; return; }
+  const label = $('labelInput').value.trim();
+  run(async () => {
+    const block = {kind:'link',url,label};
+    if (editing === null) active.blocks.push(block);
+    else active.blocks[editing] = block;
+    $('picker').close();
+    closeMenu();
+    render();
+    await saveLocal();
+  });
+};
+$('cancel').onclick = () => $('picker').close();
+
+let mapState, drag;
+const map = $('map');
+const mapDialog = $('mapPicker');
+const tiles = $('tiles');
+const latitudeLimit = 85.05112878;
+const mapSize = zoom => 256 * 2 ** zoom;
+function project(latitude, longitude, zoom) {
+  const size = mapSize(zoom);
+  const radians = Math.max(-latitudeLimit, Math.min(latitudeLimit,latitude)) * Math.PI / 180;
+  return {x:(longitude+180)/360*size, y:(1-Math.asinh(Math.tan(radians))/Math.PI)/2*size};
+}
+function mapCoordinates() {
+  const size = mapSize(mapState.zoom);
+  return {
+    longitude: ((mapState.x % size + size) % size) / size * 360 - 180,
+    latitude: Math.atan(Math.sinh(Math.PI * (1-2*mapState.y/size))) * 180 / Math.PI
+  };
+}
+function drawMap() {
+  const {x,y,zoom} = mapState;
+  const left = x - map.clientWidth/2;
+  const top = y - map.clientHeight/2;
+  const count = 2 ** zoom;
+  const visible = new Set();
+  for (let row=Math.max(0,Math.floor(top/256)); row<Math.min(count,Math.ceil((top+map.clientHeight)/256)); row++) {
+    for (let col=Math.floor(left/256); col<Math.ceil((left+map.clientWidth)/256); col++) {
+      const key = zoom+'/'+col+'/'+row;
+      visible.add(key);
+      let tile = mapState.tiles.get(key);
+      if (!tile) {
+        tile = el('img');
+        tile.alt = '';
+        tile.onload = () => {
+          if (mapState.tiles.get(key) === tile && !mapState.deviceLocation) $('mapStatus').textContent = '移动地图，让图钉指向所选位置';
+        };
+        tile.onerror = () => {
+          if (mapState.tiles.get(key) === tile) $('mapStatus').textContent = '部分地图加载失败，可尝试当前位置';
+        };
+        tile.src = 'https://tile.openstreetmap.de/'+zoom+'/'+((col%count+count)%count)+'/'+row+'.png';
+        tiles.append(tile);
+        mapState.tiles.set(key,tile);
+      }
+      tile.style.left = (col*256-left)+'px';
+      tile.style.top = (row*256-top)+'px';
+    }
+  }
+  for (const [key,tile] of mapState.tiles) {
+    if (visible.has(key)) continue;
+    tile.remove();
+    mapState.tiles.delete(key);
+  }
+  $('zoomOut').disabled = zoom === 2;
+  $('zoomIn').disabled = zoom === 18;
+  $('confirmLocation').disabled = !mapState.selected;
+}
+function coordinatePair(value) {
+  const match = value?.match(/^(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)$/);
+  if (!match || Math.abs(+match[1]) > 90 || Math.abs(+match[2]) > 180) return null;
+  return {latitude:+match[1],longitude:+match[2]};
+}
+function openMap(value=active.location?.value) {
+  if (busy || mapDialog.open) return;
+  const coords = coordinatePair(value);
+  const zoom = coords ? 16 : 2;
+  mapState = {zoom, ...project(coords?.latitude ?? 18, coords?.longitude ?? 0,zoom),selected:Boolean(coords),tiles:new Map()};
+  tiles.replaceChildren();
+  $('mapStatus').textContent = '正在加载地图…';
+  $('confirmLocation').textContent = active.location ? '更新位置' : '添加位置';
+  mapDialog.showModal();
+  drawMap();
+}
+function moveMap(x,y) {
+  mapState.x = x;
+  mapState.y = Math.max(0,Math.min(mapSize(mapState.zoom),y));
+  mapState.selected = true;
+  drawMap();
+}
+map.onpointerdown = event => {
+  if (event.button !== 0 || event.target.closest('a')) return;
+  drag = {id:event.pointerId, clientX:event.clientX,clientY:event.clientY,x:mapState.x,y:mapState.y};
+  map.setPointerCapture(event.pointerId);
+};
+map.onpointermove = event => {
+  if (drag?.id !== event.pointerId) return;
+  const dx = event.clientX-drag.clientX, dy = event.clientY-drag.clientY;
+  if (Math.hypot(dx,dy)>4) drag.moved = true;
+  if (drag.moved) moveMap(drag.x-dx,drag.y-dy);
+};
+map.onpointerup = event => {
+  if (drag?.id !== event.pointerId) return;
+  if (!drag.moved) {
+    const rect = map.getBoundingClientRect();
+    moveMap(mapState.x+event.clientX-rect.left-rect.width/2,mapState.y+event.clientY-rect.top-rect.height/2);
+  }
+  drag = null;
+};
+map.onpointercancel = () => { drag = null; };
+map.onkeydown = event => {
+  const offset = {ArrowLeft:[-48,0],ArrowRight:[48,0],ArrowUp:[0,-48],ArrowDown:[0,48]}[event.key];
+  if (!offset) return;
+  event.preventDefault();
+  moveMap(mapState.x+offset[0],mapState.y+offset[1]);
+};
+function zoomMap(delta) {
+  const zoom = Math.max(2,Math.min(18,mapState.zoom+delta));
+  const center = mapCoordinates();
+  Object.assign(mapState, project(center.latitude,center.longitude,zoom),{zoom});
+  drawMap();
+}
+$('zoomOut').onclick = () => zoomMap(-1);
+$('zoomIn').onclick = () => zoomMap(1);
+$('locate').onclick = () => {
+  const state = mapState;
+  const status = $('mapStatus');
+  if (!navigator.geolocation) { status.textContent='设备定位不可用，可在地图上选点'; return; }
+  status.textContent = '正在定位…';
+  navigator.geolocation.getCurrentPosition(({coords}) => {
+    if (!mapDialog.open || mapState !== state) return;
+    mapState.zoom = 16;
+    const {x,y} = project(coords.latitude,coords.longitude,16);
+    moveMap(x,y);
+    mapState.deviceLocation = mapCoordinates();
+    status.textContent = '已定位，请确认';
+  }, () => {
+    if (mapDialog.open && mapState === state) status.textContent = '定位失败，可在地图上选点';
+  }, {timeout:12000});
+};
+$('cancelLocation').onclick = () => mapDialog.close();
+$('confirmLocation').onclick = () => run(async () => {
+  const {latitude,longitude} = mapCoordinates();
+  const value = [latitude,longitude].map(n => n.toFixed(6)).join(', ');
+  const device = mapState.deviceLocation;
+  const label = device && device.latitude === latitude && device.longitude === longitude ? '当前位置' : '地图选点';
+  active.location = {value,label};
+  mapDialog.close();
+  closeMenu();
+  render();
+  await saveLocal();
+});
+function closeMenu() { $('menu').hidden=true; $('more').setAttribute('aria-expanded','false'); }
+$('more').onclick=()=>{$('menu').hidden=!$('menu').hidden;$('more').setAttribute('aria-expanded',String(!$('menu').hidden));};
+$('pickLink').onclick=()=>pickLink();
+$('pickLocation').onclick=()=>openMap();
+$('pickMedia').onclick=()=>$('media').click();
+$('media').onchange=()=>run(async()=>{
+  const file=$('media').files[0];
+  $('media').value='';
+  if (!file) return;
+  const kind=file.type.split('/')[0];
+  if (!['image','video'].includes(kind)) throw Error('请选择图片或视频');
+  active.blocks.push({kind,blob:file,name:file.name});
+  closeMenu(); render(); await saveLocal();
+});
+$('local').onclick=()=>{if(!busy) list();};
+$('download').onclick=()=>{if(!busy) show('remote');};
+$('newPost').onclick=()=>run(async()=>{const post=basePost();drafts.set(post.id,post);openPost(post);await saveLocal();});
+$('add').onclick=()=>run(async()=>{addText();render();await saveLocal();});
+$('save').onclick=()=>run(saveLocal);
+</script>
+<script>
+const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function parseBlocks(raw) {
+  const parts = [];
+  const tags = /<!--\s+(\/?)wp:([\w/-]+)([\s\S]*?)-->/g;
+  let cursor = 0, start = 0, stack = [];
+  for (const match of raw.matchAll(tags)) {
+    const [tag, closing, name, tail] = match;
+    if (!stack.length) {
+      if (closing) return [{kind:'raw',raw}];
+      if (match.index > cursor) parts.push({kind:'raw',raw:raw.slice(cursor,match.index)});
+      start = match.index;
+    }
+    if (closing) {
+      if (stack.pop() !== name) return [{kind:'raw',raw}];
+    } else if (!tail.trimEnd().endsWith('/')) stack.push(name);
+    if (!stack.length) {
+      cursor = match.index + tag.length;
+      const source = raw.slice(start,cursor);
+      const paragraph = source.match(/^<!-- wp:paragraph -->\s*<p>([^<]*)<\/p>\s*<!-- \/wp:paragraph -->$/);
+      if (paragraph) {
+        const doc = new DOMParser().parseFromString(paragraph[1],'text/html');
+        parts.push({kind:'text',text:doc.body.textContent,original:source});
+      } else {
+        const matchMedia = source.match(/^<!-- wp:(image|video)(?:\s+\{[^]*?\})? -->\s*<figure\b[^>]*>\s*<(?:img|video)\b[^>]*?\bsrc="(https?:\/\/[^"]+)"[^>]*>[\s\S]*<\/figure>\s*<!-- \/wp:\1 -->$/);
+        const matchLink = source.match(/^<!-- wp:paragraph -->\s*<p><a href="([^"]+)">([^<]*)<\/a><\/p>\s*<!-- \/wp:paragraph -->$/);
+        const decode = value => new DOMParser().parseFromString('<p>'+value.replace(/</g,'&lt;')+'</p>','text/html').body.textContent;
+        try {
+          if (matchMedia) parts.push({kind:matchMedia[1],url:safeUrl(decode(matchMedia[2])),original:source});
+          else if (matchLink) parts.push({kind:'link',url:safeUrl(decode(matchLink[1])),label:decode(matchLink[2]),original:source});
+          else parts.push({kind:'raw',raw:source});
+        } catch { parts.push({kind:'raw',raw:source}); }
+      }
+    }
+  }
+  if (stack.length) return [{kind:'raw',raw}];
+  if (cursor < raw.length) parts.push({kind:'raw',raw:raw.slice(cursor)});
+  return parts;
+}
+function paragraph(html) { return '<!-- wp:paragraph -->\n<p>'+html+'</p>\n<!-- /wp:paragraph -->'; }
+function locationUrl(value) {
+  if (/^https?:/i.test(value)) return safeUrl(value);
+  return coordinatePair(value) ? 'https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(value) : '';
+}
+function locationHtml(location) {
+  const {value,label} = location;
+  const url = locationUrl(value);
+  return '位置：'+(url ? '<a href="'+escapeHtml(url)+'">'+escapeHtml(label||value)+'</a>' : escapeHtml(label ? label+' · '+value : value));
+}
+function serialize(post) {
+  const parts = post.blocks.map(b => {
+    if (b.kind==='raw') return b.raw;
+    if (b.original) return b.original;
+    if (b.kind==='text') return paragraph(escapeHtml(b.text).replace(/\n/g,'<br>'));
+    if (b.kind==='link') return paragraph('<a href="'+escapeHtml(safeUrl(b.url))+'">'+escapeHtml(b.label||b.url)+'</a>');
+    const url=escapeHtml(safeUrl(b.upload.url));
+    const image=b.kind==='image';
+    const media=image ? '<img src="'+url+'" alt="" class="wp-image-'+b.upload.id+'"/>' : '<video controls src="'+url+'"></video>';
+    return '<!-- wp:'+b.kind+' {"id":'+b.upload.id+'} -->\n<figure class="wp-block-'+b.kind+'">'+media+'</figure>\n<!-- /wp:'+b.kind+' -->';
+  });
+  if (post.location) parts.push(paragraph(locationHtml(post.location)));
+  return parts.join('');
+}
+function config() {
+  const site=safeUrl($('site').value.trim()).replace(/\/+$/,'');
+  const url=new URL(site);
+  if (url.protocol!=='https:' || url.search || url.hash) throw Error('请填写 WordPress HTTPS 站点地址');
+  const user=$('username').value.trim(), password=$('password').value.replace(/\s/g,'');
+  if (!user || !password) { $('connection').open=true; throw Error('请输入 WordPress 用户名和应用密码'); }
+  const auth=btoa(Array.from(new TextEncoder().encode(user+':'+password),n=>String.fromCharCode(n)).join(''));
+  return {site,auth};
+}
+async function api(cfg,path,{method='GET',body}={}) {
+  const headers={Authorization:'Basic '+cfg.auth};
+  if (body && !(body instanceof FormData)) {headers['Content-Type']='application/json';body=JSON.stringify(body);}
+  let response;
+  try {response=await fetch(cfg.site+'/wp-json/wp/v2/'+path,{method,headers,body,redirect:'error',cache:'no-store',signal:AbortSignal.timeout(45000)});}
+  catch {throw Error('WordPress 暂不可达，或浏览器阻止了跨来源请求');}
+  const data=await response.json();
+  if (!response.ok) throw Error('WordPress '+response.status+'：'+(data.message||'请求失败'));
+  return {data, pages:Number(response.headers.get('X-WP-TotalPages'))};
+}
+const readPost = async (cfg,id) => (await api(cfg,'posts/'+id+'?context=edit')).data;
+const same = (remote, local) => remote.title?.raw===local.title && remote.content?.raw===local.content;
+function snapshot(remote) { return {title:remote.title.raw,content:remote.content.raw,modified:remote.modified_gmt}; }
+async function downloadPost(cfg,id) {
+  const existing=Array.from(drafts.values()).find(p=>p.site===cfg.site && p.remoteId===id);
+  if (existing) {openPost(existing);notice('已打开本地副本');return;}
+  const remote=await readPost(cfg,id);
+  const post=basePost(remote.title.raw);
+  Object.assign(post,{site:cfg.site,remoteId:id,base:snapshot(remote),blocks:parseBlocks(remote.content.raw)});
+  let unavailable=0;
+  for (const block of post.blocks.filter(b=>b.url && ['image','video'].includes(b.kind))) {
+    try {
+      const response=await fetch(block.url,{signal:AbortSignal.timeout(15000)});
+      if (!response.ok) throw Error();
+      block.blob=await response.blob();
+    } catch { unavailable++; }
+  }
+  await persist(post);
+  drafts.set(post.id,post);openPost(post);
+  notice(unavailable?'已下载正文，部分媒体需要联网预览':'已下载并保存到本机');
+}
+async function searchPosts() {
+  const cfg=config();
+  const params=new URLSearchParams({context:'edit',search:$('search').value,per_page:20,page,status:'publish,draft,private,pending,future',_fields:'id,title,slug'});
+  const {data,pages}=await api(cfg,'posts?'+params);
+  $('results').replaceChildren(...data.filter(p=>!p.slug.startsWith('incomplete-')).map(p=>
+    button('下载 · '+(p.title.raw||'#'+p.id),()=>downloadPost(cfg,p.id))));
+  $('prev').disabled=page<=1;
+  $('next').disabled=pages ? page>=pages : data.length<20;
+}
+$('find').onclick=()=>run(async()=>{page=1;await searchPosts();});
+$('prev').onclick=()=>run(async()=>{page--;await searchPosts();});
+$('next').onclick=()=>run(async()=>{page++;await searchPosts();});
+async function uploadMedia(cfg,post) {
+  for(const b of post.blocks) {
+    if (!b.blob || b.original || b.upload) continue;
+    const form=new FormData();
+    form.append('file',b.blob,b.name);
+    const {data}=await api(cfg,'media',{method:'POST',body:form});
+    if (!Number.isSafeInteger(data.id)) throw Error('WordPress 返回无效的媒体 ID');
+    b.upload={id:data.id,url:safeUrl(data.source_url)};
+    await persist(post);
+  }
+}
+async function update(cfg,id,body) {
+  await api(cfg,'posts/'+id,{method:'POST',body});
+  return readPost(cfg,id);
+}
+async function sync() {
+  const cfg=config(), post=active;
+  if (post.site && post.site!==cfg.site) throw Error('请选择此文章原来的 WordPress 站点');
+  if (!$('titleInput').value.trim()) throw Error('请输入文章标题');
+  addText(); render();
+  post.site=cfg.site;
+  await saveLocal();
+  notice('正在提交…');
+  const marker='incomplete-'+post.id, stable='log-'+post.id;
+  if (!post.remoteId) {
+    const {data}=await api(cfg,'posts?'+new URLSearchParams({context:'edit',status:'draft',slug:marker}));
+    if (data.length>1) throw Error('找到多个未完成草稿，请核对 WordPress');
+    if (data.length===1) post.remoteId=data[0].id;
+    else {
+      if (post.creating) throw Error('上次创建结果未确认，WordPress 未返回对应草稿。请先在后台核对。');
+      post.creating=true;
+      await persist(post);
+      const {data:created}=await api(cfg,'posts',{method:'POST',body:{title:post.title,slug:marker,status:'draft',content:''}});
+      post.remoteId=created.id;
+    }
+    post.incomplete=true;
+    await persist(post);
+  }
+  let remote=await readPost(cfg,post.remoteId);
+  if (post.incomplete) {
+    if (remote.status!=='draft' || ![marker,stable].includes(remote.slug)) throw Error('远端草稿标识已变更，请核对后再提交');
+  } else if (!post.base || !same(remote,post.base) || remote.modified_gmt!==post.base.modified) {
+    if (!post.attempt || !same(remote,post.attempt)) throw Error('WordPress 文章已修改，本地草稿已保留');
+  }
+  await uploadMedia(cfg,post);
+  const body={title:post.title,content:serialize(post)};
+  if (post.incomplete && remote.slug===stable) {
+    if (!post.attempt || !same(remote,post.attempt)) throw Error('远端草稿已完成标记清除，正文需要人工核对');
+    post.base=snapshot(remote);post.incomplete=false;delete post.creating;delete post.attempt;
+    await persist(post);
+    notice('已确认上一次提交，可再次提交此后新增的本地修改');
+    return;
+  }
+  post.attempt=body;
+  await persist(post);
+  if (!same(remote,body)) remote=await update(cfg,post.remoteId,body);
+  if (!same(remote,body)) throw Error('WordPress 回读内容有差异，请检查站点的内容过滤规则');
+  if (post.incomplete) {
+    remote=await update(cfg,post.remoteId,{slug:stable});
+    if (remote.slug!==stable || !same(remote,body)) throw Error('WordPress 草稿完成状态未确认');
+  }
+  post.base=snapshot(remote);
+  post.incomplete=false;
+  delete post.creating;
+  delete post.attempt;
+  await persist(post);
+  notice('已提交并回读确认');
+}
+$('sync').onclick=()=>run(sync);
+function fileData(blob) {
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>resolve(reader.result);
+    reader.onerror=()=>reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+$('backup').onclick=()=>run(async()=>{
+  active.title=$('titleInput').value;
+  active.pending=$('textInput').value;
+  const blocks=[];
+  for(const {blob,...rest} of active.blocks) blocks.push(blob?{...rest,media:await fileData(blob)}:rest);
+  const url=URL.createObjectURL(new Blob([JSON.stringify({version:1,post:{...active,blocks}})],{type:'application/json'}));
+  const a=el('a'); a.href=url;a.download='offline-log-'+active.id+'.json';a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+});
+$('importFile').onchange=()=>run(async()=>{
+  const file=$('importFile').files[0];$('importFile').value='';
+  if (!file) return;
+  const {version,post}=JSON.parse(await file.text());
+  if (version!==1 || typeof post?.title!=='string' || !Array.isArray(post.blocks)) throw Error('无法识别备份');
+  if (post.id && drafts.has(post.id)) throw Error('本机已有该副本');
+  for(const b of post.blocks) {
+    if (!['raw','text','image','video','link'].includes(b.kind)) throw Error('备份包含未知区块');
+    if (b.url) b.url=safeUrl(b.url);
+    if (b.media) {
+      if (!/^data:(?:image|video)\//.test(b.media)) throw Error('备份媒体格式无效');
+      b.blob=await (await fetch(b.media)).blob();delete b.media;
+    }
+  }
+  if (!/^[a-f0-9]{32}$/.test(post.id)) throw Error('备份文章标识无效');
+  await persist(post);drafts.set(post.id,post);openPost(post);notice('已导入到本机');
+});
+async function init() {
+  try {
+    db=await openDB();
+    const posts=await new Promise((resolve,reject)=>{
+      const req=db.transaction('posts').objectStore('posts').getAll();
+      req.onsuccess=()=>resolve(req.result);
+      req.onerror=()=>reject(req.error);
+    });
+    posts.forEach(p=>drafts.set(p.id,p));
+  } catch {notice('浏览器存储不可用，可以编辑并导出备份');}
+  list();
+  const [route,query]=location.hash.slice(1).split('?');
+  const params=new URLSearchParams(query);
+  if (route==='/new') {
+    const post=basePost(params.get('title')||'');
+    drafts.set(post.id,post);openPost(post);
+    if (params.has('url')) {pickLink();$('value').value=params.get('url');}
+    else if (params.has('location')) {
+      const value = params.get('location');
+      if (coordinatePair(value)) openMap(value);
+      else if (/^https?:/i.test(value)) {
+        try {
+          post.location = {value:safeUrl(value),label:'地图分享位置'};
+          render();
+          await persist(post);
+        } catch { notice('地图分享位置无法保存'); }
+      } else openMap();
+    }
+  } else if (route==='/download') {
+    show('remote');
+    const id=Number(params.get('post'));
+    if (Number.isSafeInteger(id) && id>0) $('results').append(button('下载文章 #'+id,()=>downloadPost(config(),id)));
+  }
+}
+// AudioWorklet keeps capture off the UI thread and emits 200 ms mono PCM packets.
+const pcmProcessor = `
+class OfflineLogPCM extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.ratio = sampleRate / 16000;
+    this.remaining = this.ratio;
+    this.sum = 0;
+    this.offset = 0;
+    this.packet = new DataView(new ArrayBuffer(6400));
+    this.port.onmessage = () => {
+      this.stopped = true;
+      if (this.offset) this.port.postMessage(this.packet.buffer.slice(0,this.offset));
+      this.port.postMessage('flushed');
+    };
+  }
+
+  process(inputs) {
+    if (this.stopped) return false;
+    const samples = inputs[0]?.[0];
+    if (!samples) return true;
+    for (const sample of samples) {
+      let weight = 1;
+      while (weight > 1e-8) {
+        const used = Math.min(weight, this.remaining);
+        this.sum += sample * used;
+        weight -= used;
+        this.remaining -= used;
+        if (this.remaining > 1e-8) continue;
+        const pcm = Math.max(-1, Math.min(1, this.sum / this.ratio));
+        this.packet.setInt16(this.offset, pcm * (pcm < 0 ? 32768 : 32767), true);
+        this.offset += 2;
+        this.remaining = this.ratio;
+        this.sum = 0;
+        if (this.offset === this.packet.byteLength) {
+          this.port.postMessage(this.packet.buffer, [this.packet.buffer]);
+          this.packet = new DataView(new ArrayBuffer(6400));
+          this.offset = 0;
+        }
+      }
+    }
+    return true;
+  }
+}
+registerProcessor('offline-log-pcm', OfflineLogPCM);
+`;
+
+function voiceStatus(text) {
+  $('voiceStatus').textContent = text;
+  $('voiceStatus').hidden = !text;
+}
+function releaseMic(session) {
+  session.stream?.getTracks().forEach(track => track.stop());
+  if (session.audio && session.audio.state !== 'closed') session.audio.close().catch(() => {});
+}
+function finishVoice(session, message, restoreFocus = false) {
+  if (voiceSession !== session) return;
+  voiceSession = null;
+  clearTimeout(session.timer);
+  session.abort.abort();
+  releaseMic(session);
+  session.socket?.close();
+  $('voice').textContent = '🎙';
+  $('voice').setAttribute('aria-label', '语音输入');
+  $('voice').setAttribute('aria-pressed', 'false');
+  $('textInput').readOnly = false;
+  $('add').disabled = false;
+  voiceStatus(message);
+  if (restoreFocus) $('textInput').focus();
+}
+function stopVoice(session) {
+  if (session.phase === 'ending' || session.phase === 'flushing') return;
+  if (session.phase === 'starting') {
+    finishVoice(session, '语音输入已停止');
+    return;
+  }
+  session.phase = 'flushing';
+  clearTimeout(session.timer);
+  session.node.port.postMessage('flush');
+  voiceStatus('正在完成识别…');
+  session.timer = setTimeout(() => endVoiceStream(session), 750);
+}
+function endVoiceStream(session) {
+  if (voiceSession !== session || session.phase !== 'flushing') return;
+  session.phase = 'ending';
+  clearTimeout(session.timer);
+  releaseMic(session);
+  if (!session.sent) {
+    finishVoice(session, '没有录到语音，可以再说一次');
+    return;
+  }
+  try {
+    session.socket.send(JSON.stringify({type:'end'}));
+    voiceStatus('正在完成识别…');
+    session.timer = setTimeout(() => finishVoice(session, '识别超时，已保留输入框中的文字'), 8000);
+  } catch {
+    finishVoice(session, '语音连接已断开，已保留输入框中的文字');
+  }
+}
+async function startVoice() {
+  const input = $('textInput');
+  if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext || !window.AudioWorkletNode) {
+    voiceStatus('此页面无法使用麦克风，请通过 HTTPS 打开编辑器。');
+    return;
+  }
+  let cfg;
+  try { cfg = config(); }
+  catch {
+    $('connection').open = true;
+    voiceStatus('请先填写 WordPress HTTPS 地址、用户名和应用密码。');
+    return;
+  }
+  const session = {phase:'starting',abort:new AbortController(),sent:false,
+    prefix:input.value.slice(0,input.selectionStart),suffix:input.value.slice(input.selectionEnd),segments:new Map()};
+  voiceSession = session;
+  $('voice').textContent = '■';
+  $('voice').setAttribute('aria-label', '停止语音输入');
+  $('voice').setAttribute('aria-pressed', 'true');
+  $('textInput').readOnly = true;
+  $('add').disabled = true;
+  voiceStatus('正在连接腾讯云语音识别…');
+  session.timer = setTimeout(() => finishVoice(session, '连接超时，可以重新开始语音输入'), 25000);
+  try {
+    session.audio = new AudioContext();
+    const resume = session.audio.resume();
+    // Capture permission must be requested from the button's user gesture.
+    const microphone = navigator.mediaDevices.getUserMedia({audio:{channelCount:1}}).then(stream => {
+      session.stream = stream;
+      if (voiceSession !== session) releaseMic(session);
+    });
+    await Promise.all([resume,microphone]);
+    if (voiceSession !== session) return;
+    const module = URL.createObjectURL(new Blob([pcmProcessor],{type:'text/javascript'}));
+    try { await session.audio.audioWorklet.addModule(module); }
+    finally { URL.revokeObjectURL(module); }
+    if (voiceSession !== session) return;
+    const response = await fetch(cfg.site+'/wp-json/offline-log/v1/asr-session', {
+      method:'POST',headers:{Authorization:'Basic '+cfg.auth},credentials:'omit',
+      cache:'no-store',redirect:'error',signal:session.abort.signal
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      if (response.status === 404) throw Error('请先在 WordPress 启用语音签名插件。');
+      throw Error(data.message || 'WordPress 无法签发语音连接。');
+    }
+    const url = new URL(data.url);
+    if (url.origin !== 'wss://asr.cloud.tencent.com' || !/^\/asr\/v2\/\d+$/.test(url.pathname)) {
+      throw Error('语音服务地址无效。');
+    }
+    if (voiceSession !== session) return;
+    const socket = new WebSocket(url);
+    session.socket = socket;
+    socket.onerror = socket.onclose = () => finishVoice(session, '语音连接已断开，已保留输入框中的文字');
+    socket.onmessage = event => {
+      if (voiceSession !== session) return;
+      try {
+        const message = JSON.parse(event.data);
+        if (message.code !== 0) {
+          finishVoice(session, '腾讯云语音识别失败（'+message.code+'），已保留输入框中的文字');
+          return;
+        }
+        if (session.phase === 'starting') {
+          const node = new AudioWorkletNode(session.audio,'offline-log-pcm',{channelCount:1,channelCountMode:'explicit'});
+          node.port.onmessage = ({data:packet}) => {
+            if (voiceSession !== session || !['listening','flushing'].includes(session.phase)) return;
+            if (packet === 'flushed') { endVoiceStream(session); return; }
+            if (socket.readyState !== WebSocket.OPEN || socket.bufferedAmount > 64000) {
+              finishVoice(session, '语音连接不稳定，已保留输入框中的文字');
+              return;
+            }
+            try {
+              socket.send(packet);
+              session.sent = true;
+            } catch {
+              finishVoice(session, '语音连接已断开，已保留输入框中的文字');
+            }
+          };
+          session.node = node;
+          session.audio.createMediaStreamSource(session.stream).connect(node);
+          node.connect(session.audio.destination);
+          session.phase = 'listening';
+          clearTimeout(session.timer);
+          session.timer = setTimeout(() => stopVoice(session), 60000);
+          voiceStatus('正在听… 再点一次停止');
+        }
+        const result = message.result;
+        if (Number.isInteger(result?.index) && typeof result.voice_text_str === 'string') {
+          const previous = session.segments.get(result.index);
+          if (previous?.slice_type !== 2) session.segments.set(result.index,result);
+          const text = [...session.segments].sort(([a],[b]) => a-b).map(([,part]) => part.voice_text_str).join('');
+          if (text) {
+            input.value = session.prefix + text + session.suffix;
+            session.hasText = true;
+          }
+        }
+        if (message.final === 1) {
+          finishVoice(session, session.hasText ? '识别完成，可以修改后添加' : '没有识别到文字，可以再说一次', true);
+        }
+      } catch {
+        finishVoice(session, '语音识别未完成，已保留输入框中的文字');
+      }
+    };
+  } catch (error) {
+    finishVoice(session, error.name === 'NotAllowedError' ? '请允许浏览器使用麦克风。' : error.message);
+  }
+}
+$('voice').onclick = () => {
+  if (voiceSession) stopVoice(voiceSession);
+  else if (!busy) startVoice();
+};
+window.addEventListener('pagehide', () => {
+  if (voiceSession) finishVoice(voiceSession, '');
+});
+
+init();
+</script>
+</html>
